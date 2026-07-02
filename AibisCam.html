@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0f1b2d">
+<title>z.Aibis カメラ</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj48cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgcng9IjM2IiBmaWxsPSIjMGYxYjJkIi8+PGNpcmNsZSBjeD0iOTYiIGN5PSIxMDgiIHI9IjM0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmNTllMGIiIHN0cm9rZS13aWR0aD0iOCIvPjxyZWN0IHg9IjU2IiB5PSI2NCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iIzM0ZTNkMCIvPjx0ZXh0IHg9Ijk2IiB5PSIxMTYiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNiIgZm9udC13ZWlnaHQ9IjkwMCIgZmlsbD0iI2Y1OWUwYiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+ei48L3RleHQ+PC9zdmc+">
+<style>
+  :root{
+    --bg:#0f1b2d; --panel:#16263d; --panel2:#1d3251;
+    --line:#27405f; --navy:#2c5282; --gold:#f59e0b; --gold2:#d97706;
+    --teal:#34e3d0; --txt:#e8eef6; --dim:#8aa0bd; --danger:#ff5d7d; --ok:#34e3d0;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    overscroll-behavior:none;}
+  body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+  button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:none}
+  .hide{display:none!important}
+  .scr{flex:1;min-height:0;display:flex;flex-direction:column}
+
+  .top{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px;
+    background:linear-gradient(180deg,rgba(15,27,45,.90),rgba(15,27,45,.66));-webkit-backdrop-filter:blur(13px) saturate(140%);backdrop-filter:blur(13px) saturate(140%);z-index:10;border-bottom:1px solid rgba(255,255,255,.06)}
+  .top .ttl{font-size:13px;font-weight:800;letter-spacing:.5px;color:var(--gold)}
+  .top .sub{font-size:11px;color:var(--dim);font-weight:600}
+  .tbtn{padding:7px 11px;border-radius:9px;background:var(--panel2);font-size:12.5px;font-weight:700;white-space:nowrap}
+  .tbtn:active{background:#264168}
+  .tbtn .cnt{color:var(--teal);font-weight:900;margin-left:2px}
+  .tbtn .cnt.warn{color:var(--gold)}
+  .tbtn .cnt.over{color:var(--danger)}
+  .vertag{font-size:10.5px;font-weight:700;color:var(--dim);flex:0 0 auto;letter-spacing:.3px}
+  .grow{flex:1;min-width:0}
+  .cardchip{display:flex;flex-direction:column;min-width:0}
+  .cardchip b{font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  #camWrap{position:relative;flex:1;min-height:170px;background:#000;overflow:hidden}
+  #video{width:100%;height:100%;object-fit:cover;display:block;background:#000;touch-action:none}
+  #focusRing{position:absolute;width:74px;height:74px;margin:-37px 0 0 -37px;border:2px solid #ffd24d;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.35);pointer-events:none;z-index:6;opacity:0}
+  #focusRing.go{animation:focusPulse .65s ease-out}
+  @keyframes focusPulse{0%{opacity:0;transform:scale(1.6)}22%{opacity:1}60%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1)}}
+  #zoomBadge{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(0,0,0,.6);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:14px;font-size:12px;font-weight:800;padding:4px 12px;z-index:6;opacity:0;transition:opacity .2s;pointer-events:none}
+  #zoomBadge.show{opacity:1}
+  #flashfx{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+  #flashfx.go{animation:flash .28s ease-out}
+  @keyframes flash{0%{opacity:.0}15%{opacity:.85}100%{opacity:0}}
+  #guide{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
+  #guide .grid line{stroke:rgba(255,255,255,.32);stroke-width:1;vector-effect:non-scaling-stroke}
+  #level{position:absolute;left:0;right:0;top:50%;height:0;display:flex;justify-content:center;align-items:center;pointer-events:none;z-index:4}
+  #level i{display:block;width:56%;height:3px;border-radius:3px;background:#ffd24d;box-shadow:0 0 3px rgba(0,0,0,.6);transform-origin:center center;transition:background .12s,box-shadow .12s}
+  #level.ok i{background:#39e08a;box-shadow:0 0 9px rgba(57,224,138,.95)}
+  #compass{position:absolute;left:10px;top:10px;z-index:5;background:rgba(0,0,0,.5);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:14px;font-size:12px;font-weight:800;padding:5px 11px;letter-spacing:.02em}
+  .gpschip{position:absolute;left:0;right:0;bottom:8px;display:flex;justify-content:center;pointer-events:none}
+  .gpschip span{background:rgba(15,27,45,.8);border:1px solid var(--line);padding:5px 12px;border-radius:18px;
+    font-size:11.5px;font-weight:700;color:var(--dim);max-width:92%;text-align:center}
+  .gpschip span b{color:var(--teal)}
+  .errcard{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;padding:28px;text-align:center}
+  .errcard .em{font-size:13px;color:var(--dim);line-height:1.7}
+
+  /* 仕分けパネル（撮影画面の下） */
+  #setPanel{background:var(--panel);border-top:1px solid var(--line);padding:8px 12px;max-height:44vh;overflow-y:auto}
+  #scrCam.focus #setPanel{display:none}
+  #camToggle{position:absolute;right:10px;bottom:10px;z-index:6;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:20px;font-size:15px;line-height:1;padding:8px 13px;font-weight:700}
+  #camToggle:active{background:rgba(0,0,0,.75)}
+  .setstrip{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+  .sthumb{width:54px;height:54px;border-radius:9px;overflow:hidden;background:var(--panel2);position:relative;flex:0 0 auto;border:1.5px solid var(--line)}
+  .sthumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .setcnt{margin-left:auto;font-size:13px;font-weight:900;color:var(--teal);flex:0 0 auto}
+  .setcnt.full{color:var(--gold)}
+
+  .addrline{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:8px}
+  .addrline .at{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .addrline .at.pend{color:var(--dim)}
+  .mini{padding:7px 11px;border-radius:9px;background:var(--panel2);font-size:12.5px;font-weight:700;flex:0 0 auto}
+  .mini:active{background:#264168}
+  .mini.danger{background:rgba(255,93,125,.16);color:var(--danger)}
+  .banchiline{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .banchiline .bl{font-size:12px;color:var(--dim);font-weight:700;flex:0 0 auto}
+  .banchi{flex:1;min-width:80px;padding:10px 13px;border-radius:11px;background:var(--bg);border:1px solid var(--line);
+    color:var(--txt);font-size:15px;font-weight:700;letter-spacing:1px}
+  .banchi::placeholder{color:var(--dim);font-weight:600;letter-spacing:normal}
+  .notewrap{display:flex;gap:8px}
+  .notewrap input{flex:1;padding:10px 13px;border-radius:11px;background:var(--bg);border:1px solid var(--line);color:var(--txt);font-size:14px}
+  .micbtn{flex:0 0 auto;width:46px;border-radius:11px;background:var(--panel2);font-size:19px}
+  .micbtn.rec{background:rgba(255,93,125,.25);color:var(--danger);animation:micpulse 1s infinite}
+  @keyframes micpulse{0%,100%{box-shadow:0 0 0 0 rgba(255,93,125,.55)}50%{box-shadow:0 0 0 7px rgba(255,93,125,0)}}
+
+  .shootbar{display:flex;align-items:center;justify-content:space-between;
+    padding:12px 22px calc(env(safe-area-inset-bottom) + 14px);background:var(--bg)}
+  .iconbtn{width:52px;height:52px;border-radius:50%;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:22px}
+  .iconbtn:active{background:#264168}
+  .iconbtn.on{background:rgba(245,158,11,.2);color:var(--gold)}
+  .shutter{width:78px;height:78px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.35);
+    box-shadow:0 0 0 3px var(--gold)}
+  .shutter:active{transform:scale(.92)}
+  .shutter[disabled]{opacity:.4}
+  .donebtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+    width:62px;height:52px;border-radius:13px;background:var(--panel2);font-weight:800}
+  .donebtn b{font-size:18px;line-height:1;color:var(--teal)}
+  .donebtn s{font-size:10px;text-decoration:none;color:var(--dim)}
+  .donebtn:active{background:#264168}
+  .donebtn[disabled]{opacity:.35}
+
+  /* リスト共通 */
+  .pad{padding:12px 14px;overflow-y:auto;flex:1;min-height:0}
+  .search{width:100%;padding:12px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--line);
+    color:var(--txt);font-size:15px;margin-bottom:10px}
+  .search::placeholder{color:var(--dim)}
+  .srow{display:flex;gap:8px;margin-bottom:8px}
+  .srow .search{margin-bottom:0;flex:1;min-width:0}
+  .srow .micbtn{flex:0 0 auto;width:46px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:19px}
+  .srow .micbtn.rec{background:rgba(255,93,125,.25);color:var(--danger);animation:micpulse 1s infinite}
+  .sortbar{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
+  .sortbar::-webkit-scrollbar{display:none}
+  .sortchip{flex:0 0 auto;padding:7px 11px;border-radius:16px;background:var(--panel2);font-size:12px;font-weight:700;
+    color:var(--dim);white-space:nowrap;border:1.5px solid transparent}
+  .sortchip.active{background:rgba(245,158,11,.16);color:var(--gold);border-color:var(--gold)}
+  .crow{display:flex;align-items:center;gap:10px;padding:13px 14px;border-radius:13px;background:var(--panel);
+    border:1px solid var(--line);margin-bottom:9px}
+  .crow:active{background:var(--panel2)}
+  .crow .nm{font-size:15px;font-weight:800}
+  .crow .mt{font-size:11.5px;color:var(--dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .crow .pc{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:1px;background:var(--panel2);border-radius:10px;padding:6px 9px;min-width:48px}
+  .crow .pc b{font-size:16px;font-weight:900;color:var(--teal);line-height:1}
+  .crow .pc s{font-size:9.5px;color:var(--dim);text-decoration:none}
+  .emptyst{text-align:center;color:var(--dim);padding:40px 20px;line-height:1.9;font-size:13.5px}
+
+  /* インボックス/ギャラリー行（データ＝写真の組） */
+  .drow{display:flex;gap:10px;padding:10px;border-radius:13px;background:var(--panel);border:1px solid var(--line);margin-bottom:9px;align-items:center}
+  .drow .th{flex:0 0 auto;width:60px;height:60px;border-radius:10px;overflow:hidden;background:var(--panel2);position:relative}
+  .drowname{flex:1 1 auto;min-width:0;text-align:left;font-size:12px;font-weight:800;color:#cbd5e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px}
+  .drowact.lr .drowbtn{white-space:nowrap;flex:0 0 auto}
+  .drowact.lr .ico{margin-left:auto}
+  .drow .th img{width:100%;height:100%;object-fit:cover;display:block}
+  .drow .th .n{position:absolute;right:3px;bottom:3px;background:rgba(15,27,45,.85);color:var(--teal);font-size:10px;font-weight:900;padding:1px 6px;border-radius:7px}
+  .drow .bd{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .drow .ad{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .drow .ad.pend{color:var(--dim);font-weight:600}
+  .drow .wn{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .drow .delbtn{flex:0 0 auto;width:42px;height:42px;border-radius:11px;background:rgba(255,93,125,.14);color:var(--danger);font-size:18px;display:flex;align-items:center;justify-content:center}
+  .drowact{margin-top:7px;display:flex;gap:6px;align-items:center;flex-wrap:nowrap}
+  .drowbtn{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#dbe4f0;border-radius:9px;padding:7px 11px;font-size:12px;font-weight:800;font-family:inherit;cursor:pointer}
+  .drowbtn.pri{background:#2c5282;border-color:#2c5282;color:#fff}
+  .drowbtn.ico{padding:7px 11px;font-size:15px;flex:0 0 auto}
+  .drowbtn.del{background:rgba(255,93,125,.14);border-color:rgba(255,93,125,.32);color:var(--danger)}
+  .drowbtn.ret{background:rgba(99,102,241,.18);border-color:rgba(99,102,241,.42);color:#a5b4fc}
+  .drowact.lr{justify-content:space-between}
+  .drow .delbtn:active{background:rgba(255,93,125,.28)}
+  .drow .selbox{flex:0 0 auto;width:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;align-self:stretch}
+  .drow .drowstar{flex:0 0 auto;width:26px;display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--gold);align-self:stretch;user-select:none}
+  .drow .selbox .cbx{width:24px;height:24px;border-radius:7px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#1a1300;background:transparent}
+  .drow .selbox .cbx.on{background:var(--gold);border-color:var(--gold)}
+  .drow.selrow{border-color:rgba(245,158,11,.32)}
+  .autobadge{display:inline-block;margin-left:6px;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:6px;background:rgba(56,189,176,.16);color:var(--teal);vertical-align:middle}
+  .selhdr{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .selhdr .seltools{display:flex;gap:6px;flex:0 0 auto}
+  .selhdr .seltools button{font-family:inherit;font-size:11px;font-weight:800;padding:5px 10px;border-radius:7px;background:var(--panel2);color:var(--gold);border:1px solid var(--line);cursor:pointer}
+  .selhdr .seltools button:active{filter:brightness(1.3)}
+  .sendhint{font-size:11.5px;color:var(--dim);line-height:1.65;margin:0 2px 10px;padding:9px 12px;border-radius:11px;background:var(--panel);border:1px solid var(--line)}
+  .sendhint b{color:var(--teal)}
+  .drow .delbtn.ret{background:rgba(52,227,208,.14);color:var(--teal)}
+  .drow .delbtn.ret:active{background:rgba(52,227,208,.28)}
+  .sentbadge{display:inline-block;font-size:10px;font-weight:800;color:var(--ok);background:rgba(52,227,208,.14);border-radius:6px;padding:1px 6px}
+  .warnbar{padding:11px 13px;border-radius:12px;margin-bottom:10px;font-size:12.5px;font-weight:700;line-height:1.5}
+  .warnbar.soft{background:rgba(245,158,11,.14);color:var(--gold);border:1px solid rgba(245,158,11,.4)}
+  .warnbar.hard{background:rgba(255,93,125,.14);color:var(--danger);border:1px solid rgba(255,93,125,.45)}
+  .storeline{font-size:11px;color:var(--dim);text-align:center;padding:14px 0 6px}
+
+  .galgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .gcell{position:relative;aspect-ratio:1;border-radius:9px;overflow:hidden;background:var(--panel2)}
+  .gcell img{width:100%;height:100%;object-fit:cover;display:block}
+  .gcell .n{position:absolute;right:4px;bottom:4px;background:rgba(15,27,45,.82);color:var(--teal);font-size:10px;font-weight:800;padding:2px 6px;border-radius:6px}
+  .galsec{font-size:12px;font-weight:800;color:var(--gold);margin:14px 2px 7px}
+
+  /* 単写真ビューア */
+  #viewer{position:fixed;inset:0;background:rgba(7,12,20,.97);z-index:50;display:flex;flex-direction:column}
+  #viewer img#vImg{flex:1;min-height:0;object-fit:contain;width:100%}
+  .vtop{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top) + 10px) 14px 10px}
+  .vacts{display:flex;gap:8px;padding:10px 14px calc(env(safe-area-inset-bottom) + 16px)}
+  .vbtn{flex:1;padding:13px;border-radius:12px;background:var(--panel2);font-size:14px;font-weight:800;text-align:center}
+  .vbtn.danger{background:rgba(255,93,125,.16);color:var(--danger)}
+  .vbtn:active{filter:brightness(1.2)}
+
+  /* 数字キーパッド */
+  #keypad{position:fixed;inset:0;background:rgba(7,12,20,.6);z-index:70;display:flex;align-items:flex-end}
+  .kpcard{width:100%;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:14px 14px calc(env(safe-area-inset-bottom) + 14px)}
+  .kphead{display:flex;justify-content:space-between;align-items:center;padding:2px 4px 12px;font-size:13px;color:var(--dim);font-weight:700}
+  .kphead #kpVal{font-size:22px;font-weight:900;color:var(--teal);letter-spacing:2px}
+  .kpgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  .kpgrid button{padding:16px 0;border-radius:13px;background:var(--panel2);font-size:22px;font-weight:800}
+  .kpgrid button:active{background:#264168}
+  .kpgrid .kpsub{background:#13223a;color:var(--gold);font-size:20px}
+  .kpacts{display:flex;gap:9px;margin-top:11px}
+  .kpacts button{flex:1;padding:14px;border-radius:13px;font-size:15px;font-weight:800}
+  .kpacts .kpx{background:var(--panel2);color:var(--dim)}
+  .kpacts .kpok{background:var(--gold);color:#1a1300}
+
+  /* 位置修正マップ */
+  #mapEdit{position:fixed;inset:0;background:var(--bg);z-index:75;display:flex;flex-direction:column}
+  #leafWrap{position:relative;flex:1;min-height:0}
+  #leafMap{position:absolute;inset:0;background:#0a1422}
+  #centerPin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);pointer-events:none;z-index:600;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
+  .mefoot{display:flex;align-items:center;gap:10px;padding:12px 14px calc(env(safe-area-inset-bottom) + 14px);background:var(--bg)}
+  .mefoot .vbtn{flex:0 0 auto;width:auto;padding:12px 16px}
+  .mehint{font-size:11px;color:var(--dim);line-height:1.4}
+  .aibis-pin{background:none;border:none}
+
+  .linkbadge{display:inline-block;font-size:10px;font-weight:800;border-radius:6px;padding:1px 6px;background:rgba(52,227,208,.14);color:var(--teal)}
+  .linkbadge.un{background:rgba(245,158,11,.16);color:var(--gold)}
+  .notepk{display:inline-block;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;color:var(--dim);cursor:pointer;text-decoration:underline dotted}
+  .inbtools{display:flex;gap:8px;margin-bottom:10px}
+  .vbtn[disabled]{opacity:.4}
+  #camCfg{position:fixed;inset:0;background:rgba(7,12,20,.6);z-index:72;display:flex;align-items:flex-end}
+  #toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 60px);transform:translateX(-50%) translateY(-14px);
+    background:var(--panel2);color:var(--txt);padding:10px 16px 10px 12px;border-radius:18px;font-size:13.5px;font-weight:700;
+    opacity:0;transition:.25s;z-index:80;border:1px solid var(--line);pointer-events:none;max-width:86%;display:inline-flex;align-items:center;gap:9px;text-align:left;line-height:1.5}
+  #toast .toast-fairy{position:relative;flex:0 0 auto;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center}
+  #toast .toast-fairy::after{content:'';position:absolute;inset:-7px;border-radius:50%;background:radial-gradient(circle,rgba(246,173,85,.55),rgba(246,173,85,0) 70%);z-index:0;animation:abGlow 1.8s ease-in-out infinite}
+  #toast .tf-face{position:relative;z-index:1;font-size:20px;line-height:1;display:inline-block;transform-origin:50% 80%;animation:abFloat 1.5s ease-in-out infinite}
+  #toast .tf-spark{position:absolute;z-index:1;font-size:9px;animation:abSpark 1.3s ease-in-out infinite}
+  #toast .tf-s1{top:-3px;left:-4px}
+  #toast .tf-s2{bottom:-3px;right:-4px;animation-delay:.65s}
+  #toast .toast-msg{flex:1 1 auto;min-width:0}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @keyframes abFloat{0%,100%{transform:translateY(0) rotate(-5deg)}50%{transform:translateY(-3px) rotate(5deg)}}
+  @keyframes abSpark{0%,100%{opacity:.15;transform:scale(.7)}50%{opacity:1;transform:scale(1.1)}}
+  @keyframes abGlow{0%,100%{opacity:.5;transform:scale(.9)}50%{opacity:.95;transform:scale(1.06)}}
+  @keyframes zfaOverlayIn{from{opacity:0}to{opacity:1}}
+  @keyframes zfaCardIn{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
+  .zfa-overlay{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:flex-start;justify-content:center;padding:20px;background:rgba(8,15,30,0.5);-webkit-backdrop-filter:blur(7px) saturate(120%);backdrop-filter:blur(7px) saturate(120%);animation:zfaOverlayIn .22s ease both}
+  .zfa-card{position:relative;width:100%;max-width:330px;text-align:center;margin-top:16vh;background:rgba(255,255,255,0.94);border:1px solid rgba(255,255,255,0.8);border-radius:22px;padding:34px 22px 20px;box-shadow:0 24px 60px -12px rgba(15,23,42,0.55);animation:zfaCardIn .26s cubic-bezier(.2,.9,.25,1.2) both}
+  .zfa-fairy{position:relative;width:54px;height:54px;display:flex;align-items:center;justify-content:center;flex:none}
+  .zfa-card .zfa-fairy{position:absolute;top:-28px;left:50%;transform:translateX(-50%)}
+  .zfa-fairy::after{content:'';position:absolute;inset:-22px;border-radius:50%;background:radial-gradient(circle,rgba(246,173,85,.66),rgba(246,173,85,0) 70%);z-index:-1;animation:abGlow 1.8s ease-in-out infinite}
+  .zfa-face{font-size:34px;line-height:1;display:inline-block;transform-origin:50% 80%;animation:abFloat 1.5s ease-in-out infinite}
+  .zfa-spark{position:absolute;opacity:.2}
+  .zfa-s1{top:-1px;left:-1px;font-size:13px;animation:abSpark 1.4s ease-in-out infinite}
+  .zfa-s2{bottom:0;right:-1px;font-size:11px;animation:abSpark 1.4s ease-in-out infinite .5s}
+  .zfa-name{font-size:11px;font-weight:800;letter-spacing:.1em;color:#2c5282;margin-bottom:8px}
+  .zfa-msg{font-size:14px;color:#2d3748;font-weight:600;line-height:1.7;margin-bottom:18px}
+  .zfa-btns{display:flex;gap:10px;margin-top:4px}
+  .zfa-ok{flex:1;padding:11px;border:none;border-radius:10px;background:#1a365d;color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer}
+</style>
+</head>
+<body>
+
+<!-- ===== 撮影＝仕分け画面 ===== -->
+<div id="scrCam" class="scr hide">
+  <div class="top">
+    <button class="tbtn" id="rightBtn">📥 <span class="cnt" id="leftCount">0</span></button>
+    <div class="cardchip grow"><b id="camTitle">z.AibisCam</b><span class="sub" id="camSub">シャッターで撮影・1データ最大4枚</span></div>
+    <span class="vertag" id="verTag"></span>
+  </div>
+
+  <div id="camWrap">
+    <video id="video" playsinline autoplay muted></video>
+    <svg id="guide" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+    <div id="level"><i></i></div>
+    <div id="compass">🧭 方位</div>
+    <div class="gpschip" id="gpsChip"><span id="gpsTxt">📍 位置情報を取得中…</span></div>
+    <button id="camToggle" class="hide">⤢</button>
+    <div id="flashfx"></div>
+    <div id="focusRing"></div>
+    <div id="zoomBadge"></div>
+    <div class="errcard hide" id="camErr">
+      <div style="font-size:40px">📷</div>
+      <div class="em" id="camErrMsg"></div>
+      <button class="tbtn" style="background:var(--gold);color:#1a1300" id="fallbackBtn">標準カメラで撮る</button>
+    </div>
+  </div>
+
+  <div id="setPanel" class="hide">
+    <div class="setstrip"><div id="setThumbs" style="display:flex;gap:6px"></div><span class="setcnt" id="setCnt">0/4</span><button class="mini danger" id="vDelSet" title="削除">🗑</button></div>
+    <div class="addrline">
+      <button class="mini" id="vGeo">🔄</button>
+      <span class="at pend" id="vAddr">住所未取得</span>
+      <button class="mini" id="vLink">🔗 紐付け</button>
+    </div>
+    <div class="banchiline">
+      <input id="vBanchi" class="banchi" placeholder="番地（例 23-5）" readonly>
+      <button class="mini" id="vMap">🗺 地図</button>
+      <button class="mini" id="vFix"><svg width="11" height="15" viewBox="0 0 24 34" style="vertical-align:-2px"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="#ff3b3b"/><circle cx="12" cy="12" r="5" fill="#fff"/></svg> 修正</button>
+    </div>
+    <div class="notewrap">
+      <button class="micbtn" id="vMic" title="音声入力">🎤</button>
+      <input id="vNote" placeholder="計画地備考（任意）">
+    </div>
+  </div>
+
+  <div class="shootbar">
+    <button class="iconbtn" id="torchBtn" title="ライト">🔦</button>
+    <button class="shutter" id="shutter" aria-label="撮影"></button>
+    <button class="donebtn" id="doneBtn"><b>✓</b><s>完了</s></button>
+  </div>
+  <input type="file" id="nativeCam" accept="image/*" capture="environment" class="hide">
+</div>
+
+<!-- ===== インボックス ===== -->
+<div id="scrInbox" class="scr hide">
+  <div class="top">
+    <button class="tbtn" id="inbBack">📷</button>
+    <div class="cardchip grow"><b id="inbTitle">📥 インボックス</b><span class="sub">本体と同じ箱・書き出しは本体で</span></div>
+    <button class="tbtn" id="inbCfgBtn">⚙</button>
+  </div>
+  <div class="pad">
+    <div id="inbWarn" class="warnbar hide"></div>
+    <div id="inbBody"></div>
+    <div class="storeline" id="inbStore"></div>
+  </div>
+</div>
+
+<!-- ===== カード一覧（撮影/閲覧 or 紐付け） ===== -->
+<div id="scrPick" class="scr hide">
+  <div class="top">
+    <button class="tbtn" id="pickBack">📷 撮影</button>
+    <div class="cardchip grow"><b class="ttl" id="pickTitle">⌘ カード一覧</b><span class="sub" id="pickSub">カードを選んで撮影・閲覧</span></div>
+    <button class="tbtn" id="pickInbox">📥 <span class="cnt" id="pickInboxCount">0</span></button>
+  </div>
+  <div class="pad">
+    <div class="srow">
+      <input class="search" id="pickSearch" placeholder="氏名・住所・地名で検索（スペース区切りで複数）" enterkeyhint="search">
+      <button class="micbtn" id="pickMic" title="音声で検索">🎤</button>
+    </div>
+    <div class="sortbar" id="sortBar"></div>
+    <div id="pickList"></div>
+  </div>
+</div>
+
+<!-- ===== カード別ギャラリー ===== -->
+<div id="scrGal" class="scr hide">
+  <div class="top">
+    <button class="tbtn" id="galBack">←</button>
+    <div class="cardchip grow"><b id="galCardName">—</b><span class="sub" id="galCardMeta"></span></div>
+    <button class="tbtn" style="background:var(--gold);color:#1a1300" id="galShoot">📷 撮る</button>
+  </div>
+  <div class="pad">
+    <div id="galBody"></div>
+    <div class="storeline" id="storeLine"></div>
+  </div>
+</div>
+
+<!-- ===== 単写真ビューア ===== -->
+<div id="viewer" class="hide">
+  <div class="vtop">
+    <button class="tbtn" id="vClose">✕</button>
+    <div class="cardchip grow"><b style="font-size:13px;color:var(--gold)">計画地写真</b><span class="sub" id="vWhen"></span></div>
+  </div>
+  <img id="vImg" alt="">
+  <div class="vacts">
+    <button class="vbtn danger" id="vDelPhoto">🗑 この写真を削除</button>
+  </div>
+</div>
+
+<!-- ===== 数字キーパッド ===== -->
+<div id="keypad" class="hide">
+  <div class="kpcard">
+    <div class="kphead"><span>番地を入力</span><span id="kpVal">—</span></div>
+    <div class="kpgrid">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button data-k="-" class="kpsub">−</button><button data-k="0">0</button><button data-k="bs" class="kpsub">⌫</button>
+    </div>
+    <div class="kpacts">
+      <button id="kpClear" class="kpx">クリア</button>
+      <button id="kpDone" class="kpok">完了</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 位置修正マップ ===== -->
+<div id="mapEdit" class="hide">
+  <div class="vtop">
+    <button class="tbtn" id="meCancel">✕ 取消</button>
+    <div class="cardchip grow"><b style="font-size:13px;color:var(--gold)">📍 位置を修正</b><span class="sub">地図を動かして中心に合わせる</span></div>
+    <button class="tbtn" style="background:var(--gold);color:#1a1300" id="meSave">保存</button>
+  </div>
+  <div id="leafWrap">
+    <div id="leafMap"></div>
+    <div id="centerPin"><svg width="34" height="46" viewBox="0 0 24 34"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="#ff3b3b" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="12" r="5" fill="#fff"/></svg></div>
+  </div>
+  <div class="mefoot">
+    <button class="vbtn" id="meHere">📍 現在地に移動</button>
+    <span id="meHint" class="mehint">地図を動かして、中心のピンを正しい場所に合わせてください</span>
+  </div>
+</div>
+
+<div id="camCfg" class="hide">
+  <div class="kpcard">
+    <div class="kphead"><span>⚙ 送信設定</span><span></span></div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div><div style="font-size:12px;color:var(--dim);font-weight:700;margin-bottom:4px">送信先メールアドレス</div>
+      <input id="cfgEmail" type="email" class="banchi" style="letter-spacing:normal;font-weight:600;width:100%" placeholder="dt0000001@kentaku.co.jp"></div>
+      <div><div style="font-size:12px;color:var(--dim);font-weight:700;margin-bottom:4px">送信者名（任意）</div>
+      <input id="cfgName" type="text" class="banchi" style="letter-spacing:normal;font-weight:600;width:100%" placeholder="例: 高田"></div>
+      <div id="pwaCamRow"><div style="font-size:12px;color:var(--dim);font-weight:700;margin-bottom:4px">🔗 ホーム画面ショートカット</div>
+      <button type="button" id="pwaCamBtn" class="vbtn" style="width:100%" onclick="pwaInstall()">🔗 ショートカット作成の手順</button>
+      <div id="pwaCamHint" style="font-size:11px;color:var(--dim);margin-top:5px;line-height:1.5"></div></div>
+    </div>
+    <div class="kpacts">
+      <button id="cfgCancel" class="kpx">閉じる</button>
+      <button id="cfgSave" class="kpok">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* =========================================================
+   z.Aibis カメラ v1.10  ── 1データ＝計画地写真 最大4枚（A4 4分割印刷を想定）
+   連携契約:
+   - カード一覧: localStorage['prospect_cards_v1'] を読み取り専用で参照
+   - 写真データ: IndexedDB 'aibis_media_v1' / store 'photos'(keyPath id, index by_card,by_ts)
+   - 件数索引: localStorage['aibis_media_index_v1'] = {cardId:{n,last}}（実カードのみ・件数=データ数）
+   ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
+   データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
+   ========================================================= */
+const APP_VERSION = "cam-v1.71";
+
+/* ===== PWA：単一ファイルでインストール可能化（外部ファイル不要） ===== */
+function _pwaIcon(size,maskable){
+  try{
+    var cv=document.createElement('canvas'); cv.width=cv.height=size; var x=cv.getContext('2d');
+    var pad=maskable?Math.round(size*0.12):0, o=pad, w=size-pad*2, r=Math.round(w*0.2);
+    if(maskable){ x.fillStyle='#0e4a45'; x.fillRect(0,0,size,size); }
+    var g=x.createLinearGradient(o,o,o+w,o+w); g.addColorStop(0,'#0e4a45'); g.addColorStop(1,'#159b8e');
+    x.fillStyle=g; x.beginPath();
+    x.moveTo(o+r,o); x.arcTo(o+w,o,o+w,o+w,r); x.arcTo(o+w,o+w,o,o+w,r); x.arcTo(o,o+w,o,o,r); x.arcTo(o,o,o+w,o,r); x.closePath(); x.fill();
+    x.fillStyle='#fff'; x.textAlign='center'; x.textBaseline='middle';
+    x.font='bold '+Math.round(w*0.5)+'px sans-serif'; x.fillText('📷', size/2, size*0.46);
+    x.font='bold '+Math.round(w*0.16)+'px sans-serif'; x.fillText('Aibis', size/2, o+w-Math.round(w*0.13));
+    return cv.toDataURL('image/png');
+  }catch(e){ return ''; }
+}
+(function(){
+  try{
+    var THEME='#0e4a45', BG='#0b1220';
+    var i192=_pwaIcon(192,false), i512=_pwaIcon(512,false), i512m=_pwaIcon(512,true), i180=_pwaIcon(180,false);
+    var start=location.href.split('#')[0].split('?')[0];
+    var man={ name:'Aibisカメラ', short_name:'Aibisカメラ', start_url:start, scope:start.replace(/[^/]*$/,''),
+      display:'browser', background_color:BG, theme_color:THEME, icons:[] };
+    if(i192) man.icons.push({src:i192,sizes:'192x192',type:'image/png',purpose:'any'});
+    if(i512) man.icons.push({src:i512,sizes:'512x512',type:'image/png',purpose:'any'});
+    if(i512m) man.icons.push({src:i512m,sizes:'512x512',type:'image/png',purpose:'maskable'});
+    var lk=document.createElement('link'); lk.rel='manifest';
+    lk.href='data:application/manifest+json,'+encodeURIComponent(JSON.stringify(man));
+    document.head.appendChild(lk);
+    var m=document.createElement('meta'); m.name='theme-color'; m.content=THEME; document.head.appendChild(m);
+    // standalone化メタは付けない＝ホーム画面に置いても「ブラウザで開くショートカット」（アプリ化しない＝再起動ループ回避）
+    if(i180){ var al=document.createElement('link'); al.rel='apple-touch-icon'; al.href=i180; document.head.appendChild(al); }
+  }catch(e){}
+})();
+function _pwaStandalone(){ return (window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true; }
+function pwaInstall(){
+  var ua=navigator.userAgent||'', isiOS=/iPad|iPhone|iPod/.test(ua)||(/Macintosh/.test(ua)&&'ontouchend' in document);
+  toast(isiOS? '共有 →「ホーム画面に追加」でショートカットを作成できます' : 'ブラウザの ⋮メニュー →「ホーム画面に追加」でショートカットを作成できます');
+}
+function _pwaCamSync(){
+  var btn=document.getElementById('pwaCamBtn'), hint=document.getElementById('pwaCamHint');
+  if(btn){ btn.textContent='🔗 ショートカット作成の手順'; btn.disabled=false; btn.style.opacity='1'; }
+  if(hint) hint.innerHTML='ブラウザの <b>⋮メニュー</b> →「<b>ホーム画面に追加</b>」でショートカットを作成できます。';
+}
+window.pwaInstall=pwaInstall; window._pwaCamSync=_pwaCamSync;
+const SK_CARDS = "prospect_cards_v1";
+const IDX_KEY  = "aibis_media_index_v1";
+const DB_NAME  = "aibis_media_v1";
+const STORE    = "photos";
+const INBOX    = "__inbox__";
+const CFG_KEY  = "aibis_cam_cfg_v1";
+const MAX_PHOTOS = 4;       // 1データ＝最大4枚（A4 4分割）
+const MAX_EDGE = 2000;      // 印刷向け解像度（長辺px）
+const JPEG_Q   = 0.82;
+const THUMB_EDGE = 720;
+const WARN_SOFT = 10;       // この件数でPC送信を促す
+const WARN_HARD = 15;       // この件数で強めに促す
+const GSI_URL = "https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress";
+const GSI_MUNI_URL = "https://maps.gsi.go.jp/js/muni.js";
+const TOKYO_WARDS = {
+  "13101":{pref:"東京都",city:"千代田区"},"13102":{pref:"東京都",city:"中央区"},"13103":{pref:"東京都",city:"港区"},
+  "13104":{pref:"東京都",city:"新宿区"},"13105":{pref:"東京都",city:"文京区"},"13106":{pref:"東京都",city:"台東区"},
+  "13107":{pref:"東京都",city:"墨田区"},"13108":{pref:"東京都",city:"江東区"},"13109":{pref:"東京都",city:"品川区"},
+  "13110":{pref:"東京都",city:"目黒区"},"13111":{pref:"東京都",city:"大田区"},"13112":{pref:"東京都",city:"世田谷区"},
+  "13113":{pref:"東京都",city:"渋谷区"},"13114":{pref:"東京都",city:"中野区"},"13115":{pref:"東京都",city:"杉並区"},
+  "13116":{pref:"東京都",city:"豊島区"},"13117":{pref:"東京都",city:"北区"},"13118":{pref:"東京都",city:"荒川区"},
+  "13119":{pref:"東京都",city:"板橋区"},"13120":{pref:"東京都",city:"練馬区"},"13121":{pref:"東京都",city:"足立区"},
+  "13122":{pref:"東京都",city:"葛飾区"},"13123":{pref:"東京都",city:"江戸川区"}
+};
+
+/* ---------- 状態 ---------- */
+let DB=null, stream=null, track=null, geoWatch=null, lastPos=null;
+let mode="quick", targetCard=INBOX, curSet=null, fromAibis=false, facing="environment", torchOn=false, capturing=false;
+let _zoomCap=null,_curZoom=1,_focusPOI=false,_focusModes=[];
+let sendSel=new Set(), sendSeen=new Set();   // 未紐付けの送信選択（idのSet）
+let qaReturnMode=false;                       // 光速入力から ?ret=qa で来たとき true（完了で住所をアイビスへ返す）
+let _launchedFromMain=false;                  // 本体側（?cardId / ?ret=qa）から起動した＝完了で反映してクローズ。直接起動は完了でインボックスへ
+let viewPhoto=null, pickMode="open", linkTargetId=null, linkFromInbox=false, MUNI=null, micRec=null, kpVal="";
+var _scr="cam";
+function _aibisBack(){
+  if(_scr==="set"){ openInbox(); return; }
+  if(_scr==="inbox"){ enterQuick(); return; }
+  if(_scr==="pick"){ if(pickMode==="link"){ if(linkFromInbox){ linkFromInbox=false; openInbox(); } else { openSet(linkTargetId); } } else { enterQuick(); } return; }
+  if(_scr==="gal"){ if(openGallery._fromCam){ enterCamera(targetCard); } else { openPick("open"); } return; }
+}
+window.addEventListener("popstate", function(){ if(_scr && _scr!=="cam"){ _aibisBack(); try{ history.pushState({ac:1},""); }catch(e){} } });
+let leafMap=null, meTargetId=null;
+
+const $ = id => document.getElementById(id);
+const screens = {cam:$("scrCam"), inbox:$("scrInbox"), pick:$("scrPick"), gal:$("scrGal")};
+function show(name){ for(const k in screens) screens[k].classList.toggle("hide", k!==name); }
+function setCamFocus(on){ const sc=screens.cam; if(sc) sc.classList.toggle("focus", !!on); const b=$("camToggle"); if(b) b.textContent=on?"⤡":"⤢"; }
+function _aibisify(s){
+  if(s==null) return "";
+  return String(s).split("\n").map(function(L){
+    L=L.replace(/してくださいね/g,"してね").replace(/してください/g,"してね").replace(/して下さい/g,"してね")
+       .replace(/いたしました/g,"したよ").replace(/しました/g,"したよ").replace(/できました/g,"できたよ")
+       .replace(/されました/g,"されたよ").replace(/しています/g,"してるよ").replace(/しております/g,"してるよ")
+       .replace(/できませんでした/g,"できなかったよ").replace(/見つかりませんでした/g,"見つからなかったよ").replace(/ありませんでした/g,"なかったよ")
+       .replace(/対応していません/g,"対応してないよ")
+       .replace(/できません(?!でした)/g,"できないよ").replace(/見つかりません(?!でした)/g,"見つからないよ").replace(/ありません(?!でした)/g,"ないよ");
+    L=L.replace(/です。/g,"だよ。").replace(/です$/,"だよ");
+    return L;
+  }).join("\n");
+}
+function toast(msg){ const t=$("toast"); if(!t) return; const s=_aibisify(String(msg==null?"":msg));
+  t.innerHTML='<span class="toast-fairy"><span class="tf-spark tf-s1">✨</span><span class="tf-face">🧚</span><span class="tf-spark tf-s2">✨</span></span><span class="toast-msg">'+esc(s).replace(/\n/g,"<br>")+'</span>'; t.classList.add("show"); // アイビス語＋改行＋エスケープ＋フェアリー（本体と同一仕様）
+  clearTimeout(toast._t); const ms=Math.min(6000,Math.max(2200,s.replace(/\n/g,"").length*110)); toast._t=setTimeout(()=>t.classList.remove("show"),ms); }
+function closeAibisAlert(){ const o=$("aibisAlertOverlay"); if(o&&o.parentNode) o.parentNode.removeChild(o); }
+function aibisAlert(msg,buttons){
+  closeAibisAlert();
+  const ov=document.createElement("div"); ov.id="aibisAlertOverlay"; ov.className="zfa-overlay";
+  ov.innerHTML='<div class="zfa-card">'
+    +'<div class="zfa-fairy"><span class="zfa-spark zfa-s1">✨</span><span class="zfa-face">🧚</span><span class="zfa-spark zfa-s2">✨</span></div>'
+    +'<div class="zfa-name">AIBIS</div>'
+    +'<div class="zfa-msg">'+msg+'</div>'
+    +'<div class="zfa-btns"></div></div>';
+  ov.addEventListener("click",e=>{ if(e.target===ov) closeAibisAlert(); });
+  const bw=ov.querySelector(".zfa-btns");
+  const list=(buttons&&buttons.length)?buttons:[{label:"OK"}];
+  list.forEach(b=>{ const btn=document.createElement("button"); btn.className="zfa-ok";
+    if(b.style) btn.setAttribute("style",b.style); btn.textContent=b.label;
+    btn.addEventListener("click",()=>{ closeAibisAlert(); if(b.cb) b.cb(); }); bw.appendChild(btn); });
+  document.body.appendChild(ov);
+}
+function aibisConfirm(msg,onYes,yesLabel,noLabel){
+  aibisAlert(msg,[ {label:(noLabel||"やめる"),style:"background:#e2e8f0;color:#2d3748"}, {label:(yesLabel||"OK"),cb:onYes} ]);
+}
+const rid = p => p+"_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
+
+/* ---------- IndexedDB ---------- */
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(DB_NAME,1);
+    r.onupgradeneeded=()=>{
+      const db=r.result;
+      if(!db.objectStoreNames.contains(STORE)){
+        const os=db.createObjectStore(STORE,{keyPath:"id"});
+        os.createIndex("by_card","cardId",{unique:false});
+        os.createIndex("by_ts","ts",{unique:false});
+      }
+    };
+    r.onsuccess=()=>res(r.result);
+    r.onerror=()=>rej(r.error);
+  });
+}
+function tx(m){ return DB.transaction(STORE,m).objectStore(STORE); }
+function idbAll(){ return new Promise((res,rej)=>{ const out=[]; const q=tx("readonly").openCursor(); q.onsuccess=()=>{ const c=q.result; if(c){ out.push(normalize(c.value)); c.continue(); } else res(out); }; q.onerror=()=>rej(q.error); }); }
+function mediaPing(){ try{ localStorage.setItem("aibis_media_ping", String(Date.now())); }catch(e){} }
+function idbPut(rec){ return new Promise((res,rej)=>{ const q=tx("readwrite").put(rec); q.onsuccess=()=>{ mediaPing(); res(); }; q.onerror=()=>rej(q.error); }); }
+function idbDel(id){ return new Promise((res,rej)=>{ const q=tx("readwrite").delete(id); q.onsuccess=()=>{ mediaPing(); res(); }; q.onerror=()=>rej(q.error); }); }
+function idbGetRaw(id){ return new Promise((res,rej)=>{ const q=tx("readonly").get(id); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); }); }
+async function idbGet(id){ return normalize(await idbGetRaw(id)); }
+function idbByCard(cardId){
+  return new Promise((res,rej)=>{
+    const out=[], idx=tx("readonly").index("by_card"), q=idx.openCursor(IDBKeyRange.only(cardId));
+    q.onsuccess=()=>{ const c=q.result; if(c){ out.push(normalize(c.value)); c.continue(); } else { out.sort((a,b)=>a.ts-b.ts); res(out); } };
+    q.onerror=()=>rej(q.error);
+  });
+}
+function idbCountByCard(cardId){
+  return new Promise((res)=>{ const idx=tx("readonly").index("by_card"); const q=idx.count(IDBKeyRange.only(cardId));
+    q.onsuccess=()=>res(q.result||0); q.onerror=()=>res(0); });
+}
+/* 旧形式(1枚=1レコード)を set 形式に正規化 */
+function normalize(rec){
+  if(!rec) return rec;
+  if(Array.isArray(rec.photos)) return rec;
+  rec.photos=[{pid:(rec.id||rid("p"))+"_0", full:rec.full, thumb:rec.thumb, w:rec.w, h:rec.h, size:rec.size}];
+  if(rec.sent===undefined) rec.sent=false;
+  if(rec.banchi===undefined) rec.banchi="";
+  return rec;
+}
+const setSize = s => (s.photos||[]).reduce((a,p)=>a+(p.size||0),0);
+
+/* ---------- 件数索引(localStorage) ---------- */
+function readIndex(){ try{ return JSON.parse(localStorage.getItem(IDX_KEY)||"{}"); }catch(e){ return {}; } }
+async function refreshIndex(cardId){
+  if(!cardId||cardId===INBOX) return;
+  const n=await idbCountByCard(cardId), idx=readIndex();
+  if(n>0) idx[cardId]={n, last:Date.now()}; else delete idx[cardId];
+  try{ localStorage.setItem(IDX_KEY, JSON.stringify(idx)); }catch(e){}
+}
+
+/* ---------- カード読込(read-only) ---------- */
+function loadCards(){ try{ const a=JSON.parse(localStorage.getItem(SK_CARDS)||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function findCard(id){ return loadCards().find(c=>c.id===id)||null; }
+function cardLabel(id){ const c=findCard(id); if(c){ let n=String(c.name||"無名").trim().replace(/様+$/,""); if(!n) n="無名"; return n+(n==="土地見込み"?"":"様"); } return "カード "+String(id).slice(0,8)+"…"; }
+function linkLabel(s){ const c=findCard(s.cardId); let n=c?(c.name||"無名"):((s&&s.cardName)?String(s.cardName):""); n=(n||"").trim().replace(/様+$/,""); return n?(n+(n==="土地見込み"?"":"様")):"紐付け済み"; }
+function linkName(s){ const c=findCard(s&&s.cardId); let n=c?(c.name||""):((s&&s.cardName)?String(s.cardName):""); n=(n||"").trim().replace(/様+$/,""); return n?(esc(n)+(n==="土地見込み"?"":"様")):""; }
+function cardMeta(id){ const c=findCard(id); return c?[c.manager,c.address||c.plan_address].filter(Boolean).join("・"):""; }
+
+/* ---------- 起動 ---------- */
+async function boot(){
+  $("verTag").textContent=APP_VERSION.replace("cam-","");
+  try{ DB=await openDB(); }catch(e){ toast("保存領域を開けませんでした"); }
+  if(navigator.storage&&navigator.storage.persist){ try{ await navigator.storage.persist(); }catch(e){} }
+  loadMuni();
+  const p=new URLSearchParams(location.search), cid=p.get("cardId");
+  if(p.get("ret")==="qa") qaReturnMode=true;
+  if(cid){ fromAibis=true; enterCamera(cid); } else { enterQuick(); }
+  _launchedFromMain = !!cid || qaReturnMode;
+  try{ if(_launchedFromMain){ var _vl=$("vLink"); if(_vl) _vl.style.display="none"; } }catch(e){}
+  try{ history.pushState({ac:1},""); }catch(e){}
+}
+
+/* ---------- 画面遷移 ---------- */
+function configureHeader(){
+  $("rightBtn").innerHTML='📥 <span class="cnt" id="leftCount">0</span>';
+  if(mode==="card"){
+    $("camTitle").textContent=cardLabel(targetCard);
+    $("camSub").textContent=cardMeta(targetCard)||"このカードに撮影";
+  } else {
+    $("camTitle").textContent= qaReturnMode? "📷 計画地を撮影" : "z.AibisCam";
+    $("camSub").textContent= qaReturnMode? "撮影 →「完了」でアイビスに住所を反映" : "シャッターで撮影・1データ最大4枚";
+  }
+}
+async function enterQuick(){ _scr="cam"; mode="quick"; targetCard=INBOX; curSet=null; configureHeader(); show("cam"); await startCamera(); renderSetPanel(); await updateRightCount(); }
+async function enterCamera(cardId){ _scr="cam"; mode="card"; targetCard=cardId; curSet=null; configureHeader(); show("cam"); await startCamera(); renderSetPanel(); await updateRightCount(); }
+async function openSet(id){
+  const s=await idbGet(id); if(!s) return;
+  _scr="set";
+  curSet=id; targetCard=s.cardId;
+  mode=(s.cardId&&s.cardId!==INBOX)?"card":"quick"; fromAibis=false;
+  configureHeader(); show("cam"); await startCamera(); renderSetPanel(); await updateRightCount();
+}
+
+$("rightBtn").addEventListener("click",()=>{ stopCamera(); openInbox(); });
+async function updateRightCount(){
+  const n=await idbCountByCard(INBOX); const el=$("leftCount"); if(!el) return;
+  el.textContent=n; el.classList.remove("warn","over");
+  if(n>=WARN_HARD) el.classList.add("over"); else if(n>=WARN_SOFT) el.classList.add("warn");
+}
+
+/* ---------- カメラ制御 ---------- */
+async function startCamera(){
+  $("camErr").classList.add("hide"); stopCamera();
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ showCamErr("このブラウザはカメラに対応していません。"); return; }
+  try{
+    try{ stream=await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:{ideal:facing}, width:{ideal:2560}, height:{ideal:1440} } }); }
+    catch(_e1){ stream=await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:{ideal:facing} } }); } // 高解像度で固まる端末向けフォールバック
+    const v=$("video"); v.srcObject=stream; await v.play().catch(()=>{});
+    track=stream.getVideoTracks()[0];
+    const caps=track.getCapabilities?track.getCapabilities():{};
+    _zoomCap=(caps.zoom && typeof caps.zoom.max==="number" && caps.zoom.max>caps.zoom.min)?caps.zoom:null;
+    _focusModes=caps.focusMode||[]; _focusPOI=!!caps.pointsOfInterest;
+    _curZoom=_zoomCap?((track.getSettings&&track.getSettings().zoom)||_zoomCap.min):1;
+    try{ $("video").style.transform=""; }catch(e){}
+    try{ if(_focusModes.indexOf&&_focusModes.indexOf("continuous")>=0) track.applyConstraints({advanced:[{focusMode:"continuous"}]}); }catch(e){}
+    $("torchBtn").style.display = caps.torch ? "flex":"none";
+    torchOn=false; $("torchBtn").classList.remove("on");
+    $("shutter").disabled=false;
+    drawGuide(); initLevel(); initCompass(); startGeo();
+  }catch(e){
+    let m="カメラを起動できませんでした。";
+    if(e&&e.name==="NotAllowedError") m="カメラの使用が許可されていません。ブラウザの権限設定でこのサイトのカメラを許可してください。";
+    else if(e&&e.name==="NotFoundError") m="カメラが見つかりませんでした。";
+    showCamErr(m);
+  }
+}
+function stopCamera(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; track=null; } stopGeo(); }
+function showCamErr(msg){ $("camErrMsg").textContent=msg; $("camErr").classList.remove("hide"); $("shutter").disabled=true; }
+function drawGuide(){ $("guide").innerHTML='<g class="grid"><line x1="33.3" y1="0" x2="33.3" y2="100"/><line x1="66.6" y1="0" x2="66.6" y2="100"/><line x1="0" y1="33.3" x2="100" y2="33.3"/><line x1="0" y1="66.6" x2="100" y2="66.6"/></g>'; }
+let _levelOn=false;
+function initLevel(){
+  if(_levelOn) return; _levelOn=true;
+  window.addEventListener("deviceorientation",e=>{
+    if(e.gamma==null) return;
+    if(!screens.cam || screens.cam.classList.contains("hide")) return;
+    const bar=$("level"); if(!bar) return;
+    const g=e.gamma;                       // 左右の傾き(-90〜90)
+    const show=Math.max(-25,Math.min(25,g));
+    const i=bar.querySelector("i"); if(i) i.style.transform="rotate("+(-show)+"deg)";
+    bar.classList.toggle("ok", Math.abs(g)<1.2);
+  },true);
+}
+let _compassOn=false;
+function dirJa(h){ return ["北","北東","東","南東","南","南西","西","北西"][Math.round(h/45)%8]; }
+function initCompass(){
+  if(_compassOn) return; _compassOn=true;
+  function onOri(e){
+    if(!screens.cam || screens.cam.classList.contains("hide")) return;
+    let h=null;
+    if(typeof e.webkitCompassHeading==="number") h=e.webkitCompassHeading;   // iOS
+    else if(typeof e.alpha==="number") h=360-e.alpha;                        // Android(絶対方位)
+    if(h==null||isNaN(h)) return;
+    h=(h%360+360)%360;
+    const c=$("compass"); if(c) c.textContent="🧭 "+dirJa(h)+" "+Math.round(h)+"°";
+  }
+  if("ondeviceorientationabsolute" in window) window.addEventListener("deviceorientationabsolute",onOri,true);
+  window.addEventListener("deviceorientation",onOri,true);
+}
+$("torchBtn").addEventListener("click",async()=>{
+  if(!track) return; torchOn=!torchOn;
+  try{ await track.applyConstraints({advanced:[{torch:torchOn}]}); $("torchBtn").classList.toggle("on",torchOn); }
+  catch(e){ toast("ライト非対応の端末です"); torchOn=false; }
+});
+
+/* ---------- 位置情報 ---------- */
+function startGeo(){
+  if(!navigator.geolocation){ $("gpsTxt").innerHTML="📍 位置情報に未対応の端末"; return; }
+  if(geoWatch!=null) return;
+  $("gpsTxt").innerHTML="📍 位置情報を取得中…";
+  geoWatch=navigator.geolocation.watchPosition(
+    pos=>{ lastPos={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
+      const m=lastPos.acc?Math.round(lastPos.acc):null;
+      $("gpsTxt").innerHTML="📍 位置OK"+(m!=null?"（±"+m+"m）":"")+" 計画地で保存・ズレは後で修正可"; },
+    err=>{ $("gpsTxt").innerHTML="📍 位置を取得できません（後で仕分け可）"; },
+    {enableHighAccuracy:true, maximumAge:0, timeout:15000}
+  );
+}
+function stopGeo(){ if(geoWatch!=null){ navigator.geolocation.clearWatch(geoWatch); geoWatch=null; } }
+
+/* ---------- 地理院＋自治体マスター ---------- */
+async function loadMuni(){
+  if(MUNI) return MUNI;
+  let base=Object.assign({}, TOKYO_WARDS);
+  try{ const c=localStorage.getItem("aibis_muni_v1"); if(c){ MUNI=Object.assign(base, JSON.parse(c)); return MUNI; } }catch(e){}
+  try{
+    const r=await fetch(GSI_MUNI_URL); const txt=await r.text();
+    const map={}; const re=/"(\d{5})"\s*\]?\s*[:=]\s*['"]([^'"]+)['"]/g; let m;
+    while((m=re.exec(txt))){ const parts=m[2].split(","); map[m[1]]={pref:parts[1]||"",city:parts[3]||parts[parts.length-1]||""}; }
+    if(Object.keys(map).length){ try{ localStorage.setItem("aibis_muni_v1", JSON.stringify(map)); }catch(e){} base=Object.assign(base, map); }
+  }catch(e){}
+  MUNI=base; return MUNI;
+}
+async function gsiReverse(lat,lng){
+  const r=await fetch(GSI_URL+"?lat="+lat+"&lon="+lng,{mode:"cors"});
+  const j=await r.json(); const res=j&&j.results;
+  let lv=res&&res.lv01Nm?String(res.lv01Nm):""; if(lv==="－"||lv==="−") lv="";
+  const muni=res&&res.muniCd?String(res.muniCd):"";
+  return {muni, lv};
+}
+async function composeAddress(lat,lng){
+  const {muni,lv}=await gsiReverse(lat,lng);
+  let pref="", city="";
+  if(muni){ const M=await loadMuni(); const e=M&&(M[muni]||M[muni.slice(0,5)]); if(e){ pref=e.pref; city=e.city; } }
+  let head=city; if(pref && pref!=="東京都") head=pref+city;
+  return (head||"")+(lv||"");
+}
+async function resolveAddr(id){
+  const p=await idbGet(id); if(!p||p.lat==null) return;
+  try{ const a=await composeAddress(p.lat,p.lng); const cur=await idbGet(id); if(!cur) return;
+    cur.addr=a||""; cur.addrPending=false; await idbPut(cur);
+  }catch(e){ const cur=await idbGet(id); if(cur){ cur.addrPending=false; await idbPut(cur); } }
+  if(!screens.inbox.classList.contains("hide")) renderInbox();
+  if(curSet===id && !screens.cam.classList.contains("hide")) renderSetPanel();
+}
+
+/* ---------- 撮影（最大4枚で1データ） ---------- */
+$("shutter").addEventListener("click",capture);
+$("camToggle").addEventListener("click",e=>{ e.stopPropagation(); setCamFocus(!screens.cam.classList.contains("focus")); });
+(function(){
+  const wrap=$("camWrap"), vid=$("video");
+  let pinching=false, pDist=0, pZoom=1, tx=0, ty=0, tMoved=false, tT=0, _zbT=null;
+  function d2(t){ const dx=t[0].clientX-t[1].clientX, dy=t[0].clientY-t[1].clientY; return Math.hypot(dx,dy); }
+  function showZoom(r){ const b=$("zoomBadge"); if(!b) return; b.textContent="×"+(Math.round(r*10)/10); b.classList.add("show"); clearTimeout(_zbT); _zbT=setTimeout(()=>b.classList.remove("show"),900); }
+  function applyZoom(z){
+    if(_zoomCap){ z=Math.max(_zoomCap.min,Math.min(_zoomCap.max,z)); _curZoom=z; try{ track.applyConstraints({advanced:[{zoom:z}]}); }catch(e){} showZoom(z/_zoomCap.min); }
+    else { z=Math.max(1,Math.min(5,z)); _curZoom=z; vid.style.transform="scale("+z+")"; showZoom(z); }
+  }
+  function tapFocus(cx,cy){
+    if(!track) return;
+    const r=wrap.getBoundingClientRect(); const x=cx-r.left, y=cy-r.top;
+    const ring=$("focusRing"); if(ring){ ring.style.left=x+"px"; ring.style.top=y+"px"; ring.classList.remove("go"); void ring.offsetWidth; ring.classList.add("go"); }
+    const nx=Math.max(0,Math.min(1,x/r.width)), ny=Math.max(0,Math.min(1,y/r.height));
+    try{
+      if(_focusPOI){ const a={pointsOfInterest:[{x:nx,y:ny}]}; if(_focusModes.indexOf("single-shot")>=0)a.focusMode="single-shot"; track.applyConstraints({advanced:[a]}).catch(()=>{}); }
+      else if(_focusModes.indexOf("single-shot")>=0){ track.applyConstraints({advanced:[{focusMode:"single-shot"}]}).then(()=>{ setTimeout(()=>{ try{ if(_focusModes.indexOf("continuous")>=0) track.applyConstraints({advanced:[{focusMode:"continuous"}]}); }catch(e){} },1400); }).catch(()=>{}); }
+    }catch(e){}
+  }
+  wrap.addEventListener("touchstart",e=>{
+    if(e.target.closest(".errcard")||e.target.closest("#camToggle")) return;
+    if(e.touches.length===2){ pinching=true; pDist=d2(e.touches); pZoom=_curZoom||1; e.preventDefault(); }
+    else if(e.touches.length===1){ const t=e.touches[0]; tx=t.clientX; ty=t.clientY; tMoved=false; tT=Date.now(); }
+  },{passive:false});
+  wrap.addEventListener("touchmove",e=>{
+    if(pinching && e.touches.length===2){ const d=d2(e.touches); if(pDist>0) applyZoom(pZoom*(d/pDist)); e.preventDefault(); }
+    else if(e.touches.length===1){ const t=e.touches[0]; if(Math.abs(t.clientX-tx)>10||Math.abs(t.clientY-ty)>10) tMoved=true; }
+  },{passive:false});
+  wrap.addEventListener("touchend",e=>{
+    if(pinching){ if(e.touches.length<2) pinching=false; return; }
+    if(!tMoved && (Date.now()-tT)<400 && e.changedTouches.length){
+      const t=e.changedTouches[0];
+      if(t.target&&(t.target.closest(".errcard")||t.target.closest("#camToggle")||t.target.closest(".gpschip"))) return;
+      tapFocus(t.clientX,t.clientY);
+    }
+  });
+})();
+async function capture(){
+  if(capturing) return;
+  if(!track){ toast("カメラ未起動"); return; }
+  const v=$("video"), vw=v.videoWidth, vh=v.videoHeight;
+  if(!vw||!vh){ toast("準備中…もう一度"); return; }
+  // 4枚チェック
+  if(curSet){ const s=await idbGet(curSet); if(s && s.photos.length>=MAX_PHOTOS){
+    toast("1データは4枚までです。不要な写真を削除するか「完了」で次のデータへ"); return; } }
+  capturing=true;
+  try{
+    const fx=$("flashfx"); fx.classList.remove("go"); void fx.offsetWidth; fx.classList.add("go");
+    var dz=(!_zoomCap && _curZoom>1)?_curZoom:1;
+    var sw=vw/dz, sh=vh/dz, sx=(vw-sw)/2, sy=(vh-sh)/2;
+    const scale=Math.min(1, MAX_EDGE/Math.max(sw,sh));
+    const w=Math.round(sw*scale), h=Math.round(sh*scale);
+    const cv=document.createElement("canvas"); cv.width=w; cv.height=h; cv.getContext("2d").drawImage(v,sx,sy,sw,sh,0,0,w,h);
+    const full=await new Promise(r=>cv.toBlob(r,"image/jpeg",JPEG_Q));
+    const photo={ pid:rid("p"), full, thumb:makeThumb(cv,w,h), w, h, size:(full?full.size:0) };
+    await addPhoto(photo);
+    if(navigator.vibrate) navigator.vibrate(15);
+  }catch(e){ toast("保存に失敗（容量不足の可能性）"); }
+  capturing=false;
+}
+async function addPhoto(photo){
+  if(curSet){
+    const s=await idbGet(curSet); if(!s) { curSet=null; }
+    else { s.photos.push(photo); await idbPut(s); renderSetPanel(); await updateRightCount(); return; }
+  }
+  // 新規データ
+  if(targetCard===INBOX){ const n=await idbCountByCard(INBOX);
+    if(n>=WARN_HARD) toast("インボックスが"+n+"件です。本体アプリで整理しましょう");
+    else if(n>=WARN_SOFT) toast("インボックス"+n+"件。本体アプリで整理を"); }
+  const pos=lastPos;
+  const s={ id:rid("s"), cardId:targetCard, ts:Date.now(), addrType:"plan", sender:((localStorage.getItem("prospect_user_v1")||"").trim()),
+    lat:pos?pos.lat:null, lng:pos?pos.lng:null, acc:pos?pos.acc:null,
+    addr:"", addrPending:!!pos, banchi:"", note:"", sent:false, photos:[photo] };
+  await idbPut(s); curSet=s.id; await refreshIndex(targetCard);
+  renderSetPanel(); await updateRightCount();
+  if(s.lat!=null) resolveAddr(s.id);
+}
+function makeThumb(srcCv,w,h){
+  const sc=Math.min(1, THUMB_EDGE/Math.max(w,h));
+  const tw=Math.round(w*sc), th=Math.round(h*sc);
+  const t=document.createElement("canvas"); t.width=tw; t.height=th; t.getContext("2d").drawImage(srcCv,0,0,tw,th);
+  return t.toDataURL("image/jpeg",0.72);
+}
+/* 標準カメラ フォールバック */
+$("fallbackBtn").addEventListener("click",()=>$("nativeCam").click());
+$("nativeCam").addEventListener("change",async e=>{
+  const file=e.target.files&&e.target.files[0]; if(!file) return;
+  if(curSet){ const s=await idbGet(curSet); if(s&&s.photos.length>=MAX_PHOTOS){ toast("1データは4枚までです。"); e.target.value=""; return; } }
+  const img=await blobToImage(file);
+  const scale=Math.min(1,MAX_EDGE/Math.max(img.width,img.height));
+  const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+  const cv=document.createElement("canvas"); cv.width=w; cv.height=h; cv.getContext("2d").drawImage(img,0,0,w,h);
+  const full=await new Promise(r=>cv.toBlob(r,"image/jpeg",JPEG_Q));
+  await addPhoto({ pid:rid("p"), full, thumb:makeThumb(cv,w,h), w, h, size:(full?full.size:0) });
+  toast("保存しました"); e.target.value="";
+});
+function blobToImage(blob){ return new Promise((res,rej)=>{ const u=URL.createObjectURL(blob); const im=new Image();
+  im.onload=()=>{ URL.revokeObjectURL(u); res(im); }; im.onerror=rej; im.src=u; }); }
+
+/* 完了＝今のデータを確定し次のデータへ */
+async function _ensureAddr(id){
+  let s=await idbGet(id);
+  if(s && !s.addr && s.lat!=null){ try{ await resolveAddr(id); s=await idbGet(id); }catch(e){} }
+  return s;
+}
+function _closeToMain(){
+  try{ stopCamera(); }catch(e){}
+  var go=function(){ try{
+    if(qaReturnMode){ location.href="ZenisAibis.html"; return; }
+    if(targetCard && targetCard!==INBOX){ location.href="ZenisAibis.html?card="+encodeURIComponent(targetCard)+"&from=cam"; return; }
+    location.href="ZenisAibis.html?inbox";
+  }catch(e){} };
+  try{ window.close(); }catch(e){}
+  setTimeout(function(){ if(!document.hidden) go(); }, 250);
+}
+$("doneBtn").addEventListener("click",async()=>{
+  if(!curSet){ toast("先に撮影してください"); return; }
+  const sid=curSet;
+  let s=null;
+  try{ s=await Promise.race([_ensureAddr(sid), new Promise(function(r){ setTimeout(function(){ r(null); },2000); })]); }catch(e){}
+  if(!s){ try{ s=await idbGet(sid); }catch(e){} }
+  if(qaReturnMode){
+    const payload={ addr:(s&&s.addr)||"", banchi:(s&&s.banchi)||"", lat:s&&s.lat, lng:s&&s.lng, setId:sid, ts:Date.now() };
+    try{ localStorage.setItem("aibis_qa_return", JSON.stringify(payload)); }catch(e){}
+  }
+  curSet=null;
+  try{ mediaPing(); }catch(e){}
+  if(_launchedFromMain){ _closeToMain(); }   // 本体側から起動＝反映してクローズ
+  else { try{ stopCamera(); }catch(e){} openInbox(); }  // 直接起動＝インボックスページへ
+});
+
+/* ---------- 仕分けパネル ---------- */
+let _objUrls=[];
+function clearObjUrls(){ _objUrls.forEach(u=>URL.revokeObjectURL(u)); _objUrls=[]; }
+async function renderSetPanel(){
+  if(!curSet){ $("setPanel").classList.add("hide"); $("doneBtn").disabled=true; setCamFocus(false); $("camToggle").classList.add("hide"); return; }
+  const s=await idbGet(curSet); if(!s){ curSet=null; $("setPanel").classList.add("hide"); $("doneBtn").disabled=true; setCamFocus(false); $("camToggle").classList.add("hide"); return; }
+  $("setPanel").classList.remove("hide"); $("doneBtn").disabled=false; $("camToggle").classList.remove("hide");
+  $("setThumbs").innerHTML=s.photos.map(p=>'<div class="sthumb" data-pid="'+esc(p.pid)+'"><img src="'+p.thumb+'"></div>').join("");
+  $("setThumbs").querySelectorAll(".sthumb").forEach(el=>el.addEventListener("click",()=>openPhoto(curSet, el.dataset.pid)));
+  const cnt=$("setCnt"); cnt.textContent=s.photos.length+"/"+MAX_PHOTOS; cnt.classList.toggle("full", s.photos.length>=MAX_PHOTOS);
+  const linked=(s.cardId&&s.cardId!==INBOX);
+  const dl=$("vDelSet"); dl.textContent=linked?"📥":"🗑"; dl.title=linked?"インボックスに戻す":"削除"; dl.classList.toggle("danger", !linked);
+  fillAddr(s); $("vBanchi").value=s.banchi||""; $("vNote").value=s.note||"";
+}
+function fillAddr(s){
+  const el=$("vAddr");
+  const full=s.addr?(s.addr+(s.banchi?(" "+s.banchi):"")):"";
+  if(s.addr){ el.textContent=full; el.classList.remove("pend"); }
+  else { el.textContent=s.addrPending?"住所を取得中…":(s.lat!=null?"住所未取得（🔄で再取得 / 🗺で確認）":"位置情報なし"); el.classList.add("pend"); }
+  $("vMap").style.opacity=(s.lat!=null)?"1":".4";
+  $("vFix").style.opacity=(s.lat!=null)?"1":".4";
+  $("vGeo").style.opacity=(s.lat!=null)?"1":".4";
+}
+$("vGeo").addEventListener("click",async()=>{ const s=await idbGet(curSet); if(!s||s.lat==null){ toast("位置情報がありません"); return; }
+  s.addrPending=true; await idbPut(s); fillAddr(s); toast("住所を取得中…"); resolveAddr(curSet); });
+$("vMap").addEventListener("click",async()=>{ const s=await idbGet(curSet); if(!s||s.lat==null){ toast("位置情報がありません"); return; }
+  window.open("https://www.google.com/maps?q="+s.lat+","+s.lng,"_blank"); });
+$("vNote").addEventListener("blur",async()=>{ if(!curSet) return; const s=await idbGet(curSet); if(!s) return;
+  if((s.note||"")!==$("vNote").value){ s.note=$("vNote").value; await idbPut(s); toast("計画地備考を保存"); } });
+$("vMic").addEventListener("click",()=>{
+  const btn=$("vMic");
+  if(micRec){ try{ micRec.stop(); }catch(e){} return; }
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ toast("音声入力に未対応の端末です"); return; }
+  const rec=new SR(); rec.lang="ja-JP"; rec.interimResults=false; rec.maxAlternatives=1;
+  micRec=rec; btn.classList.add("rec"); btn.textContent="■";
+  rec.onresult=e=>{ const t=e.results[0][0].transcript||""; const inp=$("vNote"); inp.value=(inp.value?inp.value+" ":"")+t; inp.dispatchEvent(new Event("blur")); };
+  rec.onerror=()=>toast("音声を認識できませんでした");
+  rec.onend=()=>{ micRec=null; btn.classList.remove("rec"); btn.textContent="🎤"; };
+  try{ rec.start(); }catch(e){ micRec=null; btn.classList.remove("rec"); btn.textContent="🎤"; }
+});
+$("vLink").addEventListener("click",()=>{ if(!curSet) return; linkTargetId=curSet; linkFromInbox=false; openPick("link"); });
+/* 紐付け済み＝インボックスに戻す / インボックス＝完全削除 */
+async function destroyOrReturn(id){
+  const s=await idbGet(id); if(!s) return;
+  const cleanup=async()=>{
+    if(curSet===id) curSet=null;
+    if(!screens.cam.classList.contains("hide")) renderSetPanel();
+    if(!screens.inbox.classList.contains("hide")){ await renderInbox(); showStorage("inbStore"); }
+    if(!screens.gal.classList.contains("hide")){ await renderGallery(); showStorage("storeLine"); }
+    await updateRightCount();
+  };
+  if(s.cardId && s.cardId!==INBOX){
+    aibisConfirm(cardLabel(s.cardId)+" の写真をカードから外してインボックスに戻しますか？", async()=>{
+      const old=s.cardId; s.cardId=INBOX; await idbPut(s); await refreshIndex(old);
+      toast("インボックスに戻しました"); await cleanup();
+    }, "戻す", "やめる");
+  } else {
+    aibisConfirm("このデータ（写真"+s.photos.length+"枚）を削除しますか？", async()=>{
+      const card=s.cardId; await idbDel(id); await refreshIndex(card);
+      toast("削除しました"); await cleanup();
+    }, "削除する", "やめる");
+  }
+}
+$("vDelSet").addEventListener("click",()=>{ if(!curSet) return; destroyOrReturn(curSet); });
+
+/* 番地キーパッド */
+function openKeypad(){ if(!curSet) return; kpVal=$("vBanchi").value||""; $("kpVal").textContent=kpVal||"—"; $("keypad").classList.remove("hide"); }
+$("vBanchi").addEventListener("click",openKeypad);
+$("keypad").querySelectorAll(".kpgrid button").forEach(b=>b.addEventListener("click",()=>{
+  const k=b.dataset.k;
+  if(k==="bs") kpVal=kpVal.slice(0,-1);
+  else if(k==="-"){ if(kpVal&&!kpVal.endsWith("-")) kpVal+="-"; }
+  else kpVal+=k;
+  $("kpVal").textContent=kpVal||"—";
+}));
+$("kpClear").addEventListener("click",()=>{ kpVal=""; $("kpVal").textContent="—"; });
+$("kpDone").addEventListener("click",async()=>{
+  $("keypad").classList.add("hide"); $("vBanchi").value=kpVal;
+  const s=await idbGet(curSet); if(!s) return;
+  if((s.banchi||"")!==kpVal){ s.banchi=kpVal; await idbPut(s); fillAddr(s); toast("番地を保存"); }
+});
+$("keypad").addEventListener("click",e=>{ if(e.target===$("keypad")) $("keypad").classList.add("hide"); });
+
+/* ---------- インボックス ---------- */
+async function openInbox(){ _scr="inbox"; stopCamera(); show("inbox"); await renderInbox(); showStorage("inbStore"); }
+$("inbBack").addEventListener("click",()=>{ history.back(); });
+async function renderInbox(){
+  const all=(await idbAll()).sort((a,b)=>b.ts-a.ts);
+  const unlinked=all.filter(s=>!s.cardId||s.cardId===INBOX);
+  const linked=all.filter(s=>s.cardId&&s.cardId!==INBOX);
+  // 選択の整合：消えたidを掃除し、新規の未紐付けは「未送信なら既定チェック」
+  const uids=new Set(unlinked.map(s=>s.id));
+  sendSel.forEach(id=>{ if(!uids.has(id)) sendSel.delete(id); });
+  sendSeen.forEach(id=>{ if(!uids.has(id)) sendSeen.delete(id); });
+  unlinked.forEach(s=>{ if(!sendSeen.has(s.id)){ sendSeen.add(s.id); if(!s.sent) sendSel.add(s.id); } });
+
+  $("inbTitle").textContent="📥 インボックス（未紐付 "+unlinked.length+"）";
+  const warn=$("inbWarn");
+  if(unlinked.length>=WARN_HARD){ warn.className="warnbar hard"; warn.textContent="⚠ 未紐付けが"+unlinked.length+"件です。本体アプリで紐付け・整理しましょう。"; }
+  else if(unlinked.length>=WARN_SOFT){ warn.className="warnbar soft"; warn.textContent="そろそろ"+unlinked.length+"件です。本体アプリで紐付け・整理を。"; }
+  else warn.className="warnbar hide";
+
+  const linkedCount=linked.length;
+  const selCount=unlinked.filter(s=>sendSel.has(s.id)).length;
+  const sendN=linkedCount+selCount;
+  const sb=$("inbSendBtn"); if(sb){ sb.textContent="📤 PCへ書き出す（"+sendN+"件）"; sb.disabled=(sendN===0); }
+
+  const host=$("inbBody");
+  if(!all.length){ host.innerHTML='<div class="emptyst">データはありません。<br>「📷」から撮影できます。</div>'; return; }
+
+  let html='<div class="sendhint">📤 紐付け済みは自動で書き出します。</div>';
+  if(unlinked.length){
+    html+='<div class="galsec selhdr"><span>未紐付け（'+unlinked.length+'）</span>'+
+          '<span class="seltools"><button data-selall>☑ 全選択</button><button data-selnone>解除</button></span></div>'+
+          unlinked.map(s=>drowHtml(s,"sel")).join("");
+  }
+  if(linked.length){ html+='<div class="galsec">紐付け済み（'+linked.length+'）</div>'+linked.map(s=>drowHtml(s,"auto")).join(""); }
+  host.innerHTML=html;
+  bindDrows(host,"inbox");
+  // チェックボックス
+  host.querySelectorAll(".selbox").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation();
+    const id=b.dataset.sel;
+    if(sendSel.has(id)) sendSel.delete(id); else sendSel.add(id);
+    renderInbox();
+  }));
+  // 全選択 / 解除
+  const allBtn=host.querySelector("[data-selall]"), noneBtn=host.querySelector("[data-selnone]");
+  if(allBtn) allBtn.addEventListener("click",()=>{ unlinked.forEach(s=>sendSel.add(s.id)); renderInbox(); });
+  if(noneBtn) noneBtn.addEventListener("click",()=>{ unlinked.forEach(s=>sendSel.delete(s.id)); renderInbox(); });
+}
+function drowHtml(s, kind){
+  const full=s.addr?esc(s.addr+(s.banchi?(" "+s.banchi):"")):(s.addrPending?"住所を取得中…":(s.lat!=null?"住所未取得（地図で確認）":"位置情報なし"));
+  const cls=s.addr?"ad":"ad pend";
+  const linked=(s.cardId&&s.cardId!==INBOX);
+  const sentB=s.sent?'<span class="sentbadge">書き出し済</span>':"";
+  const prevNm = !linked ? linkName(s) : '';   // 解除後も残る元担当者(cardName)。様の重複は除去済み。本体と同挙動
+  const unBadge = prevNm
+    ? '<span class="linkbadge un">'+prevNm+' ・ 要紐付け</span>'
+    : '<span class="linkbadge un">未紐付け</span>';
+  const _ntxt = (!linked && s.note && String(s.note).trim()) ? String(s.note).replace(/\s+/g," ").trim() : "";
+  const _nchip = _ntxt ? ' ・ <span class="notepk" data-note="'+encodeURIComponent(s.note)+'" title="'+esc(_ntxt)+'">📝 '+esc(_ntxt.slice(0,40))+'</span>' : '';
+  const meta = linked
+    ? (sentB?sentB+' ・ ':'')+fmtWhen(s.ts)
+    : unBadge+(sentB?' '+sentB:'')+' ・ '+fmtWhen(s.ts)+_nchip;
+  const nm = linked ? linkName(s) : '';
+  const mid = nm ? '<span class="drowname">'+nm+'</span>' : '';
+  const on=sendSel.has(s.id);
+  const lead = (kind==="sel") ? '<div class="selbox" data-sel="'+esc(s.id)+'"><span class="cbx'+(on?' on':'')+'">'+(on?'✓':'')+'</span></div>' : '<div class="drowstar" aria-hidden="true">★</div>';
+  const jump = linked
+    ? '<button class="drowbtn" data-gotomain="card:'+esc(s.cardId)+'">🪪 遷移</button>'
+    : (_launchedFromMain ? '' : '<button class="drowbtn pri" data-link="'+esc(s.id)+'">🔗 紐付け</button>');
+  const del = linked
+    ? '<button class="drowbtn ico ret" data-del="'+esc(s.id)+'" title="インボックスに戻す">📥</button>'
+    : '<button class="drowbtn ico del" data-del="'+esc(s.id)+'" title="削除">🗑</button>';
+  return '<div class="drow'+(kind==="sel"?' selrow':'')+'" data-id="'+esc(s.id)+'">'+lead+
+    '<div class="th"><img src="'+(s.photos[0]?s.photos[0].thumb:"")+'"><span class="n">'+s.photos.length+'枚</span></div>'+
+    '<div class="bd"><div class="'+cls+'">'+full+'</div>'+
+    '<div class="wn">'+meta+'</div>'+
+    '<div class="drowact lr">'+jump+mid+del+'</div></div></div>';
+}
+function bindDrows(host,fromWhere){
+  host.querySelectorAll(".drow").forEach(el=>el.addEventListener("click",e=>{
+    if(e.target.closest(".delbtn")||e.target.closest(".selbox")||e.target.closest(".drowact")||e.target.closest(".notepk")) return;
+    openSet(el.dataset.id);
+  }));
+  host.querySelectorAll("[data-note]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); let t=""; try{ t=decodeURIComponent(b.dataset.note||""); }catch(_e){ t=b.dataset.note||""; } aibisAlert('📝 計画地備考<br><br>'+esc(t).replace(/\n/g,"<br>")); }));
+  host.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); const _id0=b.dataset.del; if(!b.classList.contains("ret")){ const _selIds=Array.from(sendSel); if(_selIds.length>0){ aibisConfirm("チェックが入っているもの "+_selIds.length+"件 をすべて削除しますか？", async()=>{ for(const _id of _selIds){ try{ await idbDel(_id); sendSel.delete(_id); }catch(_e){} } toast("🗑 "+_selIds.length+"件を削除しました"); try{ await refreshIndex(INBOX); }catch(_e){} await renderInbox(); try{ showStorage("inbStore"); }catch(_e){} try{ await updateRightCount(); }catch(_e){} }, "全件削除", "やめる"); return; } } destroyOrReturn(_id0); }));
+  host.querySelectorAll("[data-gotomain]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); gotoMain(b.dataset.gotomain); }));
+  host.querySelectorAll("[data-link]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); linkTargetId=b.dataset.link; linkFromInbox=true; openPick("link"); }));
+}
+function gotoMain(spec){
+  var qs = spec==="inbox" ? "?inbox=1&from=cam" : (spec&&spec.indexOf("card:")===0 ? "?card="+encodeURIComponent(spec.slice(5)) : "");
+  try{ location.href="ZenisAibis.html"+qs; }catch(e){ try{ window.open("ZenisAibis.html"+qs,"_self"); }catch(_e){} }
+}
+
+/* ---------- 送信設定 ---------- */
+function loadCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function cfgEmail(){ const c=loadCfg(); return (c.email||localStorage.getItem("prospect_self_v1")||"").trim(); }
+function camMailApp(){ let p='auto'; try{ p=localStorage.getItem('prospect_sendmail_v1')||'auto'; }catch(e){} if(p==='outlook'||p==='gmail'||p==='pick') return p; const em=(cfgEmail()||'').toLowerCase(); if(!em) return 'pick'; if(/gmail\./.test(em)) return 'gmail'; return 'outlook'; }
+function camMailJa(a){ return a==='outlook'?'Outlook':(a==='gmail'?'Gmail':'メールアプリ'); }
+function openCfg(){ const c=loadCfg(); $("cfgEmail").value=c.email||localStorage.getItem("prospect_self_v1")||""; $("cfgName").value=c.name||""; try{ _pwaCamSync(); }catch(e){} $("camCfg").classList.remove("hide"); }
+$("inbCfgBtn").addEventListener("click",openCfg);
+$("cfgCancel").addEventListener("click",()=>$("camCfg").classList.add("hide"));
+$("camCfg").addEventListener("click",e=>{ if(e.target===$("camCfg")) $("camCfg").classList.add("hide"); });
+$("cfgSave").addEventListener("click",()=>{
+  const email=($("cfgEmail").value||"").trim(), name=($("cfgName").value||"").trim();
+  try{ localStorage.setItem(CFG_KEY, JSON.stringify({email,name})); }catch(e){}
+  $("camCfg").classList.add("hide"); toast("送信設定を保存しました");
+});
+
+/* ---------- PCへ送る（共有/ダウンロード） ---------- */
+function blobToDataURL(blob){ return new Promise((res,rej)=>{ if(!blob){ res(""); return; } const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(blob); }); }
+function stamp(){ const d=new Date(),p=n=>String(n).padStart(2,"0"); return ""+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+"_"+p(d.getHours())+p(d.getMinutes()); }
+function camSnap(id){
+  if(!id||id===INBOX) return {name:"",home:"",plan:""};
+  const c=findCard(id); if(!c) return {name:(typeof cardLabel==="function"?cardLabel(id):""),home:"",plan:""};
+  return {name:c.name||"",home:c.address||"",plan:c.plan_address||""};
+}
+async function buildBundle(sets){
+  const out=[];
+  for(const s of sets){
+    const photos=[];
+    for(const p of (s.photos||[])){ const th=(typeof p.thumb==="string"&&p.thumb)?p.thumb:(typeof p.full==="string"?p.full:""); photos.push({pid:p.pid, thumb:th, w:p.w, h:p.h}); }
+    const linked=(s.cardId&&s.cardId!==INBOX);
+    const snap=camSnap(linked?s.cardId:"");
+    out.push({ id:s.id, cardId:linked?s.cardId:INBOX, cardName:snap.name||(linked?cardLabel(s.cardId):""), homeAddr:snap.home||"", planAddr:snap.plan||s.addr||"", ts:s.ts, lat:s.lat, lng:s.lng, acc:s.acc, addr:s.addr||"", banchi:s.banchi||"", note:s.note||"", photos });
+  }
+  return { type:"aibis_photos", v:2, mode:"thumb", exported:Date.now(), sender:(loadCfg().name||""), email:cfgEmail(), sets:out };
+}
+async function sendInbox(){
+  const all=await idbAll();
+  const linkedUnsent=all.filter(s=>s.cardId&&s.cardId!==INBOX);
+  const unlinkedSel=all.filter(s=>(!s.cardId||s.cardId===INBOX)&&sendSel.has(s.id));
+  const targets=linkedUnsent.concat(unlinkedSel);
+  if(!targets.length){ toast("書き出すデータがありません（未紐付けは✓で選択）"); return; }
+  toast("データをまとめています…");
+  let bundle; try{ bundle=await buildBundle(targets); }catch(e){ toast("まとめに失敗しました"); return; }
+  const file=new File([JSON.stringify(bundle)],"aibis_photos_"+stamp()+".json",{type:"application/json"});
+  const to=cfgEmail();
+  // 本体と同じ方式：宛先メアドをクリップボードへコピー（メール作成画面で貼り付け）
+  try{ if(to && navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(to); } }catch(e){}
+  const shareText="z.Aibisの計画地写真データです。PCのアイビスで「📥 読込」してください。"+(to?("\n宛先: "+to):"");
+  let done=false, shared=false;
+  try{
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:"z.Aibis 計画地写真", text:shareText});
+      done=true; shared=true;
+    }
+  }catch(e){ if(e&&e.name==="AbortError") return; }
+  if(!done){
+    try{ const url=URL.createObjectURL(file); const a=document.createElement("a"); a.href=url; a.download=file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000); }
+    catch(e){ toast("書き出しに失敗しました"); return; }
+  }
+  for(const s of targets){ const cur=await idbGet(s.id); if(cur){ cur.sent=true; await idbPut(cur); } }
+  unlinkedSel.forEach(s=>sendSel.delete(s.id));   // 送ったぶんは選択解除
+  await renderInbox(); showStorage("inbStore");
+  const _ja=camMailJa(camMailApp());
+  if(to) toast("📋 宛先("+to+")コピー済。"+_ja+"を選び、貼付→ファイル添付で送信");
+  else toast(shared?(_ja+"を選んで送信"):"ファイルを書き出しました。"+_ja+"に添付してPCへ");
+}
+var _ibS=$("inbSendBtn"); if(_ibS) _ibS.addEventListener("click",sendInbox);
+
+/* ---------- カード一覧 ---------- */
+function openPick(m){
+  _scr="pick"; pickMode=m||"open";
+  $("pickBack").textContent = pickMode==="link" ? "← 戻る" : "📷 撮影";
+  $("pickInbox").classList.toggle("hide", pickMode==="link");
+  $("pickTitle").textContent = pickMode==="link" ? "🔗 紐付け先のカード" : "⌘ カード一覧";
+  $("pickSub").textContent  = pickMode==="link" ? "このデータを紐付けるカードを選択" : "カードを選んで撮影・閲覧";
+  renderSortBar(); renderPicker($("pickSearch").value); show("pick");
+  if(pickMode!=="link") updatePickInbox();
+}
+async function updatePickInbox(){ const n=await idbCountByCard(INBOX), el=$("pickInboxCount"); if(el) el.textContent=n; }
+$("pickInbox").addEventListener("click",()=>openInbox());
+$("pickBack").addEventListener("click",()=>{ history.back(); });
+
+/* ===== 本体「一覧」と同じ並び替え（移植・配点/ペースは2026-06確定値） ===== */
+var sortKey="lv", sortDir={};
+const SORT_ORDER=["lv","rv","jw","ad","sc","st","pj","kw","pace","dt","lm","cust"];
+const SORT_BASE={lv:"🚶 最新",rv:"🔁 再訪",jw:"⚖ ジャッジ",ad:"🏠 住所",sc:"⭐ スコア",st:"📊 心理",pj:"🎯 ランク",kw:"💬 会話",pace:"⏰ 遅れ",dt:"📅 初訪",lm:"🗺 土地",cust:"👤 顧客"};
+const SORT_ACT={
+  lv:{desc:"🚶 古い→",asc:"🚶 最新→"}, rv:{desc:"🔁 再訪 0→",asc:"🔁 再訪 3→"},
+  jw:{desc:"⚖ ジャッジ 古→",asc:"⚖ ジャッジ 古→"}, ad:{desc:"🏠 住所 わ→",asc:"🏠 住所 あ→"},
+  sc:{desc:"⭐ スコア 低→",asc:"⭐ スコア 高→"}, st:{desc:"📊 心理 低→",asc:"📊 心理 高→"},
+  pj:{desc:"🎯 ランク X→",asc:"🎯 ランク S→"}, kw:{desc:"💬 会話 浅→",asc:"💬 会話 深→"},
+  pace:{desc:"⏰ 遅れ 小→",asc:"⏰ 遅れ 大→"}, dt:{desc:"📅 初訪 古→",asc:"📅 初訪 新→"},
+  lm:{desc:"🗺 土地 古→",asc:"🗺 土地 古→"}, cust:{desc:"👤 顧客 新→",asc:"👤 顧客 新→"}
+};
+const PACE_LIMIT={S:7,A:10,B:21,C:40,D:80};
+const REVISIT_PHASE={span:14,times:3,interval:5};
+function getLastVD(c){ var d=[]; (c.pursuits||[]).forEach(v=>{if(v.date)d.push(v.date);}); (c.revisits||[]).forEach(v=>{if(v.date)d.push(v.date);}); if(c.discovery_date)d.push(c.discovery_date); return d.length?d.sort((a,b)=>b.localeCompare(a))[0]:""; }
+function getArea(addr){ if(!addr)return""; var m=addr.match(/^(.+?[都道府県])(.+?[市区町村郡])/); return m?m[1]+m[2]:addr.substring(0,10); }
+function _isRevisitPhase(c){ if(!c||!c.discovery_date)return false; var pv=(c.pursuits||[]).filter(v=>v&&v.date).length; var rv=(c.revisits||[]).filter(v=>v&&v.date).length; return pv===0&&rv<REVISIT_PHASE.times; }
+function _judgeMissing(c){ return !c.pursuit_judge && !_isRevisitPhase(c); }
+function _revisitCount(c){ return ((c&&c.revisits)||[]).filter(v=>v&&(String(v.content||"").trim()||String(v.rec||"").trim())).length; }
+function _hasPursuitActivity(c){ if(!c)return false; if(c.pursuit_judge)return true; return ((c.pursuits)||[]).some(v=>v&&(v.date||v.content||v.rec||v.appo||v.interviewer)); }
+function calcPaceOverrate(c){
+  var a=[]; if(c.discovery_date)a.push(c.discovery_date); (c.revisits||[]).forEach(v=>{if(v.date)a.push(v.date);}); (c.pursuits||[]).forEach(v=>{if(v.date)a.push(v.date);});
+  if(!a.length)return -1; a.sort(); var days=Math.floor((new Date()-new Date(a[a.length-1]))/86400000);
+  if(_isRevisitPhase(c)){ var sd=Math.floor((new Date()-new Date(c.discovery_date))/86400000); var r=days/REVISIT_PHASE.interval; if(sd>REVISIT_PHASE.span)r=Math.max(r,sd/REVISIT_PHASE.span); return r; }
+  var lim=PACE_LIMIT[c.pursuit_judge||""]; if(!lim)return -1; return days/lim;
+}
+function _amScore(c){ var m=(c&&c.am_checks)||{}; var s=0; if(m.kazoku)s+=2; if(m.jikoshikin)s+=1; if(m.kakutei)s+=1; if(m.nayose)s+=0.5; if(m.nouki)s+=0.5; return s; }
+function calcScore(c){
+  var stageScore=[0,1,3,5,8,11,12,13]; var si=+(c.stage||0); var s=stageScore[Math.min(si,7)]||0;
+  var rankMap={S:8,A:6,B:4,C:2,D:1,E:0,X:0}; var r=rankMap[c.pursuit_judge]||0;
+  var kaiwaScore={"ピンポン":1,"立ち話":3,"玄関内":5,"連れ出し":8,"上り込み":12};
+  var karr=Array.isArray(c.kaiwa)?c.kaiwa:(c.kaiwa?[c.kaiwa]:[]); var k=0; karr.forEach(v=>{var sc=kaiwaScore[v]||0; if(sc>k)k=sc;});
+  var m2=parseFloat(String(c.m2||"").replace(/,/g,""))||0; var tsubo=m2/3.30578; var landScore=0;
+  if(tsubo<=0)landScore=0; else if(tsubo<40)landScore=0; else if(tsubo<50)landScore=1; else if(tsubo<100)landScore=2; else if(tsubo<200)landScore=4; else if(tsubo<=500)landScore=5; else landScore=4;
+  var rosen=parseFloat(String(c.rosenka||"").replace(/,/g,""))||0; var rc=1.0;
+  if(rosen>0){ if(rosen<15)rc=0.7; else if(rosen<30)rc=0.9; else if(rosen<50)rc=1.0; else if(rosen<100)rc=1.2; else rc=1.5; }
+  var landFinal=Math.round(landScore*rc*10)/10; if(c.asset_type)landFinal=0;
+  var fam=c.family||[]; var ho=fam.some(m=>m.owner&&m.met); var hk=fam.some(m=>m.kp&&m.met); var famScore=(ho?3:0)+(hk?3:0);
+  function invNum(v){ if(v==="5以上")return 6; var n=parseInt(v,10); return isNaN(n)?0:n; }
+  var invSum=invNum(c.old_rent)+invNum(c.parking_lot)+invNum(c.jitaku)+invNum(c.ryokuchi); var invScore=0;
+  if(invSum<=0)invScore=0; else if(invSum<=2)invScore=1; else if(invSum<=5)invScore=2; else if(invSum<=9)invScore=3; else if(invSum<=14)invScore=4; else invScore=5;
+  var laMap={"1億以下":1,"3億以下":2,"5億以下":3,"10億未満":4,"10億以上":5}; var assetScore=invScore+(laMap[c.land_asset]||0);
+  var ekiScore=(c.ekitoho==="〜10分")?2:(c.ekitoho==="21分以上")?-2:0;
+  var proposalScore=c.proposal_req?15:0;
+  var rusuMap=[4,3,2,1,0,0]; var rusuN=Math.max(0,Math.min(5,parseInt(c.rusu,10)||0)); var rusuScore=rusuMap[rusuN];
+  var _isA=(c.pursuit_judge==="A"||c.pursuit_judge==="S"||c.pursuit_judge_sel==="A見込み"); var amCardPt=_isA?Math.round(_amScore(c)/5*6):0;
+  return Math.max(0, Math.round(s+r+k+landFinal+famScore+assetScore+ekiScore+proposalScore+rusuScore+amCardPt));
+}
+function _cTs(c){ if(!c)return 0; if(c.updated_at){var u=new Date(c.updated_at).getTime(); if(!isNaN(u))return u;} if(c.created_at){var t=new Date(c.created_at).getTime(); if(!isNaN(t))return t;} var m=/^c_(\d+)/.exec(c.id||""); if(m)return +m[1]; return 0; }
+function _isLandLead(c){ return !!(c && c.name==="土地見込み"); }
+var KAIWA_ORDER=["ピンポン","立ち話","玄関内","連れ出し","上り込み"];
+function _kaiwaMax(c){ var arr=Array.isArray(c.kaiwa)?c.kaiwa:(c.kaiwa?[c.kaiwa]:[]); var max=-1; arr.forEach(function(v){ var idx=KAIWA_ORDER.indexOf(v); if(idx>max)max=idx; }); return max; }
+function _rvEligible(c){ if(!c)return false; return String(c.initial_content||"").trim()!==""||_revisitCount(c)>0; }
+function _jwReady(c){ return !!(c && _revisitCount(c)>=REVISIT_PHASE.times && String(c.revisit_4eyes||"").trim()===""); }
+function getSortedCards(src){
+  var arr=src.slice(); var dir=sortDir[sortKey]==="desc"?-1:1;
+  if(sortKey==="lv"){ arr.sort(function(a,b){ var d=dir*getLastVD(b).localeCompare(getLastVD(a)); return d!==0?d:(_cTs(b)-_cTs(a)); }); }
+  else if(sortKey==="cust"){ arr=arr.filter(function(c){return c&&c.cust_type==="顧客";}); arr.sort(function(a,b){ return _cTs(b)-_cTs(a); }); }
+  else if(sortKey==="ad"){ var ad=sortDir["ad"]==="desc"?-1:1; arr.sort(function(a,b){ return ad*getArea(a.address||"").localeCompare(getArea(b.address||""),"ja"); }); }
+  else if(sortKey==="st"){ arr.sort(function(a,b){ var sa=(a.stage!==""&&a.stage!=null)?+a.stage:(dir>0?-1:99); var sb=(b.stage!==""&&b.stage!=null)?+b.stage:(dir>0?-1:99); return dir*(sb-sa); }); }
+  else if(sortKey==="sc"){ arr.sort(function(a,b){ return dir*(calcScore(b)-calcScore(a)); }); }
+  else if(sortKey==="pj"){ var o={S:0,A:1,B:2,C:3,D:4,E:5,X:6}; arr.sort(function(a,b){ var pa=o[a.pursuit_judge]!==undefined?o[a.pursuit_judge]:99; var pb=o[b.pursuit_judge]!==undefined?o[b.pursuit_judge]:99; return dir*(pa-pb); }); }
+  else if(sortKey==="rv"){ arr=arr.filter(_rvEligible); arr.sort(function(a,b){ var d=dir*(_revisitCount(b)-_revisitCount(a)); return d!==0?d:(_cTs(b)-_cTs(a)); }); }
+  else if(sortKey==="jw"){ arr=arr.filter(_jwReady); arr.sort(function(a,b){ return dir*(_cTs(a)-_cTs(b)); }); }
+  else if(sortKey==="pace"){ arr.sort(function(a,b){ var ra=calcPaceOverrate(a),rb=calcPaceOverrate(b); if(ra===-1&&rb===-1)return 0; if(ra===-1)return 1; if(rb===-1)return -1; return dir*(rb-ra); }); }
+  else if(sortKey==="kw"){ arr.sort(function(a,b){ return dir*(_kaiwaMax(b)-_kaiwaMax(a)); }); }
+  else if(sortKey==="lm"){ arr=arr.filter(_isLandLead); var _dk=function(c){ return c.discovery_date||"9999-99-99"; }; arr.sort(function(a,b){ return _dk(a).localeCompare(_dk(b)); }); }
+  else { arr.sort(function(a,b){ var d=dir*(b.discovery_date||"").localeCompare(a.discovery_date||""); return d!==0?d:(_cTs(b)-_cTs(a)); }); }
+  return arr;
+}
+function renderSortBar(){
+  const bar=$("sortBar"); if(!bar) return;
+  bar.innerHTML=SORT_ORDER.map(k=>{
+    const active=(k===sortKey);
+    const label=active?SORT_ACT[k][sortDir[k]==="desc"?"desc":"asc"]:SORT_BASE[k];
+    return '<button class="sortchip'+(active?" active":"")+'" data-k="'+k+'">'+label+'</button>';
+  }).join("");
+  bar.querySelectorAll(".sortchip").forEach(el=>el.addEventListener("click",()=>toggleSort(el.dataset.k)));
+}
+function toggleSort(key){
+  if(sortKey===key){ sortDir[key]=sortDir[key]==="desc"?"asc":"desc"; } else { sortKey=key; }
+  renderSortBar(); renderPicker($("pickSearch").value);
+}
+function renderPicker(filter){
+  const idx=readIndex();
+  let arr=getSortedCards(loadCards());
+  const q=(filter||"").trim(), kw=q?q.split(/[\s　]+/).filter(Boolean):[];
+  if(kw.length){ arr=arr.filter(c=>{ const hay=[c.name,c.address,c.plan_address,c.manager,c.branch,c.section].filter(Boolean).join(" "); return kw.some(k=>hay.indexOf(k)>=0); }); }
+  const host=$("pickList");
+  if(!loadCards().length){ host.innerHTML='<div class="emptyst">アイビスのカードが見つかりません。<br>同じ端末・同じサイトでアイビスを一度開いてカードを作成してから、もう一度開いてください。</div>'; return; }
+  if(!arr.length){ host.innerHTML='<div class="emptyst">該当するカードがありません。</div>'; return; }
+  host.innerHTML=arr.slice(0,300).map(c=>{
+    const n=(idx[c.id]||{}).n||0, meta=[c.manager,c.address||c.plan_address].filter(Boolean).join("・");
+    return '<div class="crow" data-id="'+esc(c.id)+'"><div class="grow" style="min-width:0"><div class="nm">'+esc(c.name||"無名")+'様</div><div class="mt">'+esc(meta||"—")+'</div></div><div class="pc"><b>'+n+'</b><s>件</s></div></div>';
+  }).join("");
+  host.querySelectorAll(".crow").forEach(el=>el.addEventListener("click",()=>onPickCard(el.dataset.id)));
+}
+$("pickSearch").addEventListener("input",e=>renderPicker(e.target.value));
+/* 一覧検索の音声入力 */
+let searchRec=null;
+$("pickMic").addEventListener("click",()=>{
+  const btn=$("pickMic");
+  if(searchRec){ try{ searchRec.stop(); }catch(e){} return; }
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ toast("音声入力に未対応の端末です"); return; }
+  const rec=new SR(); rec.lang="ja-JP"; rec.interimResults=false; rec.maxAlternatives=1; searchRec=rec;
+  btn.classList.add("rec"); btn.textContent="■";
+  rec.onresult=e=>{ const t=e.results[0][0].transcript||""; const inp=$("pickSearch"); inp.value=(inp.value?inp.value+" ":"")+t; renderPicker(inp.value); };
+  rec.onerror=()=>toast("音声を認識できませんでした");
+  rec.onend=()=>{ searchRec=null; btn.classList.remove("rec"); btn.textContent="🎤"; };
+  try{ rec.start(); }catch(e){ searchRec=null; btn.classList.remove("rec"); btn.textContent="🎤"; }
+});
+async function onPickCard(cardId){
+  if(pickMode==="link"){
+    const s=await idbGet(linkTargetId); if(!s){ toast("データが見つかりません"); return; }
+    aibisConfirm(cardLabel(cardId)+" を紐付けしますか？", async()=>{
+      const old=s.cardId; s.cardId=cardId; s.cardName=(findCard(cardId)||{}).name||""; await idbPut(s);
+      await refreshIndex(cardId); await refreshIndex(old);
+      toast(cardLabel(cardId)+" に紐付けました"); pickMode="open"; if(linkFromInbox){ linkFromInbox=false; openInbox(); } else { openSet(linkTargetId); }
+    }, "紐付ける", "やめる");
+  } else { fromAibis=false; enterCamera(cardId); }
+}
+
+/* ---------- カード別ギャラリー ---------- */
+async function openGallery(cardId,cameFromCam){
+  _scr="gal";
+  targetCard=cardId; openGallery._fromCam=!!cameFromCam;
+  $("galCardName").textContent=cardLabel(cardId); $("galCardMeta").textContent=cardMeta(cardId);
+  show("gal"); stopCamera(); await renderGallery(); showStorage("storeLine");
+}
+async function renderGallery(){
+  const list=(await idbByCard(targetCard)).sort((a,b)=>b.ts-a.ts);
+  const host=$("galBody");
+  if(!list.length){ host.innerHTML='<div class="emptyst">まだ写真がありません。<br>「📷 撮る」から撮影してください。</div>'; return; }
+  host.innerHTML='<div class="galsec">計画地データ（'+list.length+'件）</div>'+list.map(s=>drowHtml(s)).join("");
+  bindDrows(host,"gal");
+}
+$("galBack").addEventListener("click",()=>{ history.back(); });
+$("galShoot").addEventListener("click",()=>{ openGallery._fromCam=true; enterCamera(targetCard); });
+
+/* ---------- 容量表示 ---------- */
+async function showStorage(targetId){
+  let line="";
+  if(navigator.storage&&navigator.storage.estimate){ try{ const est=await navigator.storage.estimate(); line="使用容量 "+fmtMB(est.usage)+" / 上限目安 "+fmtMB(est.quota); }catch(e){} }
+  $(targetId).textContent=line;
+}
+const fmtMB = b => b? (b>1073741824? (b/1073741824).toFixed(1)+"GB" : Math.round(b/1048576)+"MB") : "—";
+
+/* ---------- 単写真ビューア（左右フリックでめくる） ---------- */
+let viewSet=null, viewIdx=0;
+async function openPhoto(setId,pid){
+  const s=await idbGet(setId); if(!s) return;
+  const i=s.photos.findIndex(p=>p.pid===pid); if(i<0) return;
+  viewSet=s; showPhotoAt(i);
+  $("viewer").classList.remove("hide");
+}
+function showPhotoAt(i){
+  if(!viewSet||!viewSet.photos.length) return;
+  i=Math.max(0,Math.min(i, viewSet.photos.length-1)); viewIdx=i;
+  const p=viewSet.photos[i]; viewPhoto={setId:viewSet.id, pid:p.pid};
+  clearObjUrls(); const u=URL.createObjectURL(p.full); _objUrls.push(u);
+  $("vImg").src=u; $("vWhen").textContent=(i+1)+"/"+viewSet.photos.length+"・"+(p.w+"×"+p.h)+"・"+fmtMB(p.size);
+}
+let _tsx=0,_tsy=0;
+$("viewer").addEventListener("touchstart",e=>{ const t=e.changedTouches[0]; _tsx=t.clientX; _tsy=t.clientY; },{passive:true});
+$("viewer").addEventListener("touchend",e=>{
+  const t=e.changedTouches[0], dx=t.clientX-_tsx, dy=t.clientY-_tsy;
+  if(Math.abs(dx)>45 && Math.abs(dx)>Math.abs(dy)){ if(dx<0) showPhotoAt(viewIdx+1); else showPhotoAt(viewIdx-1); }
+},{passive:true});
+$("vClose").addEventListener("click",()=>{ $("viewer").classList.add("hide"); viewPhoto=null; viewSet=null; });
+$("vDelPhoto").addEventListener("click",()=>{
+  if(!viewPhoto) return;
+  aibisConfirm("この写真を削除しますか？", async()=>{
+  const s=await idbGet(viewPhoto.setId); if(!s) return;
+  s.photos=s.photos.filter(p=>p.pid!==viewPhoto.pid);
+  let closed=false;
+  if(!s.photos.length){ await idbDel(s.id); await refreshIndex(s.cardId); if(curSet===s.id) curSet=null; closed=true; }
+  else { await idbPut(s); }
+  if(!screens.cam.classList.contains("hide")) renderSetPanel();
+  if(!screens.inbox.classList.contains("hide")) renderInbox();
+  if(!screens.gal.classList.contains("hide")) renderGallery();
+  await updateRightCount(); toast("削除しました");
+  if(closed){ $("viewer").classList.add("hide"); viewPhoto=null; viewSet=null; }
+  else { viewSet=s; showPhotoAt(Math.min(viewIdx, s.photos.length-1)); } // 残りを表示し続ける
+  }, "削除する", "やめる");
+});
+
+/* ---------- 位置修正（Leaflet 中心ピン固定） ---------- */
+function loadLeaflet(){
+  return new Promise((res,rej)=>{
+    if(window.L) return res();
+    const css=document.createElement("link"); css.rel="stylesheet"; css.href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; document.head.appendChild(css);
+    const js=document.createElement("script"); js.src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"; js.onload=()=>res(); js.onerror=()=>rej(new Error("leaflet")); document.head.appendChild(js);
+  });
+}
+$("vFix").addEventListener("click",async()=>{
+  const s=await idbGet(curSet); if(!s||s.lat==null){ toast("位置情報がありません"); return; }
+  meTargetId=curSet;
+  try{ await loadLeaflet(); }
+  catch(e){
+    if(navigator.geolocation){ toast("地図を読み込めません。現在地で取り直します");
+      navigator.geolocation.getCurrentPosition(async pos=>{ const cur=await idbGet(meTargetId); if(!cur) return;
+        cur.lat=pos.coords.latitude; cur.lng=pos.coords.longitude; cur.acc=pos.coords.accuracy; cur.addrPending=true; await idbPut(cur); fillAddr(cur); resolveAddr(meTargetId); toast("現在地に補正しました");
+      },()=>toast("現在地を取得できませんでした"),{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+    } else toast("地図も現在地も利用できません");
+    return;
+  }
+  $("mapEdit").classList.remove("hide"); setTimeout(()=>initLeaflet(s.lat,s.lng),60);
+});
+function initLeaflet(lat,lng){
+  if(!leafMap){
+    leafMap=L.map("leafMap",{zoomControl:true}).setView([lat,lng],18);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20,attribution:"© OpenStreetMap"}).addTo(leafMap);
+  } else { leafMap.setView([lat,lng],18); }
+  setTimeout(()=>leafMap.invalidateSize(),80);
+}
+$("meHere").addEventListener("click",()=>{
+  if(!navigator.geolocation){ toast("現在地に未対応"); return; }
+  navigator.geolocation.getCurrentPosition(pos=>{ if(leafMap) leafMap.setView([pos.coords.latitude,pos.coords.longitude],18); },()=>toast("現在地を取得できませんでした"),{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+});
+$("meCancel").addEventListener("click",()=>$("mapEdit").classList.add("hide"));
+$("meSave").addEventListener("click",async()=>{
+  if(!leafMap){ $("mapEdit").classList.add("hide"); return; }
+  const c=leafMap.getCenter(); const s=await idbGet(meTargetId); if(!s){ $("mapEdit").classList.add("hide"); return; }
+  s.lat=c.lat; s.lng=c.lng; s.acc=null; s.addrPending=true; await idbPut(s);
+  $("mapEdit").classList.add("hide"); fillAddr(s); resolveAddr(meTargetId); toast("位置を修正しました");
+});
+
+/* ---------- util ---------- */
+function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function fmtWhen(ts){ const d=new Date(ts), p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"/"+p(d.getMonth()+1)+"/"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes()); }
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){ stopCamera(); }
+  else {
+    if(!screens.cam.classList.contains("hide")) startCamera();
+    try{ if(!screens.inbox.classList.contains("hide")) renderInbox(); }catch(e){}
+    try{ updateRightCount(); }catch(e){}
+  }
+});
+// 本体（別タブ）で追加/削除/紐付け変更があったら即反映（同一オリジン連携）
+window.addEventListener("storage",(ev)=>{
+  if(ev.key!=="aibis_media_ping") return;
+  try{ if(!screens.inbox.classList.contains("hide")) renderInbox(); }catch(e){}
+  try{ updateRightCount(); }catch(e){}
+});
+window.addEventListener("pagehide",stopCamera);
+
+boot();
+</script>
+<script>
+/* 古いキャッシュ対策：最新版と照合し違えば一度だけ最新URLへ読み直す */
+window.addEventListener('load',function(){
+  try{
+    var cur=(typeof APP_VERSION!=='undefined')?APP_VERSION:'';
+    if(!cur) return;
+    fetch(location.pathname+'?_v='+Date.now(),{cache:'no-store',headers:{'Range':'bytes=0-30000'}})
+      .then(function(r){ return (r&&(r.ok||r.status===206))?r.text():null; })
+      .then(function(t){
+        if(!t) return;
+        var m=t.match(/APP_VERSION = "([^"]+)"/);
+        if(m&&m[1]&&m[1]!==cur){ location.replace(location.pathname+(location.search?location.search+'&':'?')+'v='+encodeURIComponent(m[1])+location.hash); }
+      }).catch(function(){});
+  }catch(e){}
+});
+</script>
+</body>
+</html>
