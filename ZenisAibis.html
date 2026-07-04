@@ -2362,7 +2362,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.33";
+var APP_VERSION = "v10.34";
 try{window.IS_DEV=/_dev(\b|\.|_)/i.test((location.pathname||"")+(location.search||""));if(window.IS_DEV){document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("is-dev");});}}catch(_e){window.IS_DEV=false;}
 // 深掘り分析の外部追加フック（コンソールや将来のアドオンからpush可能）
 window.Z_DEEP_EXTRAS = window.Z_DEEP_EXTRAS || [];
@@ -13880,7 +13880,11 @@ function renderInboxBody(){
       html+='<div class="isend"><button class="ibtn pri big" onclick="closeInbox()">✓ 完了して「'+e(_cardName(_inboxAttach))+'」へ戻る</button></div>';
       html+='<div class="ihint">🔗 紐付けたい写真を選択（複数OK）<br>→ 即このカードへ反映</div>';
       var _att=all.filter(function(s){return s.cardId===_inboxAttach;}).sort(byTs);
-      var _oth=all.filter(function(s){return !s.cardId||s.cardId!==_inboxAttach;}).sort(byTs);
+      /* 第149弾: 個別カードからの選択画面では「未紐付け」のみを候補にする。
+         他カードに紐付き済みの写真を混ぜると、誤って付け替えてしまう事故リスクがあるため除外。
+         付け替えたい場合は、先にそのカード側で「解除／インボックスに戻す」してから
+         このリストに出るようにする（既存の解除導線で対応）。 */
+      var _oth=all.filter(function(s){return !s.cardId||s.cardId===MEDIA_INBOX;}).sort(byTs);
       if(_att.length){ html+='<div class="isec2">このカードの写真（'+_att.length+'）</div><div class="igrid">'+_att.map(_inrowSafe).join("")+'</div>'; }
       if(_oth.length){ html+='<div class="isec2">追加できる写真（'+_oth.length+'）</div><div class="igrid">'+_oth.map(_inrowSafe).join("")+'</div>'; }
       if(!_att.length && !_oth.length){ html+='<div class="iempty">写真がありません。</div>'; }
