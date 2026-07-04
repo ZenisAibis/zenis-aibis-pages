@@ -422,7 +422,7 @@
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.71";
+const APP_VERSION = "cam-v1.72";
 
 /* ===== PWA：単一ファイルでインストール可能化（外部ファイル不要） ===== */
 function _pwaIcon(size,maskable){
@@ -528,6 +528,7 @@ function _aibisify(s){
     return L;
   }).join("\n");
 }
+/* 第148弾 B-3：トースト文言には原則として手動改行（\n / <br>）を入れない。短文は1行表示、長文はCSS任せで自然折り返しさせる（本体と同一方針）。 */
 function toast(msg){ const t=$("toast"); if(!t) return; const s=_aibisify(String(msg==null?"":msg));
   t.innerHTML='<span class="toast-fairy"><span class="tf-spark tf-s1">✨</span><span class="tf-face">🧚</span><span class="tf-spark tf-s2">✨</span></span><span class="toast-msg">'+esc(s).replace(/\n/g,"<br>")+'</span>'; t.classList.add("show"); // アイビス語＋改行＋エスケープ＋フェアリー（本体と同一仕様）
   clearTimeout(toast._t); const ms=Math.min(6000,Math.max(2200,s.replace(/\n/g,"").length*110)); toast._t=setTimeout(()=>t.classList.remove("show"),ms); }

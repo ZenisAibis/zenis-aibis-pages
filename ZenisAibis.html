@@ -2362,7 +2362,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.32";
+var APP_VERSION = "v10.33";
 try{window.IS_DEV=/_dev(\b|\.|_)/i.test((location.pathname||"")+(location.search||""));if(window.IS_DEV){document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("is-dev");});}}catch(_e){window.IS_DEV=false;}
 // 深掘り分析の外部追加フック（コンソールや将来のアドオンからpush可能）
 window.Z_DEEP_EXTRAS = window.Z_DEEP_EXTRAS || [];
@@ -2575,6 +2575,8 @@ function _aibisify(s){
   }).join('\n');
 }
 window._aibisify=_aibisify;
+/* 第148弾 B-3：トースト文言には原則として手動改行（\n / <br>）を入れない。
+   短文は1行表示、長文はCSS（コンテナ幅）任せで自然折り返しさせる。 */
 function toast(msg) {
   var t = document.getElementById('toast');
   if (!t) return;
@@ -10631,7 +10633,7 @@ function qaRender(){
     return '<button onclick="qaToggleKaiwa(\''+k+'\')" style="'+dis+'border:1px solid '+(on?'#276749':'#cbd5e0')+';background:'+(on?'#276749':'#f7fafc')+';color:'+(on?'#fff':'#2d3748')+';border-radius:7px;padding:8px 1px;font-size:10.5px;font-weight:'+(on?'700':'500')+';font-family:inherit;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+k+'</button>';
   }).join('');
 }
-function _qaLockMsg(){ toast(qaLandMode?'🟫 土地見込みでは、\n心理・会話は使いません':'👤 お名前を入力するか、\n🟫 土地ボタンを押してね'); }
+function _qaLockMsg(){ toast(qaLandMode?'🟫 土地見込みでは、心理・会話は使いません':'👤 お名前を入力するか、🟫 土地ボタンを押してね'); }
 function qaSetStage(i){ if(_qaLocked()){ _qaLockMsg(); return; } qaStageSel=(qaStageSel===i?-1:i); qaRender(); }
 function qaToggleKaiwa(k){ if(_qaLocked()){ _qaLockMsg(); return; } var p=qaKaiwaSel.indexOf(k); if(p>=0) qaKaiwaSel.splice(p,1); else qaKaiwaSel.push(k); qaRender(); }
 function _focusNoKb(el){
@@ -14134,6 +14136,7 @@ function renderCardPhotos(cardId){
   var sec=document.getElementById("cardPhotoSec"), body=document.getElementById("cardPhotoBody"), cnt=document.getElementById("cardPhotoCount");
   if(!sec||!body) return;
   if(!cardId){ sec.style.display="none"; return; }
+  var isCardSwitch=(_cpCard!==cardId); /* B-2: 別カードへの遷移＝カードを開いた瞬間のみ初期開閉を決める（同一カード内の再描画では開閉状態を維持） */
   sec.style.display="block"; if(cnt) cnt.textContent="";
   body.innerHTML='<div class="cps-load">読み込み中…</div>';
   var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); };
@@ -14142,12 +14145,14 @@ function renderCardPhotos(cardId){
     try{
       var sets=(all||[]).filter(function(s){ return s && s.cardId===cardId; });
       try{ var _pt=[]; sets.forEach(function(s){ (s.photos||[]).forEach(function(p){ var t=(p&&p.thumb)||(p&&typeof p.full==="string"?p.full:""); if(t) _pt.push(t); }); }); window._curCardPhotoThumbs={cardId:cardId, thumbs:_pt}; }catch(_e){}
-      if(!sets.length){ sec.style.display="none"; _cpSets=[]; _cpIdx=0; _cpCard=cardId; return; }
+      /* B-1: 写真0枚でもセクション自体は常に表示する（以前は非表示にしてカード起点の追加導線が消えていた）。
+         空状態の描画は _cpRender() 側に既存の分岐（cps-grid fix4 の空プレースホルダー＋案内文）がある。 */
       sec.style.display="block";
       sets.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }); /* 古い順＝筆①が最初の土地で固定（番号が入れ替わらない） */
       var total=sets.reduce(function(n,s){ return n+((s.photos&&s.photos.length)||0); },0);
       if(cnt) cnt.textContent=sets.length?("（"+sets.length+"件 / 計"+total+"枚）"):"";
       _cpSets=sets; _cpIdx=0; _cpCard=cardId;
+      if(isCardSwitch) sec.open=(sets.length>0); /* B-2: 写真1枚以上＝初期展開／0枚＝初期閉。枚数判定のみで分岐し、開閉操作自体は変更しない */
       _cpRender();
     }catch(err2){ body.innerHTML='<div class="cps-empty">表示エラー：<br><span style="color:#c53030;font-size:11px">'+esc(String((err2&&err2.message)||err2))+'</span></div>'; }
   }).catch(function(err){ _mdb=null; sec.style.display="block"; body.innerHTML='<div class="cps-empty">写真領域を開けませんでした。<br><span style="color:#c53030;font-size:11px">'+esc(String((err&&err.message)||err))+'</span></div>'; });
