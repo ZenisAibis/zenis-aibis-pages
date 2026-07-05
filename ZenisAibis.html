@@ -1710,7 +1710,7 @@ body.is-mob .mob-menu{display:inline-block}
           </div>
         </div>
         <div id="cmdCenter"></div>
-        <details id="devSelfMirrorWrap" class="dev-selfacc" style="display:none"><summary>🛠 開発確認用：担当ダッシュボード（本番のみ非表示）</summary><div id="devSelfMirror"></div></details>
+        <details id="devSelfMirrorWrap" class="dev-selfacc" style="display:none"><summary>🛠 開発確認用：担当ダッシュボード（本番のみ非表示）</summary><div style="padding:6px 0"><label style="font-size:11px;color:#553c9a">担当者を選択：</label><select id="devSelfMirrorRep" onchange="renderSelfDash('devSelfMirror', this.value==='__ALL__'?'':this.value)" style="font-size:12px;padding:4px 6px;margin-left:4px"></select></div><div id="devSelfMirror"></div></details>
       </div>
     </div>
   </div>
@@ -2121,6 +2121,15 @@ body.is-mob .mob-menu{display:inline-block}
         <div id="pwaHint" style="font-size:11px;color:#718096;margin-top:6px;line-height:1.55"></div>
       </div>
       <!-- ▼▼ 開発者ツールパネル START（DEV_EMAIL時のみ表示・JSはdev区画と対） ▼▼ -->
+      <div id="devUnlockPrompt" style="display:none;margin-top:14px;padding:10px;border:1px dashed #c53030;border-radius:8px;background:#fff5f5">
+        <div style="font-size:11px;font-weight:700;color:#c53030;margin-bottom:6px">🔐 開発者モード解錠</div>
+        <p class="ht">フルバックアップ等、実データに触れる機能を使うには、確認用アドレスの入力が必要です。</p>
+        <div style="display:flex;gap:6px"><input type="password" id="devUnlockInput" placeholder="確認用アドレス" autocomplete="off" style="flex:1;margin-bottom:0"><button type="button" onclick="tryDevUnlock()" style="background:#c53030;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">解錠</button></div>
+      </div>
+      <div id="devUnlockedStatus" style="display:none;margin-top:14px;padding:10px;border:1px solid #38a169;border-radius:8px;background:#f0fff4;align-items:center;justify-content:space-between;gap:8px">
+        <span style="font-size:12px;color:#276749;font-weight:700">✅ 開発者モード：解錠済み</span>
+        <button type="button" onclick="relockDevMode()" style="background:#718096;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">🔒 施錠し直す</button>
+      </div>
       <div id="devHashTool" style="display:none;margin-top:14px;padding:10px;border:1px dashed #cbd5e0;border-radius:8px;background:#faf5ff">
         <div style="font-size:11px;font-weight:700;color:#553c9a;margin-bottom:6px">🔧 開発者用：管理職パスのハッシュ生成</div>
         <div style="display:flex;gap:6px"><input type="text" id="devHashIn" placeholder="新しいパスワード" style="flex:1;margin-bottom:0"><button type="button" onclick="devGenHash()" style="background:#553c9a;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">生成</button></div>
@@ -2172,8 +2181,8 @@ body.is-mob .mob-menu{display:inline-block}
       </div><!-- /setupSavePC -->
       <div id="setupSaveMob" style="display:none"></div>
     </div>
-    <div class="sec">
-      <div class="stitle">■ フルバックアップ／復元（写真込み・第151弾）</div>
+    <div class="sec" id="fullBackupSection" style="display:none">
+      <div class="stitle">■ フルバックアップ／復元（写真込み・第151弾・開発者専用）</div>
       <div style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:10px">
         <strong style="color:#2c5282">💡 カードデータと写真をまとめて1ファイルに保存・復元できます</strong><br>
         通常の「読込」機能（カードのみ）とは別の機能です。復元は現在のデータを置き換えます（マージではありません）。
@@ -2375,11 +2384,13 @@ var SMK  = 'prospect_staffmails_v1';
 var NICKK = 'prospect_nick_v1';
 var HANDK = 'prospect_hand_v1';
 var LSDK = 'prospect_last_saved';
+var DEV_UNLOCK_KEY='prospect_dev_unlock_v1';
+var DEV_UNLOCK_HASH='d2077f5f6886f83503d4c1dd4b9543933b165c4246ca784052d92a05d57b05b6'; // 開発者モード二段階解錠用（第151弾追補・sha256hex、平文はソースに埋め込まない）
 var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.36";
+var APP_VERSION = "v10.38";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3910,6 +3921,9 @@ function showSetup() {
   });
   var n = document.getElementById('changeNote'); if(n) n.style.display = has?'block':'none';
   var _dh=document.getElementById('devHashTool'); if(_dh) _dh.style.display=(selfEmail===DEV_EMAIL)?'block':'none';
+  var _du=document.getElementById('devUnlockPrompt'); if(_du) _du.style.display=(selfEmail===DEV_EMAIL && !isDevUnlocked())?'block':'none';
+  var _dus=document.getElementById('devUnlockedStatus'); if(_dus) _dus.style.display=(selfEmail===DEV_EMAIL && isDevUnlocked())?'flex':'none';
+  var _fb=document.getElementById('fullBackupSection'); if(_fb) _fb.style.display=isDevUnlocked()?'block':'none'; // 第151弾追補: 開発者モード二段階解錠が必要
   // 保存先セクションの表示切替
   var pcDiv  = document.getElementById('setupSavePC');
   var mobDiv = document.getElementById('setupSaveMob');
@@ -3984,6 +3998,30 @@ function applyRoleUI(){
 }
 async function sha256hex(s){ var buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return Array.prototype.map.call(new Uint8Array(buf),function(b){return ('0'+b.toString(16)).slice(-2);}).join(''); }
 function isMgrUnlocked(){ return (userRole==='支店長'||userRole==='課長') && localStorage.getItem(MGR_UNLOCK_KEY)===MGR_HASH; }
+// 第151弾追補：開発者モードの二段階解錠。
+// 1段階目＝自分のメールアドレスがDEV_EMAILと一致（開発者モードの「入り口」が現れる条件）。
+// 2段階目＝確認用アドレスの入力がDEV_UNLOCK_HASHと一致（実際に解錠される条件）。
+// フルバックアップ等、実データに触れる機能はこの2段階目が揃うまで表示しない。
+function isDevUnlocked(){ return selfEmail===DEV_EMAIL && localStorage.getItem(DEV_UNLOCK_KEY)===DEV_UNLOCK_HASH; }
+function tryDevUnlock(){
+  var el=document.getElementById('devUnlockInput'); if(!el) return;
+  var v=(el.value||'').trim(); if(!v) return;
+  sha256hex(v).then(function(h){
+    if(h===DEV_UNLOCK_HASH){
+      localStorage.setItem(DEV_UNLOCK_KEY, DEV_UNLOCK_HASH);
+      el.value='';
+      if(window.aibisAlert) aibisAlert('開発者モードを解錠しました🔓');
+      showSetup();
+    } else if(window.aibisAlert){
+      aibisAlert('アドレスが違います。開発者モードは有効になりません');
+    }
+  }).catch(function(){ if(window.aibisAlert) aibisAlert('確認処理に失敗しました（https環境で開いてください）'); });
+}
+function relockDevMode(){
+  try{ localStorage.removeItem(DEV_UNLOCK_KEY); }catch(e){}
+  showSetup();
+}
+window.isDevUnlocked=isDevUnlocked; window.tryDevUnlock=tryDevUnlock; window.relockDevMode=relockDevMode;
 function onRoleChange(sel){
   var v=sel.value;
   if(v==='課長'||v==='支店長'){
@@ -5207,9 +5245,12 @@ function _streakTick(){
   return st;
  }catch(_e){ return {count:0,best:0}; }
 }
-function renderSelfDash(tid){
+function renderSelfDash(tid, targetManager){
  var host=document.getElementById(tid||'selfDashContent'); if(!host) return;
- var _allC=cards.slice(), nAll=_allC.length; var mine=_allC.filter(function(c){return !_isLandLead(c);}), n=mine.length;
+ // 第151弾追補: targetManager指定時は、そのcards.managerに絞り込む（開発確認用ミラーのみが使用。
+ // 通常呼び出し（引数省略）は従来どおり全カード対象で挙動を変えない）。
+ var _srcC = targetManager ? cards.filter(function(c){ return (c.manager||'').trim()===targetManager; }) : cards;
+ var _allC=_srcC.slice(), nAll=_allC.length; var mine=_allC.filter(function(c){return !_isLandLead(c);}), n=mine.length;
  if(!n){ host.innerHTML='<div class="zdash zdash-rep"><div class="z-empty">まだ見込みカードがありません</div></div>'; return; }
  var conn=mine.filter(function(c){return +(c.stage||0)>=3;}).length, adv=mine.filter(function(c){return +(c.stage||0)>=4;}).length;
  var renso=_zPct(conn,n), late=mine.filter(function(c){return calcPaceOverrate(c)>1;}).length;
@@ -9622,7 +9663,20 @@ var achH=reps.map(function(r){var bs=_achBadges(g[r]);if(!bs.length)return '';re
  H+=_zsec('cmd','🎮 コマンドセンター <span class="z-secsub">今日の指揮＋重要指標</span>',morningBoard+bodyKpi3+_holdCard+_cardMap+_cardInsights)+_zsec('today','🎯 課の指示 <span class="z-secsub">今日やること・誰に何を</span>',todayCard+contractCard+bodyContract+_teamCourse+_extrasFor('today'))+_zsec('coach','🎓 部下の指導 <span class="z-secsub">コーチング</span>',coachCard+dangerCard+readyCard+_extrasFor('coach'))+_zsec('teamchk','👥 部下の確認 <span class="z-secsub">担当の現状</span>',bodyRank+_llCard+bodyTeam+_extrasFor('teamchk'))+_zsec('grow','🌱 育成クエスト <span class="z-secsub">型・成長・次の課題</span>',questCard+_axKingCard+_axData+bodyQuality+_discByRep+_extrasFor('grow'))+_zsec('state','📊 詳細分析 <span class="z-secsub">月次・ヒートマップ・課長会議用</span>',bodyProcess+_kpiTrend+zoneCard+_blankCard+_velCard+_cardWork+_extrasFor('state'));
  H+='</div>';
  host.innerHTML=H;
- if(window.IS_DEV){var _dw=document.getElementById('devSelfMirrorWrap');if(_dw){_dw.style.display='';if(window.renderSelfDash)renderSelfDash('devSelfMirror');}}
+ if(typeof isDevUnlocked==='function' && isDevUnlocked()){
+   var _dw=document.getElementById('devSelfMirrorWrap');
+   if(_dw){
+     _dw.style.display='';
+     var _selRep=document.getElementById('devSelfMirrorRep');
+     if(_selRep && !_selRep.options.length){
+       var _mgrNames={}; cards.forEach(function(c){ var m=(c.manager||'').trim(); if(m) _mgrNames[m]=1; });
+       var _opts=['<option value="__ALL__">全員（課全体）</option>'];
+       Object.keys(_mgrNames).sort().forEach(function(nm){ _opts.push('<option value="'+nm.replace(/"/g,'&quot;')+'">'+nm+'</option>'); });
+       _selRep.innerHTML=_opts.join('');
+     }
+     if(window.renderSelfDash) renderSelfDash('devSelfMirror', (_selRep && _selRep.value!=='__ALL__')?_selRep.value:'');
+   }
+ }
 }
 
 function copyAnalysisPrompt(){
