@@ -2126,16 +2126,9 @@ body.is-mob .mob-menu{display:inline-block}
         <p class="ht">フルバックアップ等、実データに触れる機能を使うには、開発者用パスワードの入力が必要です。</p>
         <div style="display:flex;gap:6px"><input type="password" id="devUnlockInput" placeholder="開発者用パスワード" autocomplete="off" style="flex:1;margin-bottom:0"><button type="button" onclick="tryDevUnlock()" style="background:#c53030;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">解錠</button></div>
       </div>
-      <div id="devUnlockedStatus" style="display:none;margin-top:14px;padding:10px;border:1px solid #38a169;border-radius:8px;background:#f0fff4">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <span style="font-size:12px;color:#276749;font-weight:700">✅ 開発者モード：解錠済み</span>
-          <button type="button" onclick="relockDevMode()" style="background:#718096;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">🔒 施錠し直す</button>
-        </div>
-        <div style="height:1px;background:#c6f6d5;margin:10px 0"></div>
-        <div style="font-size:11px;font-weight:700;color:#276749;margin-bottom:6px">🔑 この端末のパスワードを変更</div>
-        <p class="ht" style="margin-top:0">※この端末（ブラウザ）だけに適用されます。他の端末には影響しません。</p>
-        <div style="display:flex;gap:6px"><input type="password" id="devPwChangeInput" placeholder="新しいパスワード" autocomplete="off" style="flex:1;margin-bottom:0"><button type="button" onclick="changeDevPassword()" style="background:#276749;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">変更</button></div>
-        <button type="button" onclick="resetDevPasswordToDefault()" style="margin-top:8px;background:none;border:none;color:#718096;font-size:11px;text-decoration:underline;cursor:pointer;font-family:inherit;padding:0">初期パスワードに戻す</button>
+      <div id="devUnlockedStatus" style="display:none;margin-top:14px;padding:10px;border:1px solid #38a169;border-radius:8px;background:#f0fff4;align-items:center;justify-content:space-between;gap:8px">
+        <span style="font-size:12px;color:#276749;font-weight:700">✅ 開発者モード：解錠済み</span>
+        <button type="button" onclick="relockDevMode()" style="background:#718096;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">🔒 施錠し直す</button>
       </div>
       <!-- ▼▼ 開発者ツールパネル START（DEV_EMAIL時のみ表示・JSはdev区画と対） ▼▼ -->
       <div id="devHashTool" style="display:none;margin-top:14px;padding:10px;border:1px dashed #cbd5e0;border-radius:8px;background:#faf5ff">
@@ -2143,6 +2136,11 @@ body.is-mob .mob-menu{display:inline-block}
         <div style="display:flex;gap:6px"><input type="text" id="devHashIn" placeholder="新しいパスワード" style="flex:1;margin-bottom:0"><button type="button" onclick="devGenHash()" style="background:#553c9a;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">生成</button></div>
         <div id="devHashOut" style="font-size:10px;color:#4a5568;word-break:break-all;margin-top:6px"></div>
         <p class="ht">ハッシュを MGR_HASH に貼り替え→再デプロイ。<br>全端末で次回1回だけ再入力。</p>
+        <div style="height:1px;background:#e9d8fd;margin:10px 0"></div>
+        <div style="font-size:11px;font-weight:700;color:#c53030;margin-bottom:6px">🔧 開発者用：開発者パスワードのハッシュ生成</div>
+        <div style="display:flex;gap:6px"><input type="text" id="devUnlockHashIn" placeholder="新しい開発者用パスワード" style="flex:1;margin-bottom:0"><button type="button" onclick="devGenUnlockHash()" style="background:#c53030;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">生成</button></div>
+        <div id="devUnlockHashOut" style="font-size:10px;color:#4a5568;word-break:break-all;margin-top:6px"></div>
+        <p class="ht">平文はここに残りません。表示されたハッシュだけをコピーして開発担当へ共有してください。<br>ハッシュを DEV_UNLOCK_HASH に貼り替え→再デプロイ。<br>全端末で次回1回だけ再入力。</p>
         <div style="height:1px;background:#e9d8fd;margin:10px 0"></div>
         <div style="font-size:11px;font-weight:700;color:#553c9a;margin-bottom:6px">🔧 開発者用：規定値ビューア</div>
         <button type="button" onclick="openDevDefaults()" style="background:#553c9a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:700">⚙ アプリ規定値を一覧表示</button>
@@ -2394,12 +2392,11 @@ var HANDK = 'prospect_hand_v1';
 var LSDK = 'prospect_last_saved';
 var DEV_UNLOCK_KEY='prospect_dev_unlock_v1';
 var DEV_UNLOCK_HASH='d2077f5f6886f83503d4c1dd4b9543933b165c4246ca784052d92a05d57b05b6'; // 開発者モード解錠用の初期パスワードのハッシュ（第151弾追補・sha256hex、平文はソースに埋め込まない）
-var DEV_PW_OVERRIDE_KEY='prospect_dev_pw_override_v1'; // 端末内で変更した開発者用パスワードのハッシュ（未設定なら初期パスワードを使う）
 var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.40";
+var APP_VERSION = "v10.41";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3931,7 +3928,7 @@ function showSetup() {
   var n = document.getElementById('changeNote'); if(n) n.style.display = has?'block':'none';
   var _dh=document.getElementById('devHashTool'); if(_dh) _dh.style.display=(selfEmail===DEV_EMAIL)?'block':'none';
   var _du=document.getElementById('devUnlockPrompt'); if(_du) _du.style.display=(!isDevUnlocked())?'block':'none';
-  var _dus=document.getElementById('devUnlockedStatus'); if(_dus) _dus.style.display=(isDevUnlocked())?'block':'none';
+  var _dus=document.getElementById('devUnlockedStatus'); if(_dus) _dus.style.display=(isDevUnlocked())?'flex':'none';
   var _fb=document.getElementById('fullBackupSection'); if(_fb) _fb.style.display=isDevUnlocked()?'block':'none'; // 第151弾追補: 開発者モード二段階解錠が必要
   // 保存先セクションの表示切替
   var pcDiv  = document.getElementById('setupSavePC');
@@ -4008,17 +4005,16 @@ function applyRoleUI(){
 async function sha256hex(s){ var buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return Array.prototype.map.call(new Uint8Array(buf),function(b){return ('0'+b.toString(16)).slice(-2);}).join(''); }
 function isMgrUnlocked(){ return (userRole==='支店長'||userRole==='課長') && localStorage.getItem(MGR_UNLOCK_KEY)===MGR_HASH; }
 // 第151弾追補：開発者モードの解錠。
-// 管理職モード（isMgrUnlocked）と同じ考え方で、自分のメールアドレス等には一切依存せず、
-// 「確認用の値（ハッシュ照合）」のみで判定する独立した解錠フローにする。
-// _currentDevHash()：端末内でパスワードを変更していればそちらを優先、無ければ初期パスワードを使う。
-function _currentDevHash(){ return localStorage.getItem(DEV_PW_OVERRIDE_KEY) || DEV_UNLOCK_HASH; }
-function isDevUnlocked(){ return localStorage.getItem(DEV_UNLOCK_KEY)===_currentDevHash(); }
+// 管理職モード（isMgrUnlocked/MGR_HASH）と全く同じ方式：ソースに焼き込んだ1つのハッシュ値のみで判定する。
+// 変更したい場合は、下のハッシュ生成ツールで新しいハッシュを作り、DEV_UNLOCK_HASHに貼り替えて再デプロイする
+// （全端末で次回1回だけ再入力になる点もMGR_HASHと同じ）。
+function isDevUnlocked(){ return localStorage.getItem(DEV_UNLOCK_KEY)===DEV_UNLOCK_HASH; }
 function tryDevUnlock(){
   var el=document.getElementById('devUnlockInput'); if(!el) return;
   var v=(el.value||'').trim(); if(!v) return;
   sha256hex(v).then(function(h){
-    if(h===_currentDevHash()){
-      localStorage.setItem(DEV_UNLOCK_KEY, h);
+    if(h===DEV_UNLOCK_HASH){
+      localStorage.setItem(DEV_UNLOCK_KEY, DEV_UNLOCK_HASH);
       el.value='';
       if(window.aibisAlert) aibisAlert('開発者モードを解錠しました🔓');
       showSetup();
@@ -4031,28 +4027,13 @@ function relockDevMode(){
   try{ localStorage.removeItem(DEV_UNLOCK_KEY); }catch(e){}
   showSetup();
 }
-// この端末だけ開発者用パスワードを変更する（他端末には影響しない）。解錠済みの時だけ実行可能。
-function changeDevPassword(){
-  if(!isDevUnlocked()) return;
-  var el=document.getElementById('devPwChangeInput'); if(!el) return;
-  var v=(el.value||'').trim();
-  if(!v){ if(window.aibisAlert) aibisAlert('新しいパスワードを入力してください'); return; }
-  sha256hex(v).then(function(h){
-    localStorage.setItem(DEV_PW_OVERRIDE_KEY, h);
-    localStorage.setItem(DEV_UNLOCK_KEY, h); // 変更後も解錠状態を維持
-    el.value='';
-    if(window.aibisAlert) aibisAlert('この端末の開発者用パスワードを変更しました🔓<br><span style="font-size:11px;color:#718096">※この変更はこの端末（ブラウザ）だけに適用されます。他の端末では初期パスワードのままです。</span>');
-    showSetup();
-  }).catch(function(){ if(window.aibisAlert) aibisAlert('変更処理に失敗しました（https環境で開いてください）'); });
-}
-// この端末の変更を取り消し、初期パスワード（全端末共通）に戻す。
-function resetDevPasswordToDefault(){
-  try{ localStorage.removeItem(DEV_PW_OVERRIDE_KEY); localStorage.removeItem(DEV_UNLOCK_KEY); }catch(e){}
-  if(window.aibisAlert) aibisAlert('この端末のパスワード変更を取り消し、初期パスワードに戻しました。もう一度、初期パスワードで解錠してください。');
-  showSetup();
+function devGenUnlockHash(){
+  var ie=document.getElementById('devUnlockHashIn'); var oe=document.getElementById('devUnlockHashOut'); if(!oe) return;
+  var v=ie?ie.value:''; if(!v){ oe.textContent='パスワードを入力してください'; return; }
+  sha256hex(v).then(function(h){ oe.innerHTML='DEV_UNLOCK_HASH = <b style="color:#c53030">'+h+'</b>'; }).catch(function(){ oe.textContent='生成失敗（https環境で開いてください）'; });
 }
 window.isDevUnlocked=isDevUnlocked; window.tryDevUnlock=tryDevUnlock; window.relockDevMode=relockDevMode;
-window.changeDevPassword=changeDevPassword; window.resetDevPasswordToDefault=resetDevPasswordToDefault;
+window.devGenUnlockHash=devGenUnlockHash;
 function onRoleChange(sel){
   var v=sel.value;
   if(v==='課長'||v==='支店長'){
