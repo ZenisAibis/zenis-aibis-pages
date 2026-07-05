@@ -2173,6 +2173,23 @@ body.is-mob .mob-menu{display:inline-block}
       <div id="setupSaveMob" style="display:none"></div>
     </div>
     <div class="sec">
+      <div class="stitle">■ フルバックアップ／復元（写真込み・第151弾）</div>
+      <div style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:10px">
+        <strong style="color:#2c5282">💡 カードデータと写真をまとめて1ファイルに保存・復元できます</strong><br>
+        通常の「読込」機能（カードのみ）とは別の機能です。復元は現在のデータを置き換えます（マージではありません）。
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="bp" onclick="fullBackupCreate()" style="font-size:13px;padding:10px 16px">📦 フルバックアップを作成</button>
+        <button class="bc" onclick="openFullBackupRestorePicker()" style="font-size:13px;padding:10px 16px">📂 フルバックアップから復元</button>
+        <input type="file" id="fullBackupRestoreInput" accept="application/json,.json" style="display:none" onchange="onFullBackupFileSelected(event)">
+      </div>
+      <div style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8">
+        <strong style="color:#c53030">⚠ 復元前に必ずお読みください</strong><br>
+        復元を実行すると、今の本体のカード・写真データはすべてバックアップファイルの内容に置き換わります。<br>
+        復元前に、現在のデータも一度フルバックアップまたは既存のJSON書き出しで保存しておくことを強くお勧めします。
+      </div>
+    </div>
+    <div class="sec">
       <div class="stitle">■ 会社のCopilot URL設定</div>
       <label>Copilot URL <span style="font-size:11px;color:#718096">（変更がある場合のみ入力）</span></label>
       <input type="url" id="sCopilotUrl" placeholder="https://copilot.microsoft.com/" style="font-size:13px">
@@ -2362,7 +2379,12 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.34";
+var APP_VERSION = "v10.36";
+// 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
+// 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
+var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
+var LEGACY_SCHEMA_VERSION = 0;         // schemaVersion未記録の既存データはこの世代として扱う（読込には支障なし）
+var CURRENT_BACKUP_FORMAT_VERSION = 1; // 第151弾で実装予定のバックアップ形式の識別子（今回は受け皿のみ・未使用）
 try{window.IS_DEV=/_dev(\b|\.|_)/i.test((location.pathname||"")+(location.search||""));if(window.IS_DEV){document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("is-dev");});}}catch(_e){window.IS_DEV=false;}
 // 深掘り分析の外部追加フック（コンソールや将来のアドオンからpush可能）
 window.Z_DEEP_EXTRAS = window.Z_DEEP_EXTRAS || [];
@@ -2675,6 +2697,7 @@ function readLS() {
   lastSaveSnapshot=JSON.stringify(cards);
   migrateRosenka();
   migratePursuitLock();
+  try{ checkSchemaVersions(); }catch(_e){} // 第150弾：読取専用の点検のみ。既存データは書き換えない
 }
 var BACKUP_KEY='prospect_backup_v1';
 var BACKUP_META='prospect_backup_meta_v1';
@@ -6137,6 +6160,7 @@ function mkBlank() {
     revisit_judge_date:'', revisit_judge:'',
     pursuits:[], pursuit_judge_date:'', pursuit_judge:'', pursuit_judge_sel:'', pursuit_judge_ai:'',
     job9_ranks:null, job9_ranks_at:'', ai_memo:'', family_headcount:false, family_headcount_at:'', family_bikou:'', doukou:false, doukou_at:'', mgr_involve:'単独', cust_type:'新規', asset_type:false, ekitoho:'', proposal_req:false, proposal_req_at:'', next_aim:'',
+    schemaVersion:CURRENT_SCHEMA_VERSION, // 第150弾：新規カードにのみ付与。既存カードへの遡及付与はしない
     created_at:new Date().toISOString(), updated_at:new Date().toISOString()
   };
 }
@@ -7209,6 +7233,8 @@ window.renderBackupNudge=renderBackupNudge; window._doBackupNow=_doBackupNow; wi
 function loadFile(){
   if(!isMob && hasFSA){ openFSAWithConfirm(); } else { var inp=document.getElementById('fileInput'); inp.value=''; inp.click(); }
 }
+// 第150弾メモ：ここが配列直出し形式の唯一の入口。第151弾で新形式（オブジェクト＋backupFormatVersion）を
+// 追加する場合は、ここを壊さず、事前にgetBackupFormatVersion()等で新旧を判定してから分岐すること。
 function normalizeImportedCards(arr){
   if(!Array.isArray(arr)) return [];
   return arr.filter(function(c){ return c && typeof c==='object'; }).map(function(c){
@@ -7397,6 +7423,12 @@ function doChooseSave(){
 }
 
 // ===== メール =====
+// 第150弾メモ：mkJson()は現在「カード配列を直接JSON化」する形式（配列直出し）。
+// normalizeImportedCards()側もArray.isArray(arr)を前提にしており、ここにschemaVersion等の
+// メタ情報をオブジェクトとして巻き込むと既存インポートが壊れるため、今回は出力形式を変更しない（案2）。
+// 第151弾のフルバックアップ／復元では、この配列直出しとは別の新形式（backupFormatVersion付き）を
+// 新設し、getBackupFormatVersion()/isFutureBackupFormatVersion() 等（maintenance_migrations.js）で
+// 新旧形式を判定する想定。
 function mkJson(){
   var data=JSON.stringify(cards,null,2);
   var blob=new Blob([data],{type:'application/json'});
@@ -10864,6 +10896,351 @@ function migrateRosenka(){
 }
 window.normalizeRosenka=normalizeRosenka; window.updateRosenkaDisp=updateRosenkaDisp;
 window.mapSingle=mapSingle;
+
+// ===== 第150弾：schemaVersion / backupFormatVersion 判定（読取専用・副作用なし） =====
+// これらは第151弾（フルバックアップ／復元）で使う受け皿。今回はデータ構造・保存形式を変更しない。
+// data未指定／配列直出し／数値でない場合はすべて legacy 扱い（安全側・読込不能にしない）。
+function getSchemaVersion(data){
+  if(data && typeof data==='object' && !Array.isArray(data) && typeof data.schemaVersion==='number' && isFinite(data.schemaVersion)){
+    return data.schemaVersion;
+  }
+  return LEGACY_SCHEMA_VERSION;
+}
+function isLegacySchema(data){ return getSchemaVersion(data)===LEGACY_SCHEMA_VERSION; }
+function isSupportedSchemaVersion(version){ return version===LEGACY_SCHEMA_VERSION || version===CURRENT_SCHEMA_VERSION; }
+function isFutureSchemaVersion(version){ return typeof version==='number' && isFinite(version) && version>CURRENT_SCHEMA_VERSION; }
+
+function getBackupFormatVersion(data){
+  if(data && typeof data==='object' && !Array.isArray(data) && typeof data.backupFormatVersion==='number' && isFinite(data.backupFormatVersion)){
+    return data.backupFormatVersion;
+  }
+  return LEGACY_SCHEMA_VERSION; // バックアップ形式番号が無い＝現行のカード配列直出し等（第151弾より前の形式）
+}
+function isSupportedBackupFormatVersion(version){ return version===LEGACY_SCHEMA_VERSION || version===CURRENT_BACKUP_FORMAT_VERSION; }
+function isFutureBackupFormatVersion(version){ return typeof version==='number' && isFinite(version) && version>CURRENT_BACKUP_FORMAT_VERSION; }
+
+// 読込直後に軽く点検するだけ（何も書き換えない）。未来のschemaVersionを持つカードがあっても、
+// データはそのまま使い続けられる（無条件受け入れではなく、検知だけしてコンソールに警告を残す）。
+function checkSchemaVersions(){
+  try{
+    var futureCount=0;
+    (cards||[]).forEach(function(c){ if(c && isFutureSchemaVersion(c.schemaVersion)) futureCount++; });
+    if(futureCount>0){ console.warn('[z.Aibis] schemaVersionが未来の値のカードが'+futureCount+'件あります（読込は継続、書き換えはしていません）'); }
+  }catch(_e){}
+}
+"use strict";
+/* ===== 第151弾：フルバックアップ／復元（本体のみ） =====
+ * 対象：localStorageカードデータ + IndexedDB "aibis_media_v1"（写真）
+ * 対象外：AibisCam（カメラ）側は一時バッファのためバックアップ対象外
+ *
+ * 新形式＝オブジェクト封筒。旧形式（既存エクスポート＝カード配列直出し）とは
+ * Array.isArray(data) で判別する（正規ルール）。旧形式インポート（file_ops.js）は
+ * 一切変更しない。用語は legacy=0 / current=1 に統一（第150弾で確定済み）。
+ */
+
+var FULL_BACKUP_SOURCE = "ZenisAibis";
+
+/* ---- Blob <-> data URL 変換（写真の実体をJSONへ埋め込み／復元するため） ---- */
+function _blobToDataURL(blob){
+  return new Promise(function(res){
+    if(!blob){ res(""); return; }
+    if(typeof blob === "string"){ res(blob); return; } // 既に文字列（data URL等）ならそのまま
+    try{
+      var r=new FileReader();
+      r.onload=function(){ res(String(r.result||"")); };
+      r.onerror=function(){ res(""); };
+      r.readAsDataURL(blob);
+    }catch(e){ res(""); }
+  });
+}
+function _dataURLToBlob(durl){
+  if(!durl || typeof durl!=="string" || durl.indexOf("base64,")<0) return null;
+  try{
+    var parts=durl.split(",");
+    var meta=parts[0], b64=parts[1];
+    var mime=(meta.match(/data:([^;]+);/)||[])[1]||"application/octet-stream";
+    var bin=atob(b64);
+    var arr=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    return new Blob([arr],{type:mime});
+  }catch(e){ return null; }
+}
+
+/* ---- SHA-256 digest（改ざん・破損検知用。暗号化ではない） ---- */
+function _sha256Hex(str){
+  try{
+    if(!(window.crypto && window.crypto.subtle && window.crypto.subtle.digest)) return Promise.resolve("");
+    var enc=new TextEncoder();
+    return window.crypto.subtle.digest("SHA-256", enc.encode(str)).then(function(buf){
+      var arr=Array.prototype.slice.call(new Uint8Array(buf));
+      return arr.map(function(b){ return ("0"+b.toString(16)).slice(-2); }).join("");
+    }).catch(function(){ return ""; });
+  }catch(e){ return Promise.resolve(""); }
+}
+
+/* ---- 新旧形式判別（正規ルール） ---- */
+function isLegacyCardArrayFormat(data){ return Array.isArray(data); }
+function isFullBackupEnvelope(data){
+  return !!(data && typeof data==="object" && !Array.isArray(data) && typeof data.backupFormatVersion!=="undefined");
+}
+
+/* ---- manifest集計（読取専用・副作用なし） ----
+ * 注：本アプリのカード⇔写真の紐付けは「写真側が cardId を持つ」一方向の参照のみ
+ * （カード側は写真IDの一覧を保持しない）。そのため本実装では
+ * missingMediaReferenceCount と orphanMediaCount は同一の集合
+ * （cardIdが設定されているのに参照先カードが存在しない写真）を指す。
+ */
+function _buildBackupManifest(cardsArr, mediaArr){
+  var cardIds={};
+  (cardsArr||[]).forEach(function(c){ if(c && c.id) cardIds[c.id]=1; });
+  var linkedMediaCount=0, unlinkedMediaCount=0, mediaReferenceCount=0, missingMediaReferenceCount=0, orphanMediaCount=0;
+  var dist={}; dist[String(LEGACY_SCHEMA_VERSION)]=0; dist[String(CURRENT_SCHEMA_VERSION)]=0;
+  (cardsArr||[]).forEach(function(c){
+    var v=getSchemaVersion(c);
+    var key=String(v);
+    dist[key]=(dist[key]||0)+1;
+  });
+  (mediaArr||[]).forEach(function(m){
+    var isUnlinked = !m || !m.cardId || m.cardId===MEDIA_INBOX || !!m.unlinked;
+    if(isUnlinked){ unlinkedMediaCount++; }
+    else{
+      linkedMediaCount++; mediaReferenceCount++;
+      if(!cardIds[m.cardId]){ missingMediaReferenceCount++; orphanMediaCount++; }
+    }
+  });
+  return {
+    cardCount:(cardsArr||[]).length,
+    mediaCount:(mediaArr||[]).length,
+    linkedMediaCount:linkedMediaCount,
+    unlinkedMediaCount:unlinkedMediaCount,
+    schemaVersionDistribution:dist,
+    mediaReferenceCount:mediaReferenceCount,
+    missingMediaReferenceCount:missingMediaReferenceCount,
+    orphanMediaCount:orphanMediaCount,
+    cardIdDigest:"", mediaIdDigest:"", payloadDigest:""
+  };
+}
+function _countFutureSchemaCards(cardsArr){
+  var n=0; (cardsArr||[]).forEach(function(c){ if(c && isFutureSchemaVersion(c.schemaVersion)) n++; }); return n;
+}
+
+/* ---- バックアップ対象データの収集（IndexedDB→JSON化可能な形へ） ---- */
+function _collectMediaForBackup(){
+  return mAll().then(function(recs){
+    var chain=Promise.resolve();
+    var out=[];
+    (recs||[]).forEach(function(r){
+      chain=chain.then(function(){
+        var copy={}; for(var k in r){ if(Object.prototype.hasOwnProperty.call(r,k)) copy[k]=r[k]; }
+        var photos=(r.photos||[]);
+        var pchain=Promise.resolve(); var outPhotos=[];
+        photos.forEach(function(p){
+          pchain=pchain.then(function(){
+            var pcopy={}; for(var k2 in p){ if(Object.prototype.hasOwnProperty.call(p,k2)) pcopy[k2]=p[k2]; }
+            return _blobToDataURL(p.full).then(function(durl){ pcopy.full=durl; outPhotos.push(pcopy); });
+          });
+        });
+        return pchain.then(function(){ copy.photos=outPhotos; out.push(copy); });
+      });
+    });
+    return chain.then(function(){ return out; });
+  });
+}
+
+/* ---- フルバックアップ作成 ---- */
+function fullBackupCreate(){
+  try{ toast("📦 フルバックアップを作成中…"); }catch(e){}
+  _collectMediaForBackup().then(function(media){
+    var cardIds=(cards||[]).map(function(c){ return c&&c.id?c.id:""; }).filter(Boolean).sort();
+    var mediaIds=media.map(function(m){ return m&&m.id?m.id:""; }).filter(Boolean).sort();
+    var manifest=_buildBackupManifest(cards, media);
+    var cardsJson=JSON.stringify(cards||[]);
+    var mediaJson=JSON.stringify(media||[]);
+    Promise.all([
+      _sha256Hex(cardIds.join(",")),
+      _sha256Hex(mediaIds.join(",")),
+      _sha256Hex(cardsJson+"|"+mediaJson)
+    ]).then(function(digests){
+      manifest.cardIdDigest=digests[0]||"";
+      manifest.mediaIdDigest=digests[1]||"";
+      manifest.payloadDigest=digests[2]||"";
+      var envelope={
+        backupFormatVersion:CURRENT_BACKUP_FORMAT_VERSION,
+        schemaVersion:CURRENT_SCHEMA_VERSION,
+        appVersion:APP_VERSION,
+        createdAt:new Date().toISOString(),
+        source:FULL_BACKUP_SOURCE,
+        mode:"full",
+        manifest:manifest,
+        cards:cards||[],
+        media:media
+      };
+      var json=JSON.stringify(envelope);
+      var blob=new Blob([json],{type:"application/json"});
+      var url=URL.createObjectURL(blob);
+      var now=new Date();
+      var p2=function(n){ return ("0"+n).slice(-2); };
+      var ts=now.getFullYear()+p2(now.getMonth()+1)+p2(now.getDate())+"-"+p2(now.getHours())+p2(now.getMinutes())+p2(now.getSeconds());
+      var fn="zenis-aibis-full-backup_"+APP_VERSION+"_"+ts+".json";
+      var a=document.createElement("a"); a.href=url; a.download=fn; a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); },4000);
+      toast("✅ フルバックアップを作成しました（カード"+manifest.cardCount+"件・写真"+manifest.mediaCount+"枚）");
+    }).catch(function(){ aibisAlert("⚠ フルバックアップの作成中にエラーが発生しました。もう一度お試しください。"); });
+  }).catch(function(){ aibisAlert("⚠ 写真データの読み込みに失敗したため、フルバックアップを作成できませんでした。"); });
+}
+
+/* ---- フルバックアップ復元：ファイル選択 → 検証 → プレビュー ---- */
+function openFullBackupRestorePicker(){
+  var inp=document.getElementById("fullBackupRestoreInput");
+  if(inp){ inp.value=""; inp.click(); }
+}
+function onFullBackupFileSelected(ev){
+  var files=ev.target.files; if(!files||!files.length) return;
+  var f=files[0]; ev.target.value="";
+  var r=new FileReader();
+  r.onload=function(e2){ _handleFullBackupFileText(String(e2.target.result||"")); };
+  r.onerror=function(){ aibisAlert("⚠ ファイルを読み込めませんでした。データは変更していません。"); };
+  r.readAsText(f,"UTF-8");
+}
+function _handleFullBackupFileText(text){
+  var data;
+  try{ data=JSON.parse(text); }
+  catch(e){ aibisAlert("⚠ このファイルは正しいJSONとして読み込めませんでした。<br>データは変更していません。"); return; }
+
+  if(isLegacyCardArrayFormat(data)){
+    aibisAlert("ℹ️ これは通常のカードJSON（カードのみ）です。<br>フルバックアップ（カード＋写真）ではありません。<br><br>このファイルは、通常の「読込」ボタンからお使いください。<br>データは変更していません。");
+    return;
+  }
+  if(!isFullBackupEnvelope(data)){
+    aibisAlert("⚠ このファイルはフルバックアップ形式として認識できませんでした。<br>データは変更していません。");
+    return;
+  }
+  var bfv=data.backupFormatVersion;
+  if(typeof bfv!=="number" || !isFinite(bfv) || bfv<LEGACY_SCHEMA_VERSION){
+    aibisAlert("⚠ バックアップファイルの形式番号(backupFormatVersion)が不正です。<br>データは変更していません。");
+    return;
+  }
+  if(isFutureBackupFormatVersion(bfv)){
+    aibisAlert("⚠ このバックアップファイルは、今のアプリより新しい形式（backupFormatVersion="+bfv+"）です。<br>アプリを更新してから復元してください。<br><br>データは変更していません。");
+    return;
+  }
+  if(!Array.isArray(data.cards) || !Array.isArray(data.media)){
+    aibisAlert("⚠ バックアップファイルの内容が不正です（cards/mediaの形式）。<br>データは変更していません。");
+    return;
+  }
+
+  var cardsJson=JSON.stringify(data.cards);
+  var mediaJson=JSON.stringify(data.media);
+  var cardIds=data.cards.map(function(c){ return c&&c.id?c.id:""; }).filter(Boolean).sort();
+  var mediaIds=data.media.map(function(m){ return m&&m.id?m.id:""; }).filter(Boolean).sort();
+  Promise.all([
+    _sha256Hex(cardIds.join(",")),
+    _sha256Hex(mediaIds.join(",")),
+    _sha256Hex(cardsJson+"|"+mediaJson)
+  ]).then(function(digests){
+    var storedManifest=data.manifest||{};
+    var haveStoredDigest = !!(storedManifest.payloadDigest);
+    var digestOk = !haveStoredDigest || (storedManifest.payloadDigest===digests[2]);
+    if(haveStoredDigest && !digestOk){
+      aibisAlert("⚠ バックアップファイルの整合性チェックに失敗しました。<br>データが壊れているか、改ざんされている可能性があります。<br><br>復元を中止しました。データは変更していません。");
+      return;
+    }
+    var freshManifest=_buildBackupManifest(data.cards, data.media);
+    var futureCards=_countFutureSchemaCards(data.cards);
+    _showFullRestorePreview(data, freshManifest, futureCards, digestOk, haveStoredDigest);
+  });
+}
+function _fmtDist(dist){
+  dist=dist||{};
+  var legacy=dist[String(LEGACY_SCHEMA_VERSION)]||0, current=dist[String(CURRENT_SCHEMA_VERSION)]||0;
+  var others=[]; Object.keys(dist).forEach(function(k){ if(k!==String(LEGACY_SCHEMA_VERSION)&&k!==String(CURRENT_SCHEMA_VERSION)) others.push(k+"世代:"+dist[k]+"件"); });
+  var s="legacy(0):"+legacy+"件・current(1):"+current+"件";
+  if(others.length) s+="・"+others.join("・");
+  return s;
+}
+function _showFullRestorePreview(data, manifest, futureCards, digestOk, haveStoredDigest){
+  var msg="🔎 復元前プレビュー<br><br>"
+    +"カード："+manifest.cardCount+"件<br>"
+    +"写真：計"+manifest.mediaCount+"枚（紐付け済み"+manifest.linkedMediaCount+"・未紐付け"+manifest.unlinkedMediaCount+"）<br>"
+    +"世代分布："+_fmtDist(manifest.schemaVersionDistribution)+"<br>"
+    +(manifest.orphanMediaCount>0 ? "<span style=\"color:#c53030\">⚠ 参照先カード不明の写真："+manifest.orphanMediaCount+"件</span><br>" : "")
+    +(futureCards>0 ? "<span style=\"color:#b7791f\">⚠ このアプリより新しい世代のカードが"+futureCards+"件あります（復元は継続できます）</span><br>" : "")
+    +(haveStoredDigest ? "整合性チェック："+(digestOk?"OK":"NG") : "整合性チェック：（このファイルにはdigest記録がありません）")
+    +"<br><br>作成日時："+(data.createdAt||"不明")+"　作成時バージョン："+(data.appVersion||"不明")
+    +"<br><br><b style=\"color:#c53030\">この操作は現在のカード・写真データをすべて置き換えます（マージではありません）。</b>"
+    +"<br>復元前に、現在のデータを既存の「読込」画面のエクスポート機能で保存しておくことをお勧めします。";
+  aibisConfirm(msg, function(){ _executeFullRestore(data); }, "復元を実行", "キャンセル");
+}
+
+/* ---- フルバックアップ復元：実行 ---- */
+var PRE_RESTORE_SNAPSHOT_KEY="prospect_pre_restore_snapshot_v1";
+function _executeFullRestore(data){
+  toast("⏳ 復元を実行しています…");
+  try{
+    localStorage.setItem(PRE_RESTORE_SNAPSHOT_KEY, JSON.stringify(cards||[]));
+  }catch(e){}
+
+  var newCards=data.cards;
+  var newMedia=data.media;
+
+  mClear().then(function(){
+    var chain=Promise.resolve();
+    newMedia.forEach(function(m){
+      chain=chain.then(function(){
+        var copy={}; for(var k in m){ if(Object.prototype.hasOwnProperty.call(m,k)) copy[k]=m[k]; }
+        var photos=(m.photos||[]);
+        var outPhotos=photos.map(function(p){
+          var pcopy={}; for(var k2 in p){ if(Object.prototype.hasOwnProperty.call(p,k2)) pcopy[k2]=p[k2]; }
+          var blob=_dataURLToBlob(p.full);
+          pcopy.full = blob || p.full; // 変換できない場合は文字列のまま保存（既存コードは両対応）
+          return pcopy;
+        });
+        copy.photos=outPhotos;
+        return mPut(copy);
+      });
+    });
+    return chain;
+  }).then(function(){
+    cards=newCards;
+    lastSaveSnapshot=JSON.stringify(cards);
+    return new Promise(function(res){ doSaveCards(function(ok){ res(ok); }); });
+  }).then(function(saveOk){
+    return mAll().then(function(afterMedia){
+      var afterManifest=_buildBackupManifest(cards, afterMedia);
+      var expected=_buildBackupManifest(newCards, newMedia);
+      var mismatch = (afterManifest.cardCount!==expected.cardCount) || (afterManifest.mediaCount!==expected.mediaCount);
+      _showRestoreResult(saveOk, afterManifest, mismatch);
+    });
+  }).catch(function(err){
+    aibisAlert("⚠ 復元中にエラーが発生しました：<br><span style=\"color:#c53030;font-size:11px\">"+String((err&&err.message)||err)+"</span><br><br>状態が不完全な可能性があります。念のため元のバックアップファイルで再度復元をお試しください。");
+  });
+}
+function _showRestoreResult(saveOk, afterManifest, mismatch){
+  try{ showList(); }catch(e){}
+  var msg = saveOk
+    ? "✅ 復元が完了しました<br><br>カード："+afterManifest.cardCount+"件<br>写真：計"+afterManifest.mediaCount+"枚（紐付け済み"+afterManifest.linkedMediaCount+"・未紐付け"+afterManifest.unlinkedMediaCount+"）<br>世代分布："+_fmtDist(afterManifest.schemaVersionDistribution)
+    : "⚠ カードデータの保存に失敗しました。写真の復元は完了している可能性があります。";
+  if(mismatch){
+    msg+="<br><br><span style=\"color:#c53030\">⚠ 復元後の件数がバックアップ内容と一致しませんでした。内容をご確認ください。</span>"
+       +"<br><button class=\"zfa-ok\" style=\"background:#718096\" onclick=\"closeAibisAlert();restorePreRestoreSnapshot()\">⏪ 復元前の状態に戻す（カードのみ）</button>";
+  }
+  aibisAlert(msg);
+  try{ toast(saveOk?"✅ フルバックアップの復元が完了しました":"⚠ 復元に一部失敗しました"); }catch(e){}
+}
+function restorePreRestoreSnapshot(){
+  var snap=null; try{ snap=localStorage.getItem(PRE_RESTORE_SNAPSHOT_KEY); }catch(e){}
+  if(!snap){ aibisAlert("復元前スナップショットが見つかりませんでした。"); return; }
+  try{
+    cards=JSON.parse(snap);
+    doSaveCards(function(){ showList(); toast("⏪ 復元前（カードのみ）の状態に戻しました"); });
+  }catch(e){ aibisAlert("スナップショットの読込に失敗しました。"); }
+}
+
+window.fullBackupCreate=fullBackupCreate;
+window.openFullBackupRestorePicker=openFullBackupRestorePicker;
+window.onFullBackupFileSelected=onFullBackupFileSelected;
+window.restorePreRestoreSnapshot=restorePreRestoreSnapshot;
+
 
 function _doCheckPrint(){
   var cb=document.getElementById('bpChkCard'), fb=document.getElementById('bpChkFamily');
