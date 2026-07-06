@@ -2430,7 +2430,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.53";
+var APP_VERSION = "v10.55";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6324,6 +6324,7 @@ function newCard(){
   document.getElementById('editView').style.display=hasFSA&&!isMob?'flex':'block';
   switchTab('ti'); fillForm(cur); window.scrollTo(0,0);
   if(typeof renderCardPhotos==='function') renderCardPhotos(curId);
+  if(typeof renderCardShotgun==='function') renderCardShotgun(curId);
   setTimeout(function(){setDirty(false);},100);
   _navGo('edit',curId);
   if(typeof updateCardNav==='function') updateCardNav();
@@ -6343,6 +6344,7 @@ function openCard(id){
   document.getElementById('editView').style.display=hasFSA&&!isMob?'flex':'block';
   switchTab('ti'); fillForm(cur); window.scrollTo(0,0);
   if(typeof renderCardPhotos==='function') renderCardPhotos(curId);
+  if(typeof renderCardShotgun==='function') renderCardShotgun(curId);
   setTimeout(function(){setDirty(false);},100);
   _navGo('edit',curId);
   if(typeof updateCardNav==='function') updateCardNav();
@@ -7259,6 +7261,7 @@ function _restoreDraft(){
   document.getElementById('editView').style.display=hasFSA&&!isMob?'flex':'block';
   switchTab('ti'); fillForm(cur); window.scrollTo(0,0);
   if(typeof renderCardPhotos==='function') renderCardPhotos(curId);
+  if(typeof renderCardShotgun==='function') renderCardShotgun(curId);
   setDirty(true);
   _navGo('edit',curId);
   if(typeof updateCardNav==='function') updateCardNav();
@@ -10087,6 +10090,168 @@ function printDashboard(hostId,title){
   setTimeout(function(){ try{ w.focus(); w.print(); setTimeout(function(){ try{ if(!w.closed) w.close(); }catch(e){} }, 1500); }catch(ex){} }, 600);
 }
 window.printDashboard=printDashboard;
+/* ===== ショットガングループ（第160弾・最小導入） =====
+ * 優先見込み客を起点に、一緒に回る連帯訪問候補（ザイオンス訪問など）を最大5件まで
+ * 営業マンが手動で束ねる。住所からの自動抽出はしない（道路・川・親族関係など現場判断のため）。
+ * 保存は片方向（案B）：登録した側のカードだけが shotgun_ids を持つ。
+ *   → 既存カードを一括変換しない・保存時の副作用が最小。
+ * 表示（予定表）は登録辺を無向グラフとみなし連結成分で展開＝実用上の双方向グループ。
+ * 既存カードに shotgun_ids が無くても正常動作。存在しないID混入でも落ちない。
+ */
+var SHOTGUN_MAX = 5;
+
+function _sgIds(c){ return (c && Array.isArray(c.shotgun_ids)) ? c.shotgun_ids : []; }
+function _sgCard(id){
+  if(!id) return null;
+  if(typeof _cardById === 'function'){ return _cardById(id) || null; }
+  for(var i=0;i<cards.length;i++){ if(cards[i].id===id) return cards[i]; }
+  return null;
+}
+function _sgPersist(){ try{ if(typeof doSaveCards==='function') doSaveCards(function(){}); else localStorage.setItem(SK, JSON.stringify(cards)); }catch(e){} }
+
+/* グループ＝登録辺（無向）の連結成分。self を除いた「実在する」メンバーidを返す。
+ * 例：佐藤→[田中,鈴木] のとき、佐藤/田中/鈴木 いずれを起点にしても残り2名が返る。 */
+function sgGroupOf(cardId){
+  if(!cardId) return [];
+  var adj={};
+  (cards||[]).forEach(function(c){
+    _sgIds(c).forEach(function(t){
+      if(!t || t===c.id) return;
+      (adj[c.id]=adj[c.id]||{})[t]=1;
+      (adj[t]=adj[t]||{})[c.id]=1;
+    });
+  });
+  var seen={}; seen[cardId]=1;
+  var q=[cardId], out=[];
+  while(q.length){
+    var x=q.shift(); var nb=adj[x]||{};
+    for(var k in nb){ if(!seen[k]){ seen[k]=1; q.push(k); if(_sgCard(k)) out.push(k); } }
+  }
+  return out;
+}
+
+/* 追加（ガード：自分自身NG・重複NG・最大5件・実在チェック）。成功時 true */
+function sgAdd(cardId, otherId){
+  var c=_sgCard(cardId); if(!c){ return false; }
+  if(!otherId || otherId===cardId){ toast('自分自身は登録できません'); return false; }
+  if(!_sgCard(otherId)){ toast('対象のカードが見つかりません'); return false; }
+  var ids=_sgIds(c);
+  if(ids.indexOf(otherId)>=0){ toast('すでに登録済みです'); return false; }
+  if(ids.length>=SHOTGUN_MAX){ toast('ショットガン候補は最大'+SHOTGUN_MAX+'件までだよ！'); return false; }
+  if(!Array.isArray(c.shotgun_ids)) c.shotgun_ids=[];
+  c.shotgun_ids.push(otherId);
+  _sgPersist();
+  return true;
+}
+function sgRemove(cardId, otherId){
+  var c=_sgCard(cardId); if(!c || !Array.isArray(c.shotgun_ids)) return;
+  c.shotgun_ids=c.shotgun_ids.filter(function(t){ return t!==otherId; });
+  if(!c.shotgun_ids.length) delete c.shotgun_ids;
+  _sgPersist();
+  renderCardShotgun(cardId);
+}
+
+/* ---- 個別カード内の設定枠 ---- */
+function renderCardShotgun(cid){
+  var sec=document.getElementById('cardShotgunSec'), body=document.getElementById('cardShotgunBody');
+  if(!sec || !body) return;
+  if(!cid){ sec.style.display='none'; body.innerHTML=''; return; } /* 未保存の新規カードはIDが無いため非表示 */
+  sec.style.display='';
+  var c=_sgCard(cid); var ids=c?_sgIds(c):[];
+  var cnt=document.getElementById('cardShotgunCount');
+  if(cnt) cnt.textContent=ids.length?('（'+ids.length+'/'+SHOTGUN_MAX+'）'):'';
+  var rows=ids.map(function(t){
+    var o=_sgCard(t); var nm=o?((o.name||'(無名)')+'様'):'(削除済みのカード)';
+    return '<div style="display:flex;align-items:center;gap:6px;padding:6px 2px;border-bottom:1px dashed #edf2f7">'
+      +'<span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:'+(o?'#1a202c':'#a0aec0')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">・'+e(nm)+(o&&o.address?' <span style="font-weight:400;font-size:11px;color:#a0aec0">'+e(String(o.address).slice(0,14))+'</span>':'')+'</span>'
+      +'<button type="button" onclick="sgRemove(\''+cid+'\',\''+t+'\')" title="候補から外す" style="border:none;background:none;color:#cbd5e0;font-size:16px;cursor:pointer;flex-shrink:0;padding:2px 6px">✕</button></div>';
+  }).join('');
+  body.innerHTML=
+    '<div style="font-size:11px;color:#718096;line-height:1.6;margin:4px 0 8px">この見込み客を予定に上げたとき、一緒に回る連帯訪問候補（最大'+SHOTGUN_MAX+'件）。予定表に時間なしで表示されます。</div>'
+    +(rows?('<div style="margin-bottom:8px">'+rows+'</div>'):'<div style="font-size:12px;color:#a0aec0;margin-bottom:8px">まだ候補がありません</div>')
+    +(ids.length<SHOTGUN_MAX?'<button type="button" onclick="sgOpenPick(\''+cid+'\')" style="background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 候補を追加</button>'
+      :'<div style="font-size:11px;color:#b7791f">上限の'+SHOTGUN_MAX+'件に達しています（追加するには✕でどれか外してね）</div>');
+}
+
+/* ---- 候補ピッカー（既存カードから選ぶ・最小モーダル。新しい大規模検索UIは作らない） ---- */
+var _sgPickFor=null;
+function sgOpenPick(cid){
+  _sgPickFor=cid;
+  var ov=document.getElementById('sgPickOv');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='sgPickOv';
+    ov.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:420px;width:100%;max-height:70vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">'
+      +'<div style="padding:12px 14px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:14px;font-weight:800;color:#1a202c">🎯 ショットガン候補を追加</span><button type="button" onclick="sgClosePick()" style="border:none;background:none;font-size:18px;color:#a0aec0;cursor:pointer">✕</button></div>'
+      +'<div style="padding:10px 14px 0"><input id="sgPickSearch" oninput="sgPickFilter(this.value)" placeholder="氏名・住所で絞り込み…" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e0;border-radius:7px;font-size:13px"></div>'
+      +'<div id="sgPickList" style="flex:1;overflow-y:auto;padding:8px 14px 14px"></div></div>';
+    ov.onclick=sgClosePick;
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  var s=document.getElementById('sgPickSearch'); if(s) s.value='';
+  sgPickFilter('');
+}
+function sgClosePick(){ var ov=document.getElementById('sgPickOv'); if(ov) ov.style.display='none'; _sgPickFor=null; }
+function sgPickFilter(q){
+  var host=document.getElementById('sgPickList'); if(!host || !_sgPickFor) return;
+  q=String(q||'').trim();
+  var c=_sgCard(_sgPickFor); var already={}; _sgIds(c).forEach(function(t){ already[t]=1; });
+  var hit=(cards||[]).filter(function(o){
+    if(o.id===_sgPickFor) return false;          /* 自分自身は選べない */
+    if(already[o.id]) return false;              /* 登録済みは出さない（重複防止） */
+    if(!q) return true;
+    var hay=(o.name||'')+' '+(o.address||'');
+    return hay.indexOf(q)>=0;
+  }).slice(0,30);
+  host.innerHTML=hit.length?hit.map(function(o){
+    return '<div onclick="sgPickChoose(\''+o.id+'\')" style="padding:8px 6px;border-bottom:1px dashed #edf2f7;cursor:pointer"><span style="font-size:13px;font-weight:700;color:#1a202c">'+e(o.name||'(無名)')+'様</span>'+(o.address?' <span style="font-size:11px;color:#a0aec0">'+e(String(o.address).slice(0,18))+'</span>':'')+'</div>';
+  }).join(''):'<div style="text-align:center;color:#a0aec0;font-size:12px;padding:14px">該当するカードがありません</div>';
+}
+function sgPickChoose(otherId){
+  if(!_sgPickFor) return;
+  var cid=_sgPickFor;
+  if(sgAdd(cid, otherId)){
+    toast('🎯 候補に追加しました');
+    renderCardShotgun(cid);
+    var c=_sgCard(cid);
+    if(_sgIds(c).length>=SHOTGUN_MAX){ sgClosePick(); } else { sgPickFilter(document.getElementById('sgPickSearch')?document.getElementById('sgPickSearch').value:''); }
+  }
+}
+
+/* ---- 予定表への連帯表示 ----
+ * 予定に上がったカードごとに、同グループの他メンバーを「時間なし候補」として添える。
+ * ・すでにその日の予定に入っているメンバーは出さない（重複回避）
+ * ・同じ描画内で一度候補に出したメンバーは他エントリでは繰り返さない */
+var _sgPlanShown=null;
+function sgResetPlanShown(){ _sgPlanShown={}; }
+function sgPlanCandidatesHTML(en){
+  try{
+    if(!en || !en.cardId) return '';
+    var grp=sgGroupOf(en.cardId); if(!grp.length) return '';
+    var inPlan={};
+    ((typeof _plan!=='undefined' && _plan && _plan.entries)||[]).forEach(function(x){ if(x.cardId) inPlan[x.cardId]=1; });
+    if(!_sgPlanShown) _sgPlanShown={};
+    var show=grp.filter(function(t){ return !inPlan[t] && !_sgPlanShown[t]; });
+    if(!show.length) return '';
+    show.forEach(function(t){ _sgPlanShown[t]=1; });
+    return '<div style="margin-top:7px;padding:6px 9px;background:#fffbeb;border:1px dashed #f6e05e;border-radius:7px">'
+      +'<div style="font-size:10px;font-weight:800;color:#b7791f;margin-bottom:3px">🎯 ショットガン候補（時間なしで一緒に回る）</div>'
+      +show.map(function(t){ var o=_sgCard(t); var city=(o&&typeof planCity==='function')?planCity(o):''; return '<div style="font-size:12px;color:#4a5568;padding:1px 0">・'+e((o&&o.name)||'(無名)')+'様'+(city?' <span style="font-size:10px;color:#a0aec0">'+e(city)+'</span>':'')+'</div>'; }).join('')
+      +'</div>';
+  }catch(err){ return ''; }
+}
+
+/* ---- window公開（家法・必須） ----
+ * 本体JSは全体が単一IIFEで包まれており、トップレベル宣言はグローバルに乗らない。
+ * onclick/oninput属性から呼ぶ関数は必ずここで明示公開すること（第160弾是正で確立）。
+ * 同一IIFE内から呼ばれるだけの関数（renderCardShotgun / sgPlanCandidatesHTML /
+ * sgResetPlanShown / sgGroupOf内部利用）は公開不要＝露出最小。 */
+window.sgAdd=sgAdd; window.sgRemove=sgRemove; window.sgGroupOf=sgGroupOf;
+window.sgOpenPick=sgOpenPick; window.sgClosePick=sgClosePick;
+window.sgPickFilter=sgPickFilter; window.sgPickChoose=sgPickChoose;
+
 /* ===== 本日の予定表（フェーズ1・PC専用） ===== */
 function _p2(n){ return (n<10?'0':'')+n; }
 function planKey(d){ d=d||new Date(); return 'plan_'+d.getFullYear()+_p2(d.getMonth()+1)+_p2(d.getDate()); }
@@ -10190,6 +10355,7 @@ function planSort(mode){ if(!_plan)return; _plan.sort=mode; savePlan(); renderPl
 function planPick(id){ if(id) planAddCard(id); }
 function renderPlanner(){
   var host=document.getElementById('plannerInput'); if(!host) return; sortPlan();
+  if(typeof sgResetPlanShown==='function') sgResetPlanShown(); /* 第160弾: ショットガン候補の重複抑止をリセット */
   var sm=(_plan.sort||'time');
   var appoCards=cards.filter(function(c){ return planHasTodayAppo(c) && !_plan.entries.some(function(e){return e.cardId===c.id;}); });
   var sug='';
@@ -10259,7 +10425,9 @@ function planEntryHTML(en,i){
     +(en.kind==='ev'?'':'<button onclick="planTogglePrio('+i+')" title="優先3客に指定（最大3名）" style="border:none;background:'+(en.prio?'#fffbeb':'none')+';color:'+(en.prio?'#b7791f':'#cbd5e0')+';font-size:15px;font-weight:800;cursor:pointer;flex-shrink:0;border-radius:6px;padding:2px 5px">'+(en.prio?'⭐'+en.prio:'☆')+'</button>')
     +'<button onclick="planDel('+i+')" style="border:none;background:none;color:#cbd5e0;font-size:18px;cursor:pointer;flex-shrink:0">✕</button></div>'
     +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">'+kindSeg+purp+'</div>'
-    +'<input value="'+planEsc(en.note)+'" oninput="planSet('+i+',\'note\',this.value)" placeholder="訪問結果はカードに入力" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;box-sizing:border-box"></div>';
+    +'<input value="'+planEsc(en.note)+'" oninput="planSet('+i+',\'note\',this.value)" placeholder="訪問結果はカードに入力" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;box-sizing:border-box">'
+    +(typeof sgPlanCandidatesHTML==='function'?sgPlanCandidatesHTML(en):'')
+    +'</div>';
 }
 function planSet(i,k,v){ if(!_plan.entries[i])return;
   if(k==='time' && !v && _plan.entries[i].time && _plan.entries[i].kind!=='ev' && planUntimedCount(i)>=PLAN_UNTIMED_MAX){ planUntimedFullWarn(); renderPlanner(); return; }
@@ -12303,6 +12471,11 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
     <details class="sec no-print cps-acc" id="cardPhotoSec" style="display:none">
       <summary class="stitle cps-sum" style="display:flex;align-items:center;gap:8px"><span style="flex:1">📷 計画地写真 <span id="cardPhotoCount" style="font-weight:600;color:#718096;font-size:12px"></span></span><button type="button" id="cardCamBtn" class="cps-hdr-btn cps-hdr-cam" onclick="cardOpenCam(curId)" title="カメラで撮影（このカードに紐付く）">📷</button><button type="button" id="cardInbBtn" class="cps-hdr-btn" onclick="openInboxForCard()" title="インボックスから写真を選ぶ・管理">📥</button><button type="button" id="cardPhotoPrintBtn" class="cps-hdr-btn" onclick="openPlanPhotoPrint()" title="計画地写真を印刷（筆を選んでA4縦）">🖨</button></summary>
       <div id="cardPhotoBody"></div>
+    </details>
+    <!-- 🎯 ショットガングループ（第160弾・連帯訪問候補 最大5件・手動登録） -->
+    <details class="sec no-print" id="cardShotgunSec" style="display:none">
+      <summary class="stitle" style="display:flex;align-items:center;gap:8px"><span style="flex:1">🎯 ショットガングループ <span id="cardShotgunCount" style="font-weight:600;color:#718096;font-size:12px"></span></span></summary>
+      <div id="cardShotgunBody"></div>
     </details>
     <!-- 購買ステージ + 資産背景 -->
     <div class="sec">
