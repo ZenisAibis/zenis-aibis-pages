@@ -442,15 +442,19 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.76";
+const APP_VERSION = "cam-v1.77";
 
-/* === 更新バッジ（第158弾A）: 本体・カメラ共有実装 ===
+/* === 更新バッジ（第158弾A・第159弾で厳密化）: 本体・カメラ共有実装 ===
  * 起動時にPublic版のversion.json（cache-bust付き）を取得し、自分のAPP_VERSIONと比較する。
  * 自分がカメラ（APP_VERSIONが"cam-"始まり）かどうかで、version.jsonのcamera/mainどちらと
  * 比較するかを自動判定する（本体・カメラで完全に同一のコードを共有するため）。
+ * 【第159弾】表示条件を「不一致」から「公開側が数値的に新しい時のみ」へ厳密化。
+ *  - "v10.52"・"cam-v1.76" 両形式を数値配列にパースして桁ごとに比較
+ *    （文字列比較の罠 v10.9 > v10.52 を回避）
+ *  - どちらかがパース不能（将来の形式変更等）の場合は、更新通知機能を殺さないよう
+ *    従来の「不一致なら表示」へフォールバック
  * 方針：オフライン・fetch失敗・JSON解析失敗など、どんな理由でも取得できない場合は
- * 「何も表示しない」（エラー表示禁止）。新しい版が確認できた時だけ、画面上部に
- * 控えめなバッジを表示し、タップで再読み込みする。
+ * 「何も表示しない」（エラー表示禁止）。表示時はタップで再読み込み。
  */
 (function () {
   function showUpdateBadge() {
@@ -462,6 +466,30 @@ const APP_VERSION = "cam-v1.76";
     b.onclick = function () { location.reload(); };
     if (document.body) document.body.appendChild(b);
   }
+  /* "v10.52"→[10,52]、"cam-v1.76"→[1,76]。パース不能はnull */
+  function parseVer(s) {
+    if (typeof s !== 'string') return null;
+    var body = s.replace(/^.*?v/i, '');
+    if (!body || !/^[0-9]+(\.[0-9]+)*$/.test(body)) return null;
+    var parts = body.split('.').map(function (x) { return parseInt(x, 10); });
+    for (var i = 0; i < parts.length; i++) { if (!isFinite(parts[i])) return null; }
+    return parts;
+  }
+  /* a>bなら1、a<bなら-1、同じなら0。桁数差は0埋め比較 */
+  function cmpVer(a, b) {
+    var n = Math.max(a.length, b.length);
+    for (var i = 0; i < n; i++) {
+      var x = a[i] || 0, y = b[i] || 0;
+      if (x > y) return 1;
+      if (x < y) return -1;
+    }
+    return 0;
+  }
+  function isNewer(target, self) {
+    var t = parseVer(target), s = parseVer(self);
+    if (!t || !s) return target !== self; /* パース不能→従来の不一致挙動へフォールバック */
+    return cmpVer(t, s) === 1; /* 公開側が数値的に新しい時のみ */
+  }
   function checkForUpdate() {
     var url = Z_PUBLIC_URL + 'version.json?_=' + Date.now();
     fetch(url, { cache: 'no-store' }).then(function (res) {
@@ -471,7 +499,7 @@ const APP_VERSION = "cam-v1.76";
       if (!data) return;
       var isCamera = /^cam-/.test(APP_VERSION);
       var target = isCamera ? (data.camera && data.camera.appVersion) : (data.main && data.main.appVersion);
-      if (target && target !== APP_VERSION) showUpdateBadge();
+      if (target && isNewer(target, APP_VERSION)) showUpdateBadge();
     }).catch(function () { /* オフライン・失敗時は何も表示しない（禁止事項） */ });
   }
   try { checkForUpdate(); } catch (e) { /* 何もしない */ }
