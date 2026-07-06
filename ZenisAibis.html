@@ -2187,22 +2187,27 @@ body.is-mob .mob-menu{display:inline-block}
       </div><!-- /setupSavePC -->
       <div id="setupSaveMob" style="display:none"></div>
     </div>
-    <div class="sec" id="fullBackupSection" style="display:none">
-      <div class="stitle">■ フルバックアップ／復元（写真込み・第151弾・開発者専用）</div>
+    <div class="sec" id="fullBackupSection">
+      <div class="stitle">■ フルバックアップ／復元（写真込み・第151弾）</div>
       <div style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:10px">
-        <strong style="color:#2c5282">💡 カードデータと写真をまとめて1ファイルに保存・復元できます</strong><br>
-        通常の「読込」機能（カードのみ）とは別の機能です。復元は現在のデータを置き換えます（マージではありません）。
+        <strong style="color:#2c5282">💡 カードデータと写真をまとめて1ファイルに保存できます</strong><br>
+        通常の「読込」機能（カードのみ）とは別の機能です。<strong>復元は管理者のみが実行できます。</strong>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
         <button class="bp" onclick="fullBackupCreate()" style="font-size:13px;padding:10px 16px">📦 フルバックアップを作成</button>
-        <button class="bc" onclick="openFullBackupRestorePicker()" style="font-size:13px;padding:10px 16px">📂 フルバックアップから復元</button>
-        <input type="file" id="fullBackupRestoreInput" accept="application/json,.json" style="display:none" onchange="onFullBackupFileSelected(event)">
       </div>
-      <div id="fullBackupLastDisp" style="font-size:11px;color:#a0aec0;margin-bottom:10px">まだフルバックアップを作成していません</div>
-      <div style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8">
-        <strong style="color:#c53030">⚠ 復元前に必ずお読みください</strong><br>
-        復元を実行すると、今の本体のカード・写真データはすべてバックアップファイルの内容に置き換わります。<br>
-        復元前に、現在のデータも一度フルバックアップまたは既存のJSON書き出しで保存しておくことを強くお勧めします。
+      <div id="fullBackupLastDisp" style="font-size:11px;color:#a0aec0;margin-bottom:6px">まだフルバックアップを作成していません</div>
+      <div id="fullBackupNudge" style="display:none;font-size:11px;color:#b7791f;margin-bottom:10px">⚠ 最終バックアップから◯日経過</div>
+      <div id="fullBackupRestoreArea" style="display:none">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <button class="bc" onclick="openFullBackupRestorePicker()" style="font-size:13px;padding:10px 16px">📂 フルバックアップから復元</button>
+          <input type="file" id="fullBackupRestoreInput" accept="application/json,.json" style="display:none" onchange="onFullBackupFileSelected(event)">
+        </div>
+        <div style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8">
+          <strong style="color:#c53030">⚠ 復元前に必ずお読みください</strong><br>
+          復元を実行すると、今の本体のカード・写真データはすべてバックアップファイルの内容に置き換わります。<br>
+          復元前に、現在のデータも一度フルバックアップまたは既存のJSON書き出しで保存しておくことを強くお勧めします。
+        </div>
       </div>
     </div>
     <div class="sec">
@@ -2418,13 +2423,14 @@ var NICKK = 'prospect_nick_v1';
 var HANDK = 'prospect_hand_v1';
 var LSDK = 'prospect_last_saved';
 var FULL_BACKUP_LAST_KEY = 'prospect_full_backup_last_v1'; // 最終フルバックアップ作成日時
+var FULL_BACKUP_WARN_DAYS = 14; // 第157弾: 最終バックアップからの経過注意表示のしきい値（定数化）
 var DEV_UNLOCK_KEY='prospect_dev_unlock_v1';
 var DEV_UNLOCK_HASH='d2077f5f6886f83503d4c1dd4b9543933b165c4246ca784052d92a05d57b05b6'; // 開発者モード解錠用の初期パスワードのハッシュ（第151弾追補・sha256hex、平文はソースに埋め込まない）
 var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.50";
+var APP_VERSION = "v10.51";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3959,7 +3965,7 @@ function showSetup() {
   var _dh=document.getElementById('devHashTool'); if(_dh) _dh.style.display=(selfEmail===DEV_EMAIL)?'block':'none';
   var _du=document.getElementById('devUnlockPrompt'); if(_du) _du.style.display=(!isDevUnlocked())?'block':'none';
   var _dus=document.getElementById('devUnlockedStatus'); if(_dus) _dus.style.display=(isDevUnlocked())?'flex':'none';
-  var _fb=document.getElementById('fullBackupSection'); if(_fb) _fb.style.display=isDevUnlocked()?'block':'none'; // 第151弾追補: 開発者モード二段階解錠が必要
+  var _fbr=document.getElementById('fullBackupRestoreArea'); if(_fbr) _fbr.style.display=isDevUnlocked()?'block':'none'; // 第157弾: 作成は全員開放・復元のみ開発者モード限定
   try{ if(typeof updateFullBackupLastDisp==='function') updateFullBackupLastDisp(); }catch(_e){}
   // 保存先セクションの表示切替
   var pcDiv  = document.getElementById('setupSavePC');
@@ -11265,7 +11271,7 @@ function _showFullRestorePreview(data, manifest, futureCards, digestOk, haveStor
     +(manifest.orphanMediaCount>0 ? "<span style=\"color:#c53030\">⚠ 参照先カード不明の写真："+manifest.orphanMediaCount+"件</span><br>" : "")
     +(futureCards>0 ? "<span style=\"color:#b7791f\">⚠ このアプリより新しい世代のカードが"+futureCards+"件あります（復元は継続できます）</span><br>" : "")
     +(haveStoredDigest ? "整合性チェック："+(digestOk?"OK":"NG") : "整合性チェック：（このファイルにはdigest記録がありません）")
-    +"<br><br>作成日時："+(data.createdAt||"不明")+"　作成時バージョン："+(data.appVersion||"不明")
+    +"<br><br>作成日時："+e(data.createdAt||"不明")+"　作成時バージョン："+e(data.appVersion||"不明")
     +"<br><br><b style=\"color:#c53030\">この操作は現在のカード・写真データをすべて置き換えます（マージではありません）。</b>"
     +"<br>復元前に、現在のデータを既存の「読込」画面のエクスポート機能で保存しておくことをお勧めします。";
   aibisConfirm(msg, function(){ _executeFullRestore(data); }, "復元を実行", "キャンセル");
@@ -11311,7 +11317,7 @@ function _executeFullRestore(data){
       _showRestoreResult(saveOk, afterManifest, mismatch);
     });
   }).catch(function(err){
-    aibisAlert("⚠ 復元中にエラーが発生しました：<br><span style=\"color:#c53030;font-size:11px\">"+String((err&&err.message)||err)+"</span><br><br>状態が不完全な可能性があります。念のため元のバックアップファイルで再度復元をお試しください。");
+    aibisAlert("⚠ 復元中にエラーが発生しました：<br><span style=\"color:#c53030;font-size:11px\">"+e(String((err&&err.message)||err))+"</span><br><br>状態が不完全な可能性があります。念のため元のバックアップファイルで再度復元をお試しください。");
   });
 }
 function _showRestoreResult(saveOk, afterManifest, mismatch){
@@ -11337,11 +11343,21 @@ function restorePreRestoreSnapshot(){
 
 function updateFullBackupLastDisp(){
   var el=document.getElementById("fullBackupLastDisp"); if(!el) return;
+  var nudge=document.getElementById("fullBackupNudge");
   var s=null; try{ s=localStorage.getItem(FULL_BACKUP_LAST_KEY); }catch(e){}
-  if(!s){ el.textContent="まだフルバックアップを作成していません"; el.style.color="#a0aec0"; return; }
+  if(!s){
+    el.textContent="まだフルバックアップを作成していません"; el.style.color="#a0aec0";
+    if(nudge){ nudge.textContent="⚠ まだ一度もバックアップを作成していません"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
+    return;
+  }
   var d=new Date(s);
   el.textContent="最終フルバックアップ作成：" + (d.getMonth()+1)+"/"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
   el.style.color="#38a169";
+  if(nudge){
+    var days=Math.floor((Date.now()-d.getTime())/86400000);
+    if(days>=FULL_BACKUP_WARN_DAYS){ nudge.textContent="⚠ 最終バックアップから"+days+"日経過"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
+    else { nudge.style.display="none"; }
+  }
 }
 window.updateFullBackupLastDisp=updateFullBackupLastDisp;
 window.fullBackupCreate=fullBackupCreate;

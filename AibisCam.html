@@ -413,6 +413,26 @@
 
 <script>
 "use strict";
+/* === アクセス制限（ドメインロック）: 許可ホスト以外では起動しない ===
+ * 共有hostlock（第153弾: 本体・カメラ共通ロジック化＋Z_ALLOW対称化）。
+ * 元は本体側 main/security/host_guard.js のみに存在し、カメラには同種の
+ * チェックが一切無かった（非対称）。本ファイルを本体・カメラ双方の
+ * テンプレートから共有マーカー経由で読み込み、判定ロジックを1本化する。
+ * 方針：本番ロック仕様は一切緩めない。localhost/file://を許可対象に加えない。 */
+var Z_ALLOW=['zenisaibis.github.io'];  /* 配信ドメインを変えたらここを変更 */
+var Z_PUBLIC_URL='https://zenisaibis.github.io/zenis-aibis-pages/';
+if(Z_ALLOW.indexOf(location.hostname)<0){
+  var _zLockHtml='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0b1120;color:#e8edf7;font-family:sans-serif;text-align:center;padding:24px">'
+    +'<div><div style="font-size:46px">🔒</div>'
+    +'<div style="font-size:18px;font-weight:700;margin:12px 0 6px">このアプリは許可された環境でのみ動作します</div>'
+    +'<div style="font-size:13px;color:#8a97b2;margin-bottom:14px">正規のURLからアクセスしてください。</div>'
+    +'<a href="'+Z_PUBLIC_URL+'" style="display:inline-block;font-size:13px;color:#0b1120;background:#e8edf7;border-radius:8px;padding:8px 16px;text-decoration:none;font-weight:700">'+Z_PUBLIC_URL+'</a>'
+    +'</div></div>';
+  try{ document.body.innerHTML=_zLockHtml; }
+  catch(e){ document.documentElement.innerHTML='<body style="background:#0b1120;color:#e8edf7;font-family:sans-serif;text-align:center;padding:60px 24px">🔒 このアプリは許可された環境でのみ動作します<br><br><a href="'+Z_PUBLIC_URL+'" style="color:#f59e0b">'+Z_PUBLIC_URL+'</a></body>'; }
+  throw new Error('z.Aibis: unauthorized host');
+}
+
 /* =========================================================
    z.Aibis カメラ v1.10  ── 1データ＝計画地写真 最大4枚（A4 4分割印刷を想定）
    連携契約:
@@ -422,7 +442,7 @@
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.72";
+const APP_VERSION = "cam-v1.75";
 
 /* ===== PWA：単一ファイルでインストール可能化（外部ファイル不要） ===== */
 function _pwaIcon(size,maskable){
@@ -1177,7 +1197,104 @@ const SORT_ACT={
   pace:{desc:"⏰ 遅れ 小→",asc:"⏰ 遅れ 大→"}, dt:{desc:"📅 初訪 古→",asc:"📅 初訪 新→"},
   lm:{desc:"🗺 土地 古→",asc:"🗺 土地 古→"}, cust:{desc:"👤 顧客 新→",asc:"👤 顧客 新→"}
 };
-const PACE_LIMIT={S:7,A:10,B:21,C:40,D:80};
+/* ===== z.Aibis 共有スコアモジュール（第154弾: shared/score.js） =====
+ * 本体・カメラ双方のテンプレートから読み込む単一情報源（includeマーカーで取り込み）。
+ * 依存: DOM要素なし（純粋関数のみ）。UI描画（paintScoreWhy/showScoreWhy等）は
+ *       main/score/score_core.js 側に残置（本体のみで使用するため）。
+ * 第153弾の引き継ぎ事項：カメラ側 calcScore には _hasContact 判定（未接触の新規
+ * カードは留守満点にしない）が欠落していた（既知バグ）。本体ロジックを正として
+ * 統合することで、この差分は自動的に解消される。
+ */
+var PACE_LIMIT={S:7,A:10,B:21,C:40,D:80}; // 確定(v6.69) 推奨訪問ペース。超過で遅れ判定。個人差は一律運用
+function _amScore(c){ var m=(c&&c.am_checks)||{}; var s=0; if(m.kazoku)s+=2; if(m.jikoshikin)s+=1; if(m.kakutei)s+=1; if(m.nayose)s+=0.5; if(m.nouki)s+=0.5; return s; }
+// 充足A見込み＝A見込みかつ家族合意済かつ充足度3以上（“見かけA”を除外）
+function _amFulfilledA(c){ if(!c)return false; var m=c.am_checks||{}; var isA=(c.pursuit_judge==='A'||c.pursuit_judge==='S'||c.pursuit_judge_sel==='A見込み'); return isA && !!m.kazoku && _amScore(c)>=3; }
+// スコア計算
+function calcScoreParts(c){
+  // ① ステージ（最大13点）3:連想を強調
+  var stageScore=[0,1,3,5,8,11,12,13];
+  var si=+(c.stage||0);
+  var s=stageScore[Math.min(si,7)]||0;
+  // ② 追客ランク（最大8点）
+  var rankMap={S:8,A:6,B:4,C:2,D:1,E:0,X:0};
+  var r=rankMap[c.pursuit_judge]||0;
+  // ③ 会話状況（最大12点）上り込みを最重視
+  var kaiwaScore={ピンポン:1,立ち話:3,玄関内:5,連れ出し:8,上り込み:12};
+  var karr=Array.isArray(c.kaiwa)?c.kaiwa:(c.kaiwa?[c.kaiwa]:[]);
+  var k=0,kLbl='';
+  karr.forEach(function(v){ var sc=kaiwaScore[v]||0; if(sc>k){k=sc;kLbl=v;} });
+  // ④ 土地面積（坪換算・最大5点）
+  var m2=parseFloat(String(c.m2||'').replace(/,/g,''))||0;
+  var tsubo=m2/3.30578;
+  var landScore=0;
+  if(tsubo<=0) landScore=0;
+  else if(tsubo<40) landScore=0;
+  else if(tsubo<50) landScore=1;
+  else if(tsubo<100) landScore=2;
+  else if(tsubo<200) landScore=4;
+  else if(tsubo<=500) landScore=5;
+  else landScore=4; // 500坪超は大きすぎ
+  // ⑤ 路線価補正（面積スコアに係数）
+  var rosen=parseFloat(String(c.rosenka||'').replace(/,/g,''))||0;
+  var rosenCoef=1.0;
+  if(rosen>0){
+    if(rosen<15) rosenCoef=0.7;
+    else if(rosen<30) rosenCoef=0.9;
+    else if(rosen<50) rosenCoef=1.0;
+    else if(rosen<100) rosenCoef=1.2;
+    else rosenCoef=1.5;
+  }
+  var landFinal=Math.round(landScore*rosenCoef*10)/10;
+  if(c.asset_type) landFinal=0; // アセット系は土地点を無視
+  // ⑥ KP・所有者面談済（最大6点）
+  var fam=c.family||[];
+  var hasOwnerMet=fam.some(function(m){return m.owner&&m.met;});
+  var hasKpMet=fam.some(function(m){return m.kp&&m.met;});
+  var famScore=(hasOwnerMet?3:0)+(hasKpMet?3:0);
+  // ⑦ 資産背景（最大10点）
+  function invNum(v){ if(v==='5以上') return 6; var n=parseInt(v,10); return isNaN(n)?0:n; }
+  var invSum=invNum(c.old_rent)+invNum(c.parking_lot)+invNum(c.jitaku)+invNum(c.ryokuchi);
+  var invScore=0;
+  if(invSum<=0) invScore=0;
+  else if(invSum<=2) invScore=1;
+  else if(invSum<=5) invScore=2;
+  else if(invSum<=9) invScore=3;
+  else if(invSum<=14) invScore=4;
+  else invScore=5;
+  var laMap={'1億以下':1,'3億以下':2,'5億以下':3,'10億未満':4,'10億以上':5};
+  var assetScore=invScore+(laMap[c.land_asset]||0);
+  // ⑧ 最寄り駅 徒歩区分（〜10分+2 / 21分以上-2）
+  var ekiScore=(c.ekitoho==='〜10分')?2:(c.ekitoho==='21分以上')?-2:0;
+  // ⑨ 提案依頼取得（最重要15点）
+  var proposalScore=c.proposal_req?15:0;
+  // ⑩ 連続留守（4点スタートで減算）
+  var rusuMap=[4,3,2,1,0,0];
+  var rusuN=Math.max(0,Math.min(5,parseInt(c.rusu,10)||0));
+  var _hasContact=(si>0)||(k>0)||!!c.proposal_req||String(c.initial_content||'').trim()!==''||(Array.isArray(c.revisits)&&c.revisits.some(function(v){return v&&(v.date||v.content);}))||(Array.isArray(c.pursuits)&&c.pursuits.length>0);
+  var rusuScore=rusuMap[rusuN];
+  if(rusuN===0 && !_hasContact) rusuScore=0; // 未着手カードは留守満点(4)を付けない（新規=0点スタート）
+  // ⑪ 案件化充足（A見込みのみ・必須項目の取得状況／見かけAは上がらない・最大6点）
+  var _isA=(c.pursuit_judge==='A'||c.pursuit_judge==='S'||c.pursuit_judge_sel==='A見込み');
+  var _amSc=_amScore(c);
+  var amCardPt=_isA?Math.round(_amSc/5*6):0;
+  var stgNm=(typeof STG!=='undefined'&&STG[si])?STG[si]:String(si);
+  var parts=[
+   {lb:'⭐ 提案依頼',pt:proposalScore,mx:15,why:c.proposal_req?'取得済み（顧客の意思表示）':'未取得。連想(3)到達でテストクロージングを'},
+   {lb:'🧠 心理ステージ',pt:s,mx:13,why:'現在：'+stgNm},
+   {lb:'🗣 会話状況',pt:k,mx:12,why:k?('最高到達：'+kLbl):'未記録。まず立ち話→玄関内へ'},
+   {lb:'💰 資産背景',pt:assetScore,mx:10,why:'保有物量 '+invSum+'件・土地資産 '+(c.land_asset||'未確認')},
+   {lb:'🏷 追客ランク',pt:r,mx:8,why:c.pursuit_judge||'未判定'},
+   {lb:'🌍 土地×路線価',pt:landFinal,mx:7.5,why:c.asset_type?'アセット系のため対象外':(tsubo>0?(Math.round(tsubo)+'坪 × 係数'+rosenCoef):'面積未入力')},
+   {lb:'👪 KP/所有者面談',pt:famScore,mx:6,why:'所有者'+(hasOwnerMet?'✓':'未')+'・KP'+(hasKpMet?'✓':'未')},
+   {lb:'✅ 案件化充足',pt:amCardPt,mx:6,why:_isA?(_amSc>=3?'必須項目を取得（家族合意ほか）':(_amSc>0?'A見込みだが取得不足':'A見込みだが未取得＝見かけA')):'A見込み確定で対象'},
+   {lb:'🚪 連続留守',pt:rusuScore,mx:4,why:(rusuN===0&&!_hasContact)?'未着手（訪問後に加点）':'留守'+rusuN+'回（減点式・留守ゼロで満点）'},
+   {lb:'🚉 駅徒歩',pt:ekiScore,mx:2,why:c.ekitoho||'未確認（±2点）'}
+  ];
+  var total=Math.max(0, Math.round(s+r+k+landFinal+famScore+assetScore+ekiScore+proposalScore+rusuScore+amCardPt));
+  return {total:total,parts:parts};
+}
+function calcScore(c){ return calcScoreParts(c).total; }
+
 const REVISIT_PHASE={span:14,times:3,interval:5};
 function getLastVD(c){ var d=[]; (c.pursuits||[]).forEach(v=>{if(v.date)d.push(v.date);}); (c.revisits||[]).forEach(v=>{if(v.date)d.push(v.date);}); if(c.discovery_date)d.push(c.discovery_date); return d.length?d.sort((a,b)=>b.localeCompare(a))[0]:""; }
 function getArea(addr){ if(!addr)return""; var m=addr.match(/^(.+?[都道府県])(.+?[市区町村郡])/); return m?m[1]+m[2]:addr.substring(0,10); }
@@ -1191,28 +1308,7 @@ function calcPaceOverrate(c){
   if(_isRevisitPhase(c)){ var sd=Math.floor((new Date()-new Date(c.discovery_date))/86400000); var r=days/REVISIT_PHASE.interval; if(sd>REVISIT_PHASE.span)r=Math.max(r,sd/REVISIT_PHASE.span); return r; }
   var lim=PACE_LIMIT[c.pursuit_judge||""]; if(!lim)return -1; return days/lim;
 }
-function _amScore(c){ var m=(c&&c.am_checks)||{}; var s=0; if(m.kazoku)s+=2; if(m.jikoshikin)s+=1; if(m.kakutei)s+=1; if(m.nayose)s+=0.5; if(m.nouki)s+=0.5; return s; }
-function calcScore(c){
-  var stageScore=[0,1,3,5,8,11,12,13]; var si=+(c.stage||0); var s=stageScore[Math.min(si,7)]||0;
-  var rankMap={S:8,A:6,B:4,C:2,D:1,E:0,X:0}; var r=rankMap[c.pursuit_judge]||0;
-  var kaiwaScore={"ピンポン":1,"立ち話":3,"玄関内":5,"連れ出し":8,"上り込み":12};
-  var karr=Array.isArray(c.kaiwa)?c.kaiwa:(c.kaiwa?[c.kaiwa]:[]); var k=0; karr.forEach(v=>{var sc=kaiwaScore[v]||0; if(sc>k)k=sc;});
-  var m2=parseFloat(String(c.m2||"").replace(/,/g,""))||0; var tsubo=m2/3.30578; var landScore=0;
-  if(tsubo<=0)landScore=0; else if(tsubo<40)landScore=0; else if(tsubo<50)landScore=1; else if(tsubo<100)landScore=2; else if(tsubo<200)landScore=4; else if(tsubo<=500)landScore=5; else landScore=4;
-  var rosen=parseFloat(String(c.rosenka||"").replace(/,/g,""))||0; var rc=1.0;
-  if(rosen>0){ if(rosen<15)rc=0.7; else if(rosen<30)rc=0.9; else if(rosen<50)rc=1.0; else if(rosen<100)rc=1.2; else rc=1.5; }
-  var landFinal=Math.round(landScore*rc*10)/10; if(c.asset_type)landFinal=0;
-  var fam=c.family||[]; var ho=fam.some(m=>m.owner&&m.met); var hk=fam.some(m=>m.kp&&m.met); var famScore=(ho?3:0)+(hk?3:0);
-  function invNum(v){ if(v==="5以上")return 6; var n=parseInt(v,10); return isNaN(n)?0:n; }
-  var invSum=invNum(c.old_rent)+invNum(c.parking_lot)+invNum(c.jitaku)+invNum(c.ryokuchi); var invScore=0;
-  if(invSum<=0)invScore=0; else if(invSum<=2)invScore=1; else if(invSum<=5)invScore=2; else if(invSum<=9)invScore=3; else if(invSum<=14)invScore=4; else invScore=5;
-  var laMap={"1億以下":1,"3億以下":2,"5億以下":3,"10億未満":4,"10億以上":5}; var assetScore=invScore+(laMap[c.land_asset]||0);
-  var ekiScore=(c.ekitoho==="〜10分")?2:(c.ekitoho==="21分以上")?-2:0;
-  var proposalScore=c.proposal_req?15:0;
-  var rusuMap=[4,3,2,1,0,0]; var rusuN=Math.max(0,Math.min(5,parseInt(c.rusu,10)||0)); var rusuScore=rusuMap[rusuN];
-  var _isA=(c.pursuit_judge==="A"||c.pursuit_judge==="S"||c.pursuit_judge_sel==="A見込み"); var amCardPt=_isA?Math.round(_amScore(c)/5*6):0;
-  return Math.max(0, Math.round(s+r+k+landFinal+famScore+assetScore+ekiScore+proposalScore+rusuScore+amCardPt));
-}
+// 第154弾: _amScore / calcScore は shared/score.js に共有化済み（本体の _hasContact 判定込みで統一）
 function _cTs(c){ if(!c)return 0; if(c.updated_at){var u=new Date(c.updated_at).getTime(); if(!isNaN(u))return u;} if(c.created_at){var t=new Date(c.created_at).getTime(); if(!isNaN(t))return t;} var m=/^c_(\d+)/.exec(c.id||""); if(m)return +m[1]; return 0; }
 function _isLandLead(c){ return !!(c && c.name==="土地見込み"); }
 var KAIWA_ORDER=["ピンポン","立ち話","玄関内","連れ出し","上り込み"];
