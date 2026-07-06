@@ -442,7 +442,41 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.75";
+const APP_VERSION = "cam-v1.76";
+
+/* === 更新バッジ（第158弾A）: 本体・カメラ共有実装 ===
+ * 起動時にPublic版のversion.json（cache-bust付き）を取得し、自分のAPP_VERSIONと比較する。
+ * 自分がカメラ（APP_VERSIONが"cam-"始まり）かどうかで、version.jsonのcamera/mainどちらと
+ * 比較するかを自動判定する（本体・カメラで完全に同一のコードを共有するため）。
+ * 方針：オフライン・fetch失敗・JSON解析失敗など、どんな理由でも取得できない場合は
+ * 「何も表示しない」（エラー表示禁止）。新しい版が確認できた時だけ、画面上部に
+ * 控えめなバッジを表示し、タップで再読み込みする。
+ */
+(function () {
+  function showUpdateBadge() {
+    if (document.getElementById('aibisUpdateBadge')) return;
+    var b = document.createElement('div');
+    b.id = 'aibisUpdateBadge';
+    b.textContent = '🔄 新しいバージョンがあります。再読み込みしてください';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#2c5282;color:#fff;text-align:center;font-size:12px;padding:6px 10px;cursor:pointer;font-family:inherit;box-shadow:0 1px 4px rgba(0,0,0,.25)';
+    b.onclick = function () { location.reload(); };
+    if (document.body) document.body.appendChild(b);
+  }
+  function checkForUpdate() {
+    var url = Z_PUBLIC_URL + 'version.json?_=' + Date.now();
+    fetch(url, { cache: 'no-store' }).then(function (res) {
+      if (!res.ok) return null;
+      return res.json();
+    }).then(function (data) {
+      if (!data) return;
+      var isCamera = /^cam-/.test(APP_VERSION);
+      var target = isCamera ? (data.camera && data.camera.appVersion) : (data.main && data.main.appVersion);
+      if (target && target !== APP_VERSION) showUpdateBadge();
+    }).catch(function () { /* オフライン・失敗時は何も表示しない（禁止事項） */ });
+  }
+  try { checkForUpdate(); } catch (e) { /* 何もしない */ }
+})();
+
 
 /* ===== PWA：単一ファイルでインストール可能化（外部ファイル不要） ===== */
 function _pwaIcon(size,maskable){

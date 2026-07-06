@@ -2196,7 +2196,7 @@ body.is-mob .mob-menu{display:inline-block}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
         <button class="bp" onclick="fullBackupCreate()" style="font-size:13px;padding:10px 16px">📦 フルバックアップを作成</button>
       </div>
-      <div id="fullBackupLastDisp" style="font-size:11px;color:#a0aec0;margin-bottom:6px">まだフルバックアップを作成していません</div>
+      <div id="fullBackupLastDisp" style="font-size:11px;color:#718096;margin-bottom:6px">まだフルバックアップを作成していません</div>
       <div id="fullBackupNudge" style="display:none;font-size:11px;color:#b7791f;margin-bottom:10px">⚠ 最終バックアップから◯日経過</div>
       <div id="fullBackupRestoreArea" style="display:none">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
@@ -2430,7 +2430,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.51";
+var APP_VERSION = "v10.52";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -2454,6 +2454,40 @@ window.zAddAnalysis=function(item){
   return true;
 };
 // IS_DEV はバージョン直下(1か所)に集約。旧・二重定義(緩い /_dev/i 版)をここで除去 (v6.96)
+
+/* === 更新バッジ（第158弾A）: 本体・カメラ共有実装 ===
+ * 起動時にPublic版のversion.json（cache-bust付き）を取得し、自分のAPP_VERSIONと比較する。
+ * 自分がカメラ（APP_VERSIONが"cam-"始まり）かどうかで、version.jsonのcamera/mainどちらと
+ * 比較するかを自動判定する（本体・カメラで完全に同一のコードを共有するため）。
+ * 方針：オフライン・fetch失敗・JSON解析失敗など、どんな理由でも取得できない場合は
+ * 「何も表示しない」（エラー表示禁止）。新しい版が確認できた時だけ、画面上部に
+ * 控えめなバッジを表示し、タップで再読み込みする。
+ */
+(function () {
+  function showUpdateBadge() {
+    if (document.getElementById('aibisUpdateBadge')) return;
+    var b = document.createElement('div');
+    b.id = 'aibisUpdateBadge';
+    b.textContent = '🔄 新しいバージョンがあります。再読み込みしてください';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#2c5282;color:#fff;text-align:center;font-size:12px;padding:6px 10px;cursor:pointer;font-family:inherit;box-shadow:0 1px 4px rgba(0,0,0,.25)';
+    b.onclick = function () { location.reload(); };
+    if (document.body) document.body.appendChild(b);
+  }
+  function checkForUpdate() {
+    var url = Z_PUBLIC_URL + 'version.json?_=' + Date.now();
+    fetch(url, { cache: 'no-store' }).then(function (res) {
+      if (!res.ok) return null;
+      return res.json();
+    }).then(function (data) {
+      if (!data) return;
+      var isCamera = /^cam-/.test(APP_VERSION);
+      var target = isCamera ? (data.camera && data.camera.appVersion) : (data.main && data.main.appVersion);
+      if (target && target !== APP_VERSION) showUpdateBadge();
+    }).catch(function () { /* オフライン・失敗時は何も表示しない（禁止事項） */ });
+  }
+  try { checkForUpdate(); } catch (e) { /* 何もしない */ }
+})();
+
 
 // ===== 稼働モデル: 心理→見込みランク＆工数（Phase① / 将来 js/workload.js）=====
 // 出典: ハンドオフ4-1（暫定値・運用で微調整）。stage(0-7)→温度ランク＋工数(日/月)。
@@ -11346,7 +11380,7 @@ function updateFullBackupLastDisp(){
   var nudge=document.getElementById("fullBackupNudge");
   var s=null; try{ s=localStorage.getItem(FULL_BACKUP_LAST_KEY); }catch(e){}
   if(!s){
-    el.textContent="まだフルバックアップを作成していません"; el.style.color="#a0aec0";
+    el.textContent="まだフルバックアップを作成していません"; el.style.color="#718096";
     if(nudge){ nudge.textContent="⚠ まだ一度もバックアップを作成していません"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
     return;
   }
