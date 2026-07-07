@@ -1573,6 +1573,7 @@ body.is-mob .mob-menu{display:inline-block}
       <button onclick="selectAll()" class="bc" style="font-size:11px;padding:5px 8px">全選択</button>
       <button onclick="selectNone()" class="bc" style="font-size:11px;padding:5px 8px">全解除</button>
       <button onclick="openPlannerFromSelected()" class="bp pc-only-btn" style="font-size:11px;padding:5px 8px;background:#319795">📅 本日の予定表</button>
+      <button onclick="sggOpen()" class="bp pc-only-btn" style="font-size:11px;padding:5px 8px;background:#d69e2e;color:#1a1300">🎯 ショットガン</button>
       <button onclick="mailSelectedToSelf()" class="bp" style="font-size:11px;padding:5px 8px" id="btnSendSelf">📧 スマホへ</button>
       <button onclick="mailSelectedToStaff()" class="bp" style="font-size:11px;padding:5px 8px;background:#553c9a;display:none" id="btnSendStaff"><span class="bic">📧 </span>担当<span style="font-size:.8em;opacity:.85">へ</span></button>
       <button onclick="mailSelectedToManager()" class="bw" style="font-size:11px;padding:5px 8px"><span class="bic">📧 </span>課長<span style="font-size:.8em;opacity:.85">へ</span></button>
@@ -1754,6 +1755,21 @@ body.is-mob .mob-menu{display:inline-block}
     <div id="plannerPreview" style="display:none"></div>
   </div>
 </div>
+
+<!-- ショットガン（営業作戦グループ）一覧・編集（PC専用・第161弾Phase2） -->
+<div id="shotgunView" onclick="sggOverlayClick(event)" style="display:none;position:fixed;inset:0;background:rgba(8,15,30,0.42);-webkit-backdrop-filter:blur(6px) saturate(115%);backdrop-filter:blur(6px) saturate(115%);z-index:2000;overflow-y:auto">
+  <div style="max-width:900px;margin:18px auto;padding:18px;background:rgba(255,255,255,0.94);-webkit-backdrop-filter:blur(14px) saturate(135%);backdrop-filter:blur(14px) saturate(135%);border:1px solid rgba(255,255,255,0.6);border-radius:16px;box-shadow:0 24px 60px -12px rgba(15,23,42,0.5)" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span style="font-size:16px;font-weight:700;color:#2c5282">🎯 ショットガン（営業作戦グループ）</span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <button onclick="sggClose()" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">← 一覧に戻る</button>
+      <button onclick="sggOpenNewPick()" style="margin-left:auto;background:#3182ce;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 新しいショットガン</button>
+    </div>
+    <div id="shotgunViewBody"></div>
+  </div>
+</div>
+
 
 <!-- ヘルプ画面 -->
 <div id="helpView" style="display:none;position:fixed;inset:0;background:white;z-index:100;overflow-y:auto">
@@ -2430,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.55";
+var APP_VERSION = "v10.56";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -2812,6 +2828,7 @@ function readLS() {
   lastSaveSnapshot=JSON.stringify(cards);
   migrateRosenka();
   migratePursuitLock();
+  try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の1つ目）
   try{ checkSchemaVersions(); }catch(_e){} // 第150弾：読取専用の点検のみ。既存データは書き換えない
 }
 var BACKUP_KEY='prospect_backup_v1';
@@ -2878,6 +2895,7 @@ function doRestoreBackup(){
     if(!bk) return;
     cards=JSON.parse(bk);
     migrateRosenka();
+    try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の4つ目）
     doSaveCards(function(){
       showList();
       toast('⏪ 1つ前の状態に復元しました');
@@ -7526,6 +7544,7 @@ async function doMerge(imp){
     // 該当担当者のカードを削除して置換
     cards=cards.filter(function(c){ return names.indexOf(c.manager||'')<0; });
     cards=cards.concat(imp);
+    try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の2つ目・上書き分岐）
     doSaveCards(function(){
       renderList();
       try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} // 写真先行・カード後行のpending解決（第146弾）
@@ -7536,6 +7555,7 @@ async function doMerge(imp){
   // マージモード
   if(cards.length===0){
     cards=imp;
+    try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の2つ目・マージ空分岐）
     doSaveCards(function(){ renderList(); try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} toast('✅ '+imp.length+'件を読み込みました'); });
     return;
   }
@@ -7550,6 +7570,7 @@ async function doMerge(imp){
       cards.push(ic); newCount++;
     }
   });
+  try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の2つ目・マージ通常分岐）
   doSaveCards(function(){
     renderList();
     try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){}
@@ -10090,167 +10111,563 @@ function printDashboard(hostId,title){
   setTimeout(function(){ try{ w.focus(); w.print(); setTimeout(function(){ try{ if(!w.closed) w.close(); }catch(e){} }, 1500); }catch(ex){} }, 600);
 }
 window.printDashboard=printDashboard;
-/* ===== ショットガングループ（第160弾・最小導入） =====
- * 優先見込み客を起点に、一緒に回る連帯訪問候補（ザイオンス訪問など）を最大5件まで
- * 営業マンが手動で束ねる。住所からの自動抽出はしない（道路・川・親族関係など現場判断のため）。
- * 保存は片方向（案B）：登録した側のカードだけが shotgun_ids を持つ。
- *   → 既存カードを一括変換しない・保存時の副作用が最小。
- * 表示（予定表）は登録辺を無向グラフとみなし連結成分で展開＝実用上の双方向グループ。
- * 既存カードに shotgun_ids が無くても正常動作。存在しないID混入でも落ちない。
+/* ===== ショットガングループ（第161弾で card.sg 方式へ全面移行） =====
+ * 第160弾のshotgun_ids直接操作API（sgAdd/sgRemove/sgGroupOf・片方向保存＋連結成分展開）は、
+ * 第161弾Phase2〜4でcard.sg方式（sggCreate/sggAddMember/sggRemoveMember/sggOf等）に完全に
+ * 置き換わったため削除した（通常導線・テストいずれからも無参照になったことを確認済み）。
+ * shotgun_idsは migrateShotgun(cards) による移行専用データとしてのみ存在する。
+ * （_sggCard等の共通ヘルパーは本ファイル後段のPhase1データ層セクションで定義・関数巻き上げにより
+ *   ファイル内どこからでも参照可能）
  */
-var SHOTGUN_MAX = 5;
 
-function _sgIds(c){ return (c && Array.isArray(c.shotgun_ids)) ? c.shotgun_ids : []; }
-function _sgCard(id){
-  if(!id) return null;
-  if(typeof _cardById === 'function'){ return _cardById(id) || null; }
-  for(var i=0;i<cards.length;i++){ if(cards[i].id===id) return cards[i]; }
-  return null;
-}
-function _sgPersist(){ try{ if(typeof doSaveCards==='function') doSaveCards(function(){}); else localStorage.setItem(SK, JSON.stringify(cards)); }catch(e){} }
-
-/* グループ＝登録辺（無向）の連結成分。self を除いた「実在する」メンバーidを返す。
- * 例：佐藤→[田中,鈴木] のとき、佐藤/田中/鈴木 いずれを起点にしても残り2名が返る。 */
-function sgGroupOf(cardId){
-  if(!cardId) return [];
-  var adj={};
-  (cards||[]).forEach(function(c){
-    _sgIds(c).forEach(function(t){
-      if(!t || t===c.id) return;
-      (adj[c.id]=adj[c.id]||{})[t]=1;
-      (adj[t]=adj[t]||{})[c.id]=1;
-    });
-  });
-  var seen={}; seen[cardId]=1;
-  var q=[cardId], out=[];
-  while(q.length){
-    var x=q.shift(); var nb=adj[x]||{};
-    for(var k in nb){ if(!seen[k]){ seen[k]=1; q.push(k); if(_sgCard(k)) out.push(k); } }
-  }
-  return out;
-}
-
-/* 追加（ガード：自分自身NG・重複NG・最大5件・実在チェック）。成功時 true */
-function sgAdd(cardId, otherId){
-  var c=_sgCard(cardId); if(!c){ return false; }
-  if(!otherId || otherId===cardId){ toast('自分自身は登録できません'); return false; }
-  if(!_sgCard(otherId)){ toast('対象のカードが見つかりません'); return false; }
-  var ids=_sgIds(c);
-  if(ids.indexOf(otherId)>=0){ toast('すでに登録済みです'); return false; }
-  if(ids.length>=SHOTGUN_MAX){ toast('ショットガン候補は最大'+SHOTGUN_MAX+'件までだよ！'); return false; }
-  if(!Array.isArray(c.shotgun_ids)) c.shotgun_ids=[];
-  c.shotgun_ids.push(otherId);
-  _sgPersist();
-  return true;
-}
-function sgRemove(cardId, otherId){
-  var c=_sgCard(cardId); if(!c || !Array.isArray(c.shotgun_ids)) return;
-  c.shotgun_ids=c.shotgun_ids.filter(function(t){ return t!==otherId; });
-  if(!c.shotgun_ids.length) delete c.shotgun_ids;
-  _sgPersist();
-  renderCardShotgun(cardId);
-}
-
-/* ---- 個別カード内の設定枠 ---- */
+/* ---- 個別カード内の所属表示（第161弾Phase3・所属時のみ1行。編集はPC版#shotgunViewで行う）
+ * 旧cardShotgunSec（details＋候補ピッカー）は撤去。関数名(renderCardShotgun)は既存呼び出し元
+ * （card_create_open.js/draft_autosave.js）と互換のため維持し、中身だけを差し替える。 */
 function renderCardShotgun(cid){
-  var sec=document.getElementById('cardShotgunSec'), body=document.getElementById('cardShotgunBody');
-  if(!sec || !body) return;
-  if(!cid){ sec.style.display='none'; body.innerHTML=''; return; } /* 未保存の新規カードはIDが無いため非表示 */
-  sec.style.display='';
-  var c=_sgCard(cid); var ids=c?_sgIds(c):[];
-  var cnt=document.getElementById('cardShotgunCount');
-  if(cnt) cnt.textContent=ids.length?('（'+ids.length+'/'+SHOTGUN_MAX+'）'):'';
-  var rows=ids.map(function(t){
-    var o=_sgCard(t); var nm=o?((o.name||'(無名)')+'様'):'(削除済みのカード)';
-    return '<div style="display:flex;align-items:center;gap:6px;padding:6px 2px;border-bottom:1px dashed #edf2f7">'
-      +'<span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:'+(o?'#1a202c':'#a0aec0')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">・'+e(nm)+(o&&o.address?' <span style="font-weight:400;font-size:11px;color:#a0aec0">'+e(String(o.address).slice(0,14))+'</span>':'')+'</span>'
-      +'<button type="button" onclick="sgRemove(\''+cid+'\',\''+t+'\')" title="候補から外す" style="border:none;background:none;color:#cbd5e0;font-size:16px;cursor:pointer;flex-shrink:0;padding:2px 6px">✕</button></div>';
-  }).join('');
-  body.innerHTML=
-    '<div style="font-size:11px;color:#718096;line-height:1.6;margin:4px 0 8px">この見込み客を予定に上げたとき、一緒に回る連帯訪問候補（最大'+SHOTGUN_MAX+'件）。予定表に時間なしで表示されます。</div>'
-    +(rows?('<div style="margin-bottom:8px">'+rows+'</div>'):'<div style="font-size:12px;color:#a0aec0;margin-bottom:8px">まだ候補がありません</div>')
-    +(ids.length<SHOTGUN_MAX?'<button type="button" onclick="sgOpenPick(\''+cid+'\')" style="background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 候補を追加</button>'
-      :'<div style="font-size:11px;color:#b7791f">上限の'+SHOTGUN_MAX+'件に達しています（追加するには✕でどれか外してね）</div>');
+  var line=document.getElementById('cardShotgunLine'); if(!line) return;
+  if(!cid){ line.style.display='none'; line.removeAttribute('data-gid'); return; } /* 未保存の新規カードはIDが無いため非表示 */
+  var g=(typeof sggOf==='function')?sggOf(cid):null;
+  if(!g){ line.style.display='none'; line.removeAttribute('data-gid'); return; }
+  var idx=g.memberIds.indexOf(cid);
+  var rank=idx>=0?(idx+1):null;
+  var txt=(rank!=null)?'🎯 所属：'+e(g.name)+'（'+rank+'位）':'🎯 所属：'+e(g.name);
+  var textEl=document.getElementById('cardShotgunLineText'); if(textEl) textEl.textContent=txt;
+  line.style.display='';
+  line.setAttribute('data-gid', g.gid);
+}
+/* 所属行クリック：PCなら#shotgunViewを開き該当グループへスクロール、スマホはトーストのみ */
+function sggCardLineClick(){
+  var line=document.getElementById('cardShotgunLine'); if(!line) return;
+  var gid=line.getAttribute('data-gid'); if(!gid) return;
+  if(!hasFSA){ toast('ショットガンの編集はPC版で'); return; }
+  sggOpen();
+  setTimeout(function(){
+    var el=document.getElementById('sggCard_'+gid);
+    if(!el) return;
+    try{ el.scrollIntoView({behavior:'smooth', block:'center'}); }catch(_e){}
+    var old=el.style.boxShadow;
+    el.style.boxShadow='0 0 0 3px #d69e2e';
+    setTimeout(function(){ el.style.boxShadow=old; }, 1400);
+  }, 30);
 }
 
-/* ---- 候補ピッカー（既存カードから選ぶ・最小モーダル。新しい大規模検索UIは作らない） ---- */
-var _sgPickFor=null;
-function sgOpenPick(cid){
-  _sgPickFor=cid;
-  var ov=document.getElementById('sgPickOv');
-  if(!ov){
-    ov=document.createElement('div');
-    ov.id='sgPickOv';
-    ov.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px';
-    ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:420px;width:100%;max-height:70vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">'
-      +'<div style="padding:12px 14px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:14px;font-weight:800;color:#1a202c">🎯 ショットガン候補を追加</span><button type="button" onclick="sgClosePick()" style="border:none;background:none;font-size:18px;color:#a0aec0;cursor:pointer">✕</button></div>'
-      +'<div style="padding:10px 14px 0"><input id="sgPickSearch" oninput="sgPickFilter(this.value)" placeholder="氏名・住所で絞り込み…" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e0;border-radius:7px;font-size:13px"></div>'
-      +'<div id="sgPickList" style="flex:1;overflow-y:auto;padding:8px 14px 14px"></div></div>';
-    ov.onclick=sgClosePick;
-    document.body.appendChild(ov);
-  }
-  ov.style.display='flex';
-  var s=document.getElementById('sgPickSearch'); if(s) s.value='';
-  sgPickFilter('');
-}
-function sgClosePick(){ var ov=document.getElementById('sgPickOv'); if(ov) ov.style.display='none'; _sgPickFor=null; }
-function sgPickFilter(q){
-  var host=document.getElementById('sgPickList'); if(!host || !_sgPickFor) return;
-  q=String(q||'').trim();
-  var c=_sgCard(_sgPickFor); var already={}; _sgIds(c).forEach(function(t){ already[t]=1; });
-  var hit=(cards||[]).filter(function(o){
-    if(o.id===_sgPickFor) return false;          /* 自分自身は選べない */
-    if(already[o.id]) return false;              /* 登録済みは出さない（重複防止） */
-    if(!q) return true;
-    var hay=(o.name||'')+' '+(o.address||'');
-    return hay.indexOf(q)>=0;
-  }).slice(0,30);
-  host.innerHTML=hit.length?hit.map(function(o){
-    return '<div onclick="sgPickChoose(\''+o.id+'\')" style="padding:8px 6px;border-bottom:1px dashed #edf2f7;cursor:pointer"><span style="font-size:13px;font-weight:700;color:#1a202c">'+e(o.name||'(無名)')+'様</span>'+(o.address?' <span style="font-size:11px;color:#a0aec0">'+e(String(o.address).slice(0,18))+'</span>':'')+'</div>';
-  }).join(''):'<div style="text-align:center;color:#a0aec0;font-size:12px;padding:14px">該当するカードがありません</div>';
-}
-function sgPickChoose(otherId){
-  if(!_sgPickFor) return;
-  var cid=_sgPickFor;
-  if(sgAdd(cid, otherId)){
-    toast('🎯 候補に追加しました');
-    renderCardShotgun(cid);
-    var c=_sgCard(cid);
-    if(_sgIds(c).length>=SHOTGUN_MAX){ sgClosePick(); } else { sgPickFilter(document.getElementById('sgPickSearch')?document.getElementById('sgPickSearch').value:''); }
-  }
-}
-
-/* ---- 予定表への連帯表示 ----
- * 予定に上がったカードごとに、同グループの他メンバーを「時間なし候補」として添える。
+/* ---- 予定表への連帯表示（第161弾Phase4：sggOf(entry.cardId)ベースへ置換） ----
+ * 旧160のsgGroupOf（shotgun_ids連結成分展開）は通常導線からは使わない。ここではPhase1の
+ * card.sgデータ層（sggOf）だけを参照する。関数名(sgPlanCandidatesHTML/sgResetPlanShown)は
+ * 既存呼び出し元（planner_input.js）と互換のため維持し、中身だけを差し替える。
+ * ・予定に上がったカードごとに、同じショットガングループの有効メンバー（rank順）を「時間なし候補」として添える
  * ・すでにその日の予定に入っているメンバーは出さない（重複回避）
- * ・同じ描画内で一度候補に出したメンバーは他エントリでは繰り返さない */
+ * ・同じ描画内で一度候補に出したメンバーは他エントリでは繰り返さない
+ * ・☑は「今日の候補に含める」／☐は「今日は行かない」の意味のみ。訪問済み・グループからの除名・
+ *   グループ削除のいずれでもない。保存先は_plan.sgSkip（当日planスコープ・card.sgには絶対保存しない）。
+ *   _planはplan_YYYYMMDDキーで日別保存されるため、planMorningSweepの旧キー削除により翌朝自然リセットされる。 */
 var _sgPlanShown=null;
 function sgResetPlanShown(){ _sgPlanShown={}; }
 function sgPlanCandidatesHTML(en){
   try{
     if(!en || !en.cardId) return '';
-    var grp=sgGroupOf(en.cardId); if(!grp.length) return '';
+    var g=(typeof sggOf==='function')?sggOf(en.cardId):null;
+    if(!g || !g.validMemberIds || g.validMemberIds.length<2) return ''; // 自分1人だけなら候補なし
     var inPlan={};
     ((typeof _plan!=='undefined' && _plan && _plan.entries)||[]).forEach(function(x){ if(x.cardId) inPlan[x.cardId]=1; });
     if(!_sgPlanShown) _sgPlanShown={};
-    var show=grp.filter(function(t){ return !inPlan[t] && !_sgPlanShown[t]; });
+    // rank順（sggOfのvalidMemberIdsは既にrank順）。自分自身・当日plan掲載中・同一描画内で既出は除外
+    var show=g.validMemberIds.filter(function(t){ return t!==en.cardId && !inPlan[t] && !_sgPlanShown[t]; });
     if(!show.length) return '';
     show.forEach(function(t){ _sgPlanShown[t]=1; });
+    var skipMap=(typeof _plan!=='undefined' && _plan && _plan.sgSkip)||{};
     return '<div style="margin-top:7px;padding:6px 9px;background:#fffbeb;border:1px dashed #f6e05e;border-radius:7px">'
       +'<div style="font-size:10px;font-weight:800;color:#b7791f;margin-bottom:3px">🎯 ショットガン候補（時間なしで一緒に回る）</div>'
-      +show.map(function(t){ var o=_sgCard(t); var city=(o&&typeof planCity==='function')?planCity(o):''; return '<div style="font-size:12px;color:#4a5568;padding:1px 0">・'+e((o&&o.name)||'(無名)')+'様'+(city?' <span style="font-size:10px;color:#a0aec0">'+e(city)+'</span>':'')+'</div>'; }).join('')
+      +show.map(function(t){
+        var o=_sggCard(t); var city=(o&&typeof planCity==='function')?planCity(o):'';
+        var isSkipped=(skipMap[t]===true);
+        return '<div style="font-size:12px;color:'+(isSkipped?'#a0aec0':'#4a5568')+';padding:1px 0;display:flex;align-items:center;gap:5px">'
+          +'<input type="checkbox"'+(isSkipped?'':' checked')+' onchange="sggTogglePlanSkip(\''+t+'\',this.checked)" style="margin:0;flex-shrink:0">'
+          +'<span'+(isSkipped?' style="text-decoration:line-through"':'')+'>・'+e((o&&o.name)||'(無名)')+'様'+(city?' <span style="font-size:10px;color:#a0aec0">'+e(city)+'</span>':'')+'</span></div>';
+      }).join('')
       +'</div>';
   }catch(err){ return ''; }
+}
+/* ☑スキップ切替：当日planスコープ(_plan.sgSkip)にのみ保存。card.sgには一切触れない。
+ * ON（既定・チェック時）は_plan.sgSkipから削除して軽量化、OFF（今日は行かない）時のみtrue値を保持する。 */
+function sggTogglePlanSkip(cardId, checked){
+  if(typeof _plan==='undefined' || !_plan) return;
+  if(!_plan.sgSkip) _plan.sgSkip={};
+  if(checked){ delete _plan.sgSkip[cardId]; } else { _plan.sgSkip[cardId]=true; }
+  try{ savePlan(); }catch(_e){}
+  if(typeof renderPlanner==='function') renderPlanner();
 }
 
 /* ---- window公開（家法・必須） ----
  * 本体JSは全体が単一IIFEで包まれており、トップレベル宣言はグローバルに乗らない。
- * onclick/oninput属性から呼ぶ関数は必ずここで明示公開すること（第160弾是正で確立）。
- * 同一IIFE内から呼ばれるだけの関数（renderCardShotgun / sgPlanCandidatesHTML /
- * sgResetPlanShown / sgGroupOf内部利用）は公開不要＝露出最小。 */
-window.sgAdd=sgAdd; window.sgRemove=sgRemove; window.sgGroupOf=sgGroupOf;
-window.sgOpenPick=sgOpenPick; window.sgClosePick=sgClosePick;
-window.sgPickFilter=sgPickFilter; window.sgPickChoose=sgPickChoose;
+ * onclick/oninput属性・テストから呼ぶ関数は必ずここで明示公開すること（第160弾是正で確立）。
+ * sgResetPlanShown/sgPlanCandidatesHTMLは同一IIFE内（planner_input.js）からのみ呼ばれるため
+ * 公開不要＝露出最小。renderCardShotgun/sggCardLineClick/sggTogglePlanSkipはonclick属性から
+ * 呼ぶため公開必須。 */
+window.renderCardShotgun=renderCardShotgun; window.sggCardLineClick=sggCardLineClick;
+window.sggTogglePlanSkip=sggTogglePlanSkip;
+
+/* =========================================================================
+ * 第161弾 Phase 1：card.sg データ層（ショットガン「営業作戦グループ」）
+ * -------------------------------------------------------------------------
+ * 第160弾実装（sgAdd/sgGroupOf/sgOpenPick等・shotgun_ids片方向保存＋連結成分展開）は
+ * Phase2（PC UI）・Phase3（個別カード）・Phase4（予定表候補）で順次card.sg方式に
+ * 置き換わり、最終的に完全削除された。ここではデータ層（card.sg・sggAll/sggOf/
+ * sggPersistGroup・移行）を提供する。
+ *
+ * card.sg = { gid, rank, anchor, name, nameMode, createdAt, updatedAt }
+ * ・別localStorageキーは使わない（フルバックアップ封筒がcards+media中心のため）。
+ * ・name/nameMode/createdAt/updatedAtは anchorカードだけでなく同一gidの
+ *   全メンバーに複製保持する（anchorがX・打ち切り・削除済みになってもcustom名等を失わないため）。
+ * ・card.sgを書き換えてよいのは明示操作時のみ（作成・追加・削除・順位変更・中心変更・
+ *   名前変更・自動名復帰・migrateShotgun・doMerge/復元直後の移行正規化）。
+ *   表示のためだけに勝手に書き換えない（実効anchorの導出は保存値を書き換えずに行う）。
+ * ========================================================================= */
+var SGG_MAX = 6;
+
+function _sggCard(id){
+  if(!id) return null;
+  if(typeof _cardById === 'function'){ return _cardById(id) || null; }
+  for(var i=0;i<cards.length;i++){ if(cards[i].id===id) return cards[i]; }
+  return null;
+}
+/* 無効メンバー：カードが存在しない（＝物理削除済みと同義。既存実装はソフト削除フラグを
+ * 持たず delCard は cards配列から filter で物理削除するため、実測に基づき一本化）
+ * または pursuit_judge==='X'（実測：「打ち切り」はjudgment.js等でこの値に写像される）。 */
+function _sggInvalid(c){
+  if(!c) return true;
+  return String(c.pursuit_judge||'').toUpperCase()==='X';
+}
+function _sggNowIso(){ return new Date().toISOString(); }
+function _sggGid(){ return 'sg_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); }
+function _sggAutoName(anchorCard){ return (anchorCard&&anchorCard.name?anchorCard.name:'(無名)')+'様ショットガン'; }
+
+/* 同一gidの全メンバー（無効メンバーも含む）を rank昇順・同rankならcardId昇順で返す */
+function _sggMembersOf(gid){
+  return (cards||[]).filter(function(c){ return c && c.sg && c.sg.gid===gid; })
+    .sort(function(a,b){
+      var ra=(a.sg&&typeof a.sg.rank==='number')?a.sg.rank:9999;
+      var rb=(b.sg&&typeof b.sg.rank==='number')?b.sg.rank:9999;
+      if(ra!==rb) return ra-rb;
+      return String(a.id)<String(b.id)?-1:(String(a.id)>String(b.id)?1:0);
+    });
+}
+function _sggSavedAnchors(members){ return members.filter(function(c){ return c.sg&&c.sg.anchor===true; }); }
+/* 表示上の実効anchor：保存anchorが有効ならそれ／無効・複数・ゼロならrank最小の有効メンバー／
+ * 有効メンバーがゼロならnull（保存値は書き換えない＝表示専用の導出）。 */
+function _sggEffectiveAnchorId(members){
+  var saved=_sggSavedAnchors(members);
+  for(var i=0;i<saved.length;i++){ if(!_sggInvalid(saved[i])) return saved[i].id; }
+  for(var j=0;j<members.length;j++){ if(!_sggInvalid(members[j])) return members[j].id; }
+  return null;
+}
+function _sggDescribe(gid){
+  var members=_sggMembersOf(gid);
+  if(!members.length) return null;
+  var validMembers=members.filter(function(c){ return !_sggInvalid(c); });
+  var invalidMembers=members.filter(function(c){ return _sggInvalid(c); });
+  var savedAnchors=_sggSavedAnchors(members);
+  var anchorId=savedAnchors.length?savedAnchors[0].id:null; // 破損時の暫定値。正規化はsggPersistGroupで実施
+  var effectiveAnchorId=_sggEffectiveAnchorId(members);
+  // 共通メタの正：1) rank1のsg 2) rank1不在ならrank最小の有効メンバーのsg 3) それも無ければrank最小メンバーのsg 4) 安全なデフォルト
+  var metaSrc = (members[0]&&members[0].sg) ? members[0].sg : ((validMembers[0]&&validMembers[0].sg)?validMembers[0].sg:null);
+  var name = (metaSrc&&metaSrc.name) ? metaSrc.name : _sggAutoName(_sggCard(effectiveAnchorId));
+  var nameMode = (metaSrc&&metaSrc.nameMode) ? metaSrc.nameMode : 'auto';
+  var createdAt = (metaSrc&&metaSrc.createdAt) ? metaSrc.createdAt : _sggNowIso();
+  var updatedAt = (metaSrc&&metaSrc.updatedAt) ? metaSrc.updatedAt : createdAt;
+  return {
+    gid: gid, name: name, nameMode: nameMode,
+    anchorId: anchorId, effectiveAnchorId: effectiveAnchorId,
+    memberIds: members.map(function(c){return c.id;}),
+    validMemberIds: validMembers.map(function(c){return c.id;}),
+    invalidMemberIds: invalidMembers.map(function(c){return c.id;}),
+    createdAt: createdAt, updatedAt: updatedAt,
+    overCapacity: members.length>SGG_MAX
+  };
+}
+
+function sggAll(){
+  var gids={};
+  (cards||[]).forEach(function(c){ if(c && c.sg && c.sg.gid) gids[c.sg.gid]=1; });
+  return Object.keys(gids).map(function(gid){ return _sggDescribe(gid); }).filter(Boolean);
+}
+function sggOf(cardId){
+  var c=_sggCard(cardId);
+  if(!c || !c.sg || !c.sg.gid) return null;
+  return _sggDescribe(c.sg.gid);
+}
+
+/* 同一gid全員のcard.sgを一括正規化・複製・保存する（明示操作の実行入口）。
+ * group引数はgid文字列、またはgidを含むオブジェクト(sggAll/sggOf互換)のどちらでもよい。
+ * 呼び出し前提：呼び出し側が個々のメンバーのcard.sg（rank・anchor等）を必要なだけ
+ * 書き換えた「後」に呼ぶ。ここでrank 1..N正規化・anchor1人化・共通メタ複製・
+ * card.updated_at更新・doSaveCardsまでを一括して行う（Phase 2以降のUIから利用）。 */
+function sggPersistGroup(group){
+  var gid = (group && typeof group==='object') ? group.gid : group;
+  if(!gid) return false;
+  var members=_sggMembersOf(gid);
+  if(!members.length) return false;
+
+  var effectiveAnchorId=_sggEffectiveAnchorId(members);
+  var anchorCard = effectiveAnchorId ? _sggCard(effectiveAnchorId) : null;
+  var validMembers=members.filter(function(c){ return !_sggInvalid(c); });
+  var metaSrc=(members[0]&&members[0].sg)?members[0].sg:((validMembers[0]&&validMembers[0].sg)?validMembers[0].sg:null);
+  var nameMode = (metaSrc&&metaSrc.nameMode==='custom') ? 'custom' : 'auto';
+  var name = nameMode==='auto' ? _sggAutoName(anchorCard) : ((metaSrc&&metaSrc.name)?metaSrc.name:_sggAutoName(anchorCard));
+  var createdAt = (metaSrc&&metaSrc.createdAt) ? metaSrc.createdAt : _sggNowIso();
+  var nowIso=_sggNowIso();
+  var anyChanged=false;
+
+  members.forEach(function(c, idx){
+    var newRank=idx+1;
+    var willBeAnchor=(c.id===effectiveAnchorId);
+    var oldSg=c.sg||{};
+    var changed=(oldSg.rank!==newRank)||(!!oldSg.anchor!==willBeAnchor)||(oldSg.name!==name)
+      ||(oldSg.nameMode!==nameMode)||(oldSg.createdAt!==createdAt);
+    c.sg={ gid:gid, rank:newRank, anchor:willBeAnchor, name:name, nameMode:nameMode, createdAt:createdAt, updatedAt:nowIso };
+    if(changed){ c.updated_at=nowIso; anyChanged=true; } // 家法：sg変更時はカード単位マージ契約に合わせupdated_atも進める
+  });
+
+  if(anyChanged){ try{ saveLS(); }catch(_e){} }
+  return true;
+}
+
+/* ===== 第161弾 7章：shotgun_ids → card.sg 移行（純関数・冪等） =====
+ * cards配列全体を受け取り、必要なら書き換えて返す。何度呼んでも安全（冪等）。
+ * 実行時ロジックでshotgun_idsを読むのはこの関数だけ（家法）。旧仕様の
+ * normalizeImportedCardsはカード単体処理のため連結成分計算には使わない。
+ * 呼び出し口（4点）：readLS / doMergeの3分岐 / フルバックアップ復元(cards=newCards直後) / doRestoreBackup
+ *
+ * アルゴリズム（初回移行・混在流入を同一ロジックで処理）：
+ *  ステップ1：sg未所持でshotgun_idsを持つカードのうち、参照先に既存gidがあれば
+ *             （配列順で最初に見つかった空きgidを優先）そこへ編入。満員なら編入せず
+ *             shotgun_ids除去＋スキップカウント（黙って捨てない＝トースト通知）。
+ *  ステップ2：既存gidへの参照が無かった残り同士で連結成分を計算し、新規グループを
+ *             生成（created_at昇順→cardId昇順で決定的にrank付け。7名以上でも全員維持）。
+ *             相手が存在せず孤立した場合はshotgun_idsを除去するのみ。
+ */
+function migrateShotgun(cardsArr){
+  if(!Array.isArray(cardsArr) || !cardsArr.length) return cardsArr;
+  var byId={}; cardsArr.forEach(function(c){ if(c&&c.id) byId[c.id]=c; });
+
+  // shotgun_idsは片方向保存（登録した側のカードだけが持つ・第160弾の家法）。
+  // よって無向グラフは「保持側」だけでなく「参照される側」も含めた全カード横断で構築する
+  // （第160弾のsgGroupOfと同じ考え方）。参照先が実在しないIDは辺として使わない。
+  var adj={}; var touched={};
+  cardsArr.forEach(function(c){
+    if(!c || !Array.isArray(c.shotgun_ids)) return;
+    c.shotgun_ids.forEach(function(t){
+      if(!t || t===c.id || !byId[t]) return;
+      (adj[c.id]=adj[c.id]||{})[t]=1;
+      (adj[t]=adj[t]||{})[c.id]=1;
+      touched[c.id]=1; touched[t]=1;
+    });
+  });
+  if(!Object.keys(touched).length){
+    // 移行対象なし。念のため取り残しshotgun_ids（空配列・実在しないID混入のみの配列等）を安全側で一掃。
+    var swept=false, nowIso0=_sggNowIso();
+    cardsArr.forEach(function(c){ if(c && c.shotgun_ids!==undefined){ delete c.shotgun_ids; c.updated_at=nowIso0; swept=true; } });
+    if(swept){ try{ saveLS(); }catch(_e){} }
+    return cardsArr;
+  }
+
+  var nowIso=_sggNowIso();
+  var changedIds={};
+  var skippedCount=0;
+  function gidSize(gid){ return cardsArr.filter(function(x){ return x.sg && x.sg.gid===gid; }).length; }
+  function gidMeta(gid){
+    var m=cardsArr.filter(function(x){ return x.sg && x.sg.gid===gid; })
+      .sort(function(a,b){ return (a.sg.rank||9999)-(b.sg.rank||9999); });
+    return m[0]?m[0].sg:null;
+  }
+  function cmpCreatedThenId(a,b){
+    var ca=byId[a], cb=byId[b];
+    var ta=ca&&ca.created_at?new Date(ca.created_at).getTime():0;
+    var tb=cb&&cb.created_at?new Date(cb.created_at).getTime():0;
+    if(ta!==tb) return ta-tb;
+    return a<b?-1:(a>b?1:0);
+  }
+
+  var visited={};
+  Object.keys(touched).forEach(function(seedId){
+    if(visited[seedId]) return;
+    var comp=[]; var q=[seedId]; visited[seedId]=1;
+    while(q.length){
+      var x=q.shift(); comp.push(x);
+      var nb=adj[x]||{};
+      for(var k in nb){ if(!visited[k]){ visited[k]=1; q.push(k); } }
+    }
+    // 成分内で既にcard.sgを持つメンバーがいれば、そのgidへ編入する（複数の異なるgidが
+    // 混在する稀なケースは、cardId昇順で最初に見つかったgidを正として決定的に扱う＝簡略化を明記）。
+    var existingGid=null;
+    comp.slice().sort(function(a,b){ return a<b?-1:(a>b?1:0); }).forEach(function(id){
+      if(existingGid) return;
+      var c=byId[id]; if(c && c.sg && c.sg.gid) existingGid=c.sg.gid;
+    });
+    var newMembers=comp.filter(function(id){ var c=byId[id]; return !(c && c.sg && c.sg.gid); });
+    if(!newMembers.length){
+      // 成分全員が既に移行済み（冪等の核・何もしない）
+    } else if(existingGid){
+      newMembers.sort(cmpCreatedThenId);
+      newMembers.forEach(function(id){
+        var size=gidSize(existingGid);
+        var c=byId[id];
+        if(size>=SGG_MAX){ delete c.shotgun_ids; changedIds[id]=1; skippedCount++; return; } // 満員のため編入不可
+        var meta=gidMeta(existingGid);
+        c.sg={ gid:existingGid, rank:size+1, anchor:false,
+          name:(meta&&meta.name)||_sggAutoName(_sggCard(existingGid)), nameMode:(meta&&meta.nameMode)||'auto',
+          createdAt:(meta&&meta.createdAt)||nowIso, updatedAt:nowIso };
+        delete c.shotgun_ids; changedIds[id]=1;
+      });
+    } else {
+      // 成分全員が新規（初回移行）：連結成分ごとに1グループを生成。7名以上でも全員維持。
+      var ordered=newMembers.slice().sort(cmpCreatedThenId);
+      var gid=_sggGid();
+      var anchorCard=byId[ordered[0]];
+      var name=_sggAutoName(anchorCard);
+      ordered.forEach(function(id, idx){
+        var c=byId[id];
+        c.sg={ gid:gid, rank:idx+1, anchor:(idx===0), name:name, nameMode:'auto', createdAt:nowIso, updatedAt:nowIso };
+        delete c.shotgun_ids; changedIds[id]=1;
+      });
+    }
+  });
+
+  // 仕上げ：どこにも該当しなかった残存shotgun_idsを安全側で一掃（冪等性の保証）
+  cardsArr.forEach(function(c){ if(c && c.shotgun_ids!==undefined){ delete c.shotgun_ids; changedIds[c.id]=1; } });
+  Object.keys(changedIds).forEach(function(id){ var c=byId[id]; if(c) c.updated_at=nowIso; });
+
+  if(Object.keys(changedIds).length){
+    try{
+      if(skippedCount>0){ toast('🎯 旧ショットガン情報を移行しました。一部は定員上限のため編入されませんでした。'); }
+      else { toast('🎯 旧ショットガン情報を移行しました。'); }
+    }catch(_e){}
+    try{ saveLS(); }catch(_e){}
+  }
+  return cardsArr;
+}
+
+window.sggAll=sggAll; window.sggOf=sggOf; window.sggPersistGroup=sggPersistGroup;
+window.migrateShotgun=migrateShotgun;
+
+/* =========================================================================
+ * 第161弾 Phase 2：PC専用UI（#shotgunView・一覧ボタン・候補検索）
+ * -------------------------------------------------------------------------
+ * 予定表候補連携（Phase4）・個別カード所属行（Phase3）にはまだ入らない。
+ * スマホでは編集させない（sggOpenを!hasFSAでガード・トースト表示のみ）。
+ * ========================================================================= */
+
+/* ---- 開閉 ---- */
+function sggOpen(){
+  if(!hasFSA){ toast('ショットガンの編集はPC版で'); return; }
+  var lv=document.getElementById('listView'); if(lv) lv.style.display='none';
+  var v=document.getElementById('shotgunView'); if(v) v.style.display='block';
+  sggRenderAll();
+}
+function sggClose(){
+  var v=document.getElementById('shotgunView'); if(v) v.style.display='none';
+  var lv=document.getElementById('listView'); if(lv) lv.style.display=(hasFSA&&!isMob)?'flex':'block';
+}
+function sggOverlayClick(ev){ if(ev.target && ev.target.id==='shotgunView'){ sggClose(); } }
+
+/* ---- 一覧描画 ---- */
+function sggRenderAll(){
+  var host=document.getElementById('shotgunViewBody'); if(!host) return;
+  var groups=sggAll();
+  if(!groups.length){
+    host.innerHTML='<div style="text-align:center;color:#a0aec0;font-size:13px;padding:24px">まだショットガンがありません</div>';
+    return;
+  }
+  groups.sort(function(a,b){
+    var an=(_sggCard(a.effectiveAnchorId)||{}).name||''; var bn=(_sggCard(b.effectiveAnchorId)||{}).name||'';
+    if(an!==bn) return an<bn?-1:1;
+    return a.gid<b.gid?-1:1;
+  });
+  host.innerHTML=groups.map(_sggGroupCardHTML).join('');
+}
+function _sggGroupCardHTML(g){
+  var thin = g.validMemberIds.length<=2;
+  var rows = g.memberIds.map(function(cid, idx){
+    var c=_sggCard(cid);
+    var invalid = g.invalidMemberIds.indexOf(cid)>=0;
+    var isAnchor = (cid===g.effectiveAnchorId);
+    var rank = idx+1;
+    var nm = c?((c.name||'(無名)')+'様'):'(削除済みのカード)';
+    var addr = (c&&c.address)?String(c.address).slice(0,16):'';
+    return '<div style="display:flex;align-items:center;gap:5px;padding:7px 4px;border-bottom:1px dashed #edf2f7;'+(invalid?'opacity:.5':'')+'">'
+      +'<span style="font-size:11px;color:#718096;width:26px;flex-shrink:0">'+rank+'位</span>'
+      +'<span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:'+(c?'#1a202c':'#a0aec0')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(nm)+(addr?' <span style="font-weight:400;font-size:11px;color:#a0aec0">'+e(addr)+'</span>':'')+'</span>'
+      +(isAnchor?'<span style="font-size:10px;background:#fefcbf;color:#975a16;border-radius:5px;padding:2px 6px;flex-shrink:0;font-weight:700">👑中心</span>':'')
+      +(invalid?'<span style="font-size:10px;background:#fed7d7;color:#c53030;border-radius:5px;padding:2px 6px;flex-shrink:0;font-weight:700">無効</span>':'')
+      +'<button type="button" onclick="sggMoveUp(\''+g.gid+'\',\''+cid+'\')" title="上へ" style="border:none;background:none;color:#a0aec0;font-size:14px;cursor:pointer;flex-shrink:0;padding:2px 3px">↑</button>'
+      +'<button type="button" onclick="sggMoveDown(\''+g.gid+'\',\''+cid+'\')" title="下へ" style="border:none;background:none;color:#a0aec0;font-size:14px;cursor:pointer;flex-shrink:0;padding:2px 3px">↓</button>'
+      +(!isAnchor&&!invalid?('<button type="button" onclick="sggSetAnchor(\''+g.gid+'\',\''+cid+'\')" title="中心にする" style="border:none;background:none;color:#d69e2e;font-size:12px;cursor:pointer;flex-shrink:0;padding:2px 3px;white-space:nowrap">👑中心に</button>'):'')
+      +'<button type="button" onclick="sggRemoveMember(\''+g.gid+'\',\''+cid+'\')" title="外す" style="border:none;background:none;color:#cbd5e0;font-size:15px;cursor:pointer;flex-shrink:0;padding:2px 5px">✕</button>'
+      +'</div>';
+  }).join('');
+  return '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:12px">'
+    +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">'
+    +'<span style="font-size:14px;font-weight:800;color:#2c5282;flex:1;min-width:120px">🎯 '+e(g.name)+'</span>'
+    +(g.overCapacity?'<span style="font-size:11px;background:#fed7d7;color:#c53030;border-radius:5px;padding:3px 7px;font-weight:700">定員超過</span>':'')
+    +'<button type="button" onclick="sggRename(\''+g.gid+'\')" style="background:#edf2f7;color:#4a5568;border:none;border-radius:6px;padding:5px 9px;font-size:11px;cursor:pointer;font-family:inherit">✏️ リネーム</button>'
+    +(g.nameMode==='custom'?('<button type="button" onclick="sggNameAuto(\''+g.gid+'\')" style="background:#edf2f7;color:#4a5568;border:none;border-radius:6px;padding:5px 9px;font-size:11px;cursor:pointer;font-family:inherit">自動に戻す</button>'):'')
+    +'</div>'
+    +(thin?'<div style="font-size:12px;color:#b7791f;background:#fffaf0;border:1px solid #feebc8;border-radius:7px;padding:7px 10px;margin-bottom:8px">ショットガンとしての厚みが不足しています。候補から追加してください。</div>':'')
+    +rows
+    +(g.memberIds.length<SGG_MAX?('<button type="button" onclick="sggOpenAddPick(\''+g.gid+'\')" style="margin-top:8px;background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 候補を追加</button>')
+      :('<div style="font-size:11px;color:#b7791f;margin-top:6px">上限の'+SGG_MAX+'名に達しています</div>'))
+    +'</div>';
+}
+
+/* ---- 名前変更 ---- */
+function sggRename(gid){
+  var members=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
+  if(!members.length) return;
+  var cur=(members[0].sg&&members[0].sg.name)||'';
+  var nm=prompt('ショットガンの名前を入力してください', cur);
+  if(nm===null) return;
+  nm=String(nm).trim();
+  if(!nm) return;
+  members.forEach(function(c){ if(c.sg){ c.sg.name=nm; c.sg.nameMode='custom'; } });
+  sggPersistGroup(gid);
+  sggRenderAll();
+}
+function sggNameAuto(gid){
+  var members=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
+  members.forEach(function(c){ if(c.sg) c.sg.nameMode='auto'; });
+  sggPersistGroup(gid); // 自動名の再計算はsggPersistGroup内部（実効anchorの名前を使用）
+  sggRenderAll();
+}
+
+/* ---- 中心変更 ---- */
+function sggSetAnchor(gid, cardId){
+  var members=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
+  members.forEach(function(c){ if(c.sg) c.sg.anchor=(c.id===cardId); });
+  sggPersistGroup(gid);
+  sggRenderAll();
+}
+
+/* ---- 順位変更（現在のソート順で隣と入れ替え） ---- */
+function sggMoveUp(gid, cardId){ _sggSwapRank(gid, cardId, -1); }
+function sggMoveDown(gid, cardId){ _sggSwapRank(gid, cardId, 1); }
+function _sggSwapRank(gid, cardId, dir){
+  var members=_sggMembersOf(gid);
+  var idx=-1; for(var i=0;i<members.length;i++){ if(members[i].id===cardId){ idx=i; break; } }
+  var swapIdx=idx+dir;
+  if(idx<0 || swapIdx<0 || swapIdx>=members.length) return;
+  var a=members[idx], b=members[swapIdx];
+  var tmp=(a.sg&&typeof a.sg.rank==='number')?a.sg.rank:0;
+  if(a.sg) a.sg.rank=(b.sg&&typeof b.sg.rank==='number')?b.sg.rank:0;
+  if(b.sg) b.sg.rank=tmp;
+  sggPersistGroup(gid);
+  sggRenderAll();
+}
+
+/* ---- 外す（最後の1人は消滅確認） ---- */
+function sggRemoveMember(gid, cardId){
+  var c=_sggCard(cardId);
+  var nm=(c&&c.name)?(c.name+'様'):'このメンバー';
+  var members=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
+  if(members.length<=1){
+    aibisConfirm('最後のメンバーを外すため、このショットガンは消滅します。よろしいですか？', function(){ _sggDoRemove(gid, cardId); }, '外す', 'やめる');
+    return;
+  }
+  aibisConfirm(nm+'をこのショットガンから外しますか？', function(){ _sggDoRemove(gid, cardId); }, '外す', 'やめる');
+}
+function _sggDoRemove(gid, cardId){
+  var c=_sggCard(cardId);
+  if(c && c.sg && c.sg.gid===gid){ delete c.sg; c.updated_at=_sggNowIso(); }
+  var remaining=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
+  if(remaining.length){ sggPersistGroup(gid); } else { try{ saveLS(); }catch(_e){} }
+  sggRenderAll();
+}
+
+/* ---- 候補検索（追加／新規作成の共通モーダル。氏名・自宅住所・計画地住所のcontains検索・上位30件） ---- */
+var _sggPickGid=null; // 追加対象グループ。nullなら「新しいショットガン」＝新規作成モード
+function sggOpenAddPick(gid){ _sggPickGid=gid; _sggOpenPickModal('🎯 候補を追加'); }
+function sggOpenNewPick(){ _sggPickGid=null; _sggOpenPickModal('🎯 新しいショットガンの中心客を選ぶ'); }
+function _sggOpenPickModal(title){
+  var ov=document.getElementById('sggPickOv');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='sggPickOv';
+    ov.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:420px;width:100%;max-height:70vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">'
+      +'<div style="padding:12px 14px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px"><span id="sggPickTitle" style="flex:1;font-size:14px;font-weight:800;color:#1a202c"></span><button type="button" onclick="sggClosePick()" style="border:none;background:none;font-size:18px;color:#a0aec0;cursor:pointer">✕</button></div>'
+      +'<div style="padding:10px 14px 0"><input id="sggPickSearch" oninput="sggPickFilter(this.value)" placeholder="氏名・住所で絞り込み…" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e0;border-radius:7px;font-size:13px"></div>'
+      +'<div id="sggPickList" style="flex:1;overflow-y:auto;padding:8px 14px 14px"></div></div>';
+    ov.onclick=sggClosePick;
+    document.body.appendChild(ov);
+  }
+  var t=document.getElementById('sggPickTitle'); if(t) t.textContent=title;
+  ov.style.display='flex';
+  var s=document.getElementById('sggPickSearch'); if(s) s.value='';
+  sggPickFilter('');
+}
+function sggClosePick(){ var ov=document.getElementById('sggPickOv'); if(ov) ov.style.display='none'; }
+function sggPickFilter(q){
+  var host=document.getElementById('sggPickList'); if(!host) return;
+  q=String(q||'').trim();
+  var hit=(cards||[]).filter(function(o){
+    if(!o||!o.id) return false;
+    if(o.sg && o.sg.gid) return false; // 既所属（同一gid含む）は候補に出さない＝1カード1グループ
+    if(String(o.pursuit_judge||'').toUpperCase()==='X') return false;
+    if(!q) return true;
+    var hay=(o.name||'')+' '+(o.address||'')+' '+(o.plan_address||'');
+    return hay.indexOf(q)>=0;
+  }).slice(0,30);
+  host.innerHTML=hit.length?hit.map(function(o){
+    return '<div onclick="sggPickChoose(\''+o.id+'\')" style="padding:8px 6px;border-bottom:1px dashed #edf2f7;cursor:pointer"><span style="font-size:13px;font-weight:700;color:#1a202c">'+e(o.name||'(無名)')+'様</span>'+(o.address?(' <span style="font-size:11px;color:#a0aec0">'+e(String(o.address).slice(0,18))+'</span>'):'')+'</div>';
+  }).join(''):'<div style="text-align:center;color:#a0aec0;font-size:12px;padding:14px">該当するカードがありません</div>';
+}
+function sggPickChoose(cardId){
+  if(_sggPickGid){ sggAddMember(_sggPickGid, cardId); } else { sggCreate(cardId); }
+  sggClosePick();
+}
+
+/* ---- 作成・追加（明示操作の実行入口） ---- */
+function sggCreate(anchorCardId){
+  var c=_sggCard(anchorCardId);
+  if(!c){ toast('対象のカードが見つかりません'); return null; }
+  if(c.sg && c.sg.gid){ toast((c.name||'(無名)')+'様は既に他のショットガンに登録されています'); return null; }
+  if(String(c.pursuit_judge||'').toUpperCase()==='X'){ toast('打ち切り済みのカードは中心にできません'); return null; }
+  var gid=_sggGid(); var nowIso=_sggNowIso();
+  c.sg={ gid:gid, rank:1, anchor:true, name:_sggAutoName(c), nameMode:'auto', createdAt:nowIso, updatedAt:nowIso };
+  sggPersistGroup(gid);
+  sggRenderAll();
+  toast('🎯 '+_sggAutoName(c)+'を作成しました');
+  return gid;
+}
+function sggAddMember(gid, cardId){
+  var c=_sggCard(cardId);
+  if(!c){ toast('対象のカードが見つかりません'); return false; }
+  if(c.sg && c.sg.gid){
+    if(c.sg.gid===gid){ toast('すでに登録済みです'); return false; }
+    toast((c.name||'(無名)')+'様は既に『'+(c.sg.name||'ショットガン')+'』に登録されています');
+    return false;
+  }
+  if(String(c.pursuit_judge||'').toUpperCase()==='X'){ toast('打ち切り済みのカードは追加できません'); return false; }
+  var size=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; }).length;
+  if(size>=SGG_MAX){ toast('ショットガンは最大'+SGG_MAX+'名までだよ！'); return false; }
+  var meta=(function(){
+    var m=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; }).sort(function(a,b){ return (a.sg.rank||9999)-(b.sg.rank||9999); });
+    return m[0]?m[0].sg:null;
+  })();
+  c.sg={ gid:gid, rank:size+1, anchor:false, name:(meta&&meta.name)||_sggAutoName(null), nameMode:(meta&&meta.nameMode)||'auto',
+    createdAt:(meta&&meta.createdAt)||_sggNowIso(), updatedAt:_sggNowIso() };
+  sggPersistGroup(gid);
+  sggRenderAll();
+  return true;
+}
+
+window.sggOpen=sggOpen; window.sggClose=sggClose; window.sggOverlayClick=sggOverlayClick;
+window.sggRenderAll=sggRenderAll;
+window.sggRename=sggRename; window.sggNameAuto=sggNameAuto; window.sggSetAnchor=sggSetAnchor;
+window.sggMoveUp=sggMoveUp; window.sggMoveDown=sggMoveDown;
+window.sggRemoveMember=sggRemoveMember;
+window.sggOpenAddPick=sggOpenAddPick; window.sggOpenNewPick=sggOpenNewPick;
+window.sggPickFilter=sggPickFilter; window.sggPickChoose=sggPickChoose; window.sggClosePick=sggClosePick;
+window.sggCreate=sggCreate; window.sggAddMember=sggAddMember;
 
 /* ===== 本日の予定表（フェーズ1・PC専用） ===== */
 function _p2(n){ return (n<10?'0':'')+n; }
@@ -11537,6 +11954,7 @@ function _executeFullRestore(data){
     return chain;
   }).then(function(){
     cards=newCards;
+    try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の3つ目・reloadしない経路）
     lastSaveSnapshot=JSON.stringify(cards);
     return new Promise(function(res){ doSaveCards(function(ok){ res(ok); }); });
   }).then(function(saveOk){
@@ -12472,11 +12890,10 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       <summary class="stitle cps-sum" style="display:flex;align-items:center;gap:8px"><span style="flex:1">📷 計画地写真 <span id="cardPhotoCount" style="font-weight:600;color:#718096;font-size:12px"></span></span><button type="button" id="cardCamBtn" class="cps-hdr-btn cps-hdr-cam" onclick="cardOpenCam(curId)" title="カメラで撮影（このカードに紐付く）">📷</button><button type="button" id="cardInbBtn" class="cps-hdr-btn" onclick="openInboxForCard()" title="インボックスから写真を選ぶ・管理">📥</button><button type="button" id="cardPhotoPrintBtn" class="cps-hdr-btn" onclick="openPlanPhotoPrint()" title="計画地写真を印刷（筆を選んでA4縦）">🖨</button></summary>
       <div id="cardPhotoBody"></div>
     </details>
-    <!-- 🎯 ショットガングループ（第160弾・連帯訪問候補 最大5件・手動登録） -->
-    <details class="sec no-print" id="cardShotgunSec" style="display:none">
-      <summary class="stitle" style="display:flex;align-items:center;gap:8px"><span style="flex:1">🎯 ショットガングループ <span id="cardShotgunCount" style="font-weight:600;color:#718096;font-size:12px"></span></span></summary>
-      <div id="cardShotgunBody"></div>
-    </details>
+    <!-- 🎯 ショットガン所属表示（第161弾Phase3・所属時のみ1行表示。編集はPC版#shotgunViewで行う） -->
+    <div class="no-print" id="cardShotgunLine" style="display:none;padding:8px 4px;cursor:pointer;border-bottom:1px solid #edf2f7" onclick="sggCardLineClick()">
+      <span id="cardShotgunLineText" style="font-size:13px;font-weight:600;color:#2c5282"></span>
+    </div>
     <!-- 購買ステージ + 資産背景 -->
     <div class="sec">
       <!-- 購買ステージ -->
