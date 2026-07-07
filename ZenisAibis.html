@@ -1492,6 +1492,7 @@ body.is-mob .mob-menu{display:inline-block}
       <button class="bp" onclick="loadFile()" style="background:#3182ce">📥 読込</button>
       <button class="bs" onclick="saveAll()">💾 保存</button>
       <button onclick="openInbox()" id="inboxBtnPC" title="インボックス" style="background:#5a67d8;color:white;border:none;border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px;position:relative">🗃<span id="inbBadgePC" style="display:none;position:absolute;top:-6px;right:-6px;background:#f59e0b;color:#1a1300;border-radius:9px;font-size:10px;font-weight:800;padding:0 5px;min-width:16px;text-align:center;line-height:16px">0</span></button>
+      <button onclick="sggOpen()" title="ショットガン（営業作戦グループ）" style="background:#d69e2e;color:#1a1300;border:none;border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">🎯</button>
       <div class="mob-menu" style="position:relative">
         <button onclick="togglePcMenu(event)" style="background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">⋮</button>
         <div class="mob-dropdown" id="pcDropdown" style="right:0;left:auto;min-width:170px">
@@ -1573,7 +1574,6 @@ body.is-mob .mob-menu{display:inline-block}
       <button onclick="selectAll()" class="bc" style="font-size:11px;padding:5px 8px">全選択</button>
       <button onclick="selectNone()" class="bc" style="font-size:11px;padding:5px 8px">全解除</button>
       <button onclick="openPlannerFromSelected()" class="bp pc-only-btn" style="font-size:11px;padding:5px 8px;background:#319795">📅 本日の予定表</button>
-      <button onclick="sggOpen()" class="bp pc-only-btn" style="font-size:11px;padding:5px 8px;background:#d69e2e;color:#1a1300">🎯 ショットガン</button>
       <button onclick="mailSelectedToSelf()" class="bp" style="font-size:11px;padding:5px 8px" id="btnSendSelf">📧 スマホへ</button>
       <button onclick="mailSelectedToStaff()" class="bp" style="font-size:11px;padding:5px 8px;background:#553c9a;display:none" id="btnSendStaff"><span class="bic">📧 </span>担当<span style="font-size:.8em;opacity:.85">へ</span></button>
       <button onclick="mailSelectedToManager()" class="bw" style="font-size:11px;padding:5px 8px"><span class="bic">📧 </span>課長<span style="font-size:.8em;opacity:.85">へ</span></button>
@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.56";
+var APP_VERSION = "v10.57";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -7713,25 +7713,30 @@ function copyAddrField(id){
   var el=document.getElementById(id);
   var v=((el&&el.value)||'').trim();
   if(!v){ toast('入力されていません'); return; }
-  var fallback=function(){
-    try{
-      var ta=document.createElement('textarea'); ta.value=v;
-      ta.style.position='fixed'; ta.style.top='0'; ta.style.left='-9999px';
-      document.body.appendChild(ta); ta.focus(); ta.select();
-      var ok=false; try{ ok=document.execCommand('copy'); }catch(_e){}
-      document.body.removeChild(ta);
-      toast(ok?('📋 '+v):'コピーできませんでした');
-    }catch(_e){ toast('コピーできませんでした'); }
-  };
+  // 家法：Clipboard APIを最優先（DOM操作・focus()が一切不要でページシフトのリスクが無い）。
+  // 第161弾後の不具合報告：旧実装はオフスクリーンtextarea(left:-9999px)にfocus()していたため、
+  // ブラウザがそれを可視範囲に収めようとして横スクロール幅が広がり「ページが右にズレる」症状が
+  // 発生していた（実測で再現・特定）。フォールバックも同じ轍を踏まないよう、位置はビューポート内
+  // （top:0,left:0）に置きopacity:0のみで隠す＝スクロール幅を広げない。
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(v).then(function(){
+      toast('📋 '+v);
+    }, function(){
+      _copyAddrFieldFallback(v);
+    });
+    return;
+  }
+  _copyAddrFieldFallback(v);
+}
+function _copyAddrFieldFallback(v){
   var done=false;
   try{
     var ta=document.createElement('textarea'); ta.value=v;
-    ta.style.position='fixed'; ta.style.top='0'; ta.style.left='-9999px';
+    ta.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
     document.body.appendChild(ta); ta.focus(); ta.select();
     try{ done=document.execCommand('copy'); }catch(_e){}
     document.body.removeChild(ta);
   }catch(_e){}
-  try{ if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(v).then(function(){},function(){}); done=true; } }catch(_e){}
   toast(done?('📋 '+v):'コピーできませんでした');
 }
 window.geoFill=geoFill; window.copyAddrField=copyAddrField;
@@ -10301,8 +10306,11 @@ function sggOf(cardId){
  * group引数はgid文字列、またはgidを含むオブジェクト(sggAll/sggOf互換)のどちらでもよい。
  * 呼び出し前提：呼び出し側が個々のメンバーのcard.sg（rank・anchor等）を必要なだけ
  * 書き換えた「後」に呼ぶ。ここでrank 1..N正規化・anchor1人化・共通メタ複製・
- * card.updated_at更新・doSaveCardsまでを一括して行う（Phase 2以降のUIから利用）。 */
-function sggPersistGroup(group){
+ * card.updated_at更新・doSaveCardsまでを一括して行う（Phase 2以降のUIから利用）。
+ * forceSave=true のとき、changed判定に関わらず必ずsaveLSする（名前変更のように
+ * 呼び出し側が先にcard.sg.nameを書き換えるケースで、changed判定が空振りして
+ * 保存されない不具合を防ぐ）。 */
+function sggPersistGroup(group, forceSave){
   var gid = (group && typeof group==='object') ? group.gid : group;
   if(!gid) return false;
   var members=_sggMembersOf(gid);
@@ -10325,7 +10333,7 @@ function sggPersistGroup(group){
     var changed=(oldSg.rank!==newRank)||(!!oldSg.anchor!==willBeAnchor)||(oldSg.name!==name)
       ||(oldSg.nameMode!==nameMode)||(oldSg.createdAt!==createdAt);
     c.sg={ gid:gid, rank:newRank, anchor:willBeAnchor, name:name, nameMode:nameMode, createdAt:createdAt, updatedAt:nowIso };
-    if(changed){ c.updated_at=nowIso; anyChanged=true; } // 家法：sg変更時はカード単位マージ契約に合わせupdated_atも進める
+    if(changed || forceSave){ c.updated_at=nowIso; anyChanged=true; } // 家法：sg変更時はカード単位マージ契約に合わせupdated_atも進める
   });
 
   if(anyChanged){ try{ saveLS(); }catch(_e){} }
@@ -10471,6 +10479,8 @@ function sggClose(){
 function sggOverlayClick(ev){ if(ev.target && ev.target.id==='shotgunView'){ sggClose(); } }
 
 /* ---- 一覧描画 ---- */
+var _sggExpanded={}; // gid→展開状態（UI専用・メモリのみ・リロードでリセット）
+function sggToggleExpand(gid){ _sggExpanded[gid]=!_sggExpanded[gid]; sggRenderAll(); }
 function sggRenderAll(){
   var host=document.getElementById('shotgunViewBody'); if(!host) return;
   var groups=sggAll();
@@ -10483,39 +10493,52 @@ function sggRenderAll(){
     if(an!==bn) return an<bn?-1:1;
     return a.gid<b.gid?-1:1;
   });
-  host.innerHTML=groups.map(_sggGroupCardHTML).join('');
+  host.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+groups.map(_sggGroupCardHTML).join('')+'</div>';
 }
 function _sggGroupCardHTML(g){
   var thin = g.validMemberIds.length<=2;
+  var expanded = !!_sggExpanded[g.gid];
+  if(!expanded){
+    return '<div onclick="sggToggleExpand(\''+g.gid+'\')" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:11px 13px;cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0">'
+      +'<span style="font-size:13px;font-weight:800;color:#2c5282;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎯 '+e(g.name)+'</span>'
+      +'<span style="font-size:11px;color:#a0aec0;flex-shrink:0">'+g.memberIds.length+'名</span>'
+      +(thin?'<span style="font-size:10px;background:#fffaf0;color:#b7791f;border-radius:5px;padding:2px 6px;flex-shrink:0">厚み不足</span>':'')
+      +(g.overCapacity?'<span style="font-size:10px;background:#fed7d7;color:#c53030;border-radius:5px;padding:2px 6px;flex-shrink:0">定員超過</span>':'')
+      +'</div>';
+  }
+  var total=g.memberIds.length;
   var rows = g.memberIds.map(function(cid, idx){
     var c=_sggCard(cid);
     var invalid = g.invalidMemberIds.indexOf(cid)>=0;
     var isAnchor = (cid===g.effectiveAnchorId);
     var rank = idx+1;
-    var nm = c?((c.name||'(無名)')+'様'):'(削除済みのカード)';
-    var addr = (c&&c.address)?String(c.address).slice(0,16):'';
-    return '<div style="display:flex;align-items:center;gap:5px;padding:7px 4px;border-bottom:1px dashed #edf2f7;'+(invalid?'opacity:.5':'')+'">'
-      +'<span style="font-size:11px;color:#718096;width:26px;flex-shrink:0">'+rank+'位</span>'
-      +'<span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:'+(c?'#1a202c':'#a0aec0')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(nm)+(addr?' <span style="font-weight:400;font-size:11px;color:#a0aec0">'+e(addr)+'</span>':'')+'</span>'
-      +(isAnchor?'<span style="font-size:10px;background:#fefcbf;color:#975a16;border-radius:5px;padding:2px 6px;flex-shrink:0;font-weight:700">👑中心</span>':'')
-      +(invalid?'<span style="font-size:10px;background:#fed7d7;color:#c53030;border-radius:5px;padding:2px 6px;flex-shrink:0;font-weight:700">無効</span>':'')
-      +'<button type="button" onclick="sggMoveUp(\''+g.gid+'\',\''+cid+'\')" title="上へ" style="border:none;background:none;color:#a0aec0;font-size:14px;cursor:pointer;flex-shrink:0;padding:2px 3px">↑</button>'
-      +'<button type="button" onclick="sggMoveDown(\''+g.gid+'\',\''+cid+'\')" title="下へ" style="border:none;background:none;color:#a0aec0;font-size:14px;cursor:pointer;flex-shrink:0;padding:2px 3px">↓</button>'
-      +(!isAnchor&&!invalid?('<button type="button" onclick="sggSetAnchor(\''+g.gid+'\',\''+cid+'\')" title="中心にする" style="border:none;background:none;color:#d69e2e;font-size:12px;cursor:pointer;flex-shrink:0;padding:2px 3px;white-space:nowrap">👑中心に</button>'):'')
+    var nm = c?((c.name||'(無名)')+'様'):'(削除済み)';
+    var addr = (c&&c.address)?String(c.address).slice(0,20):'';
+    var rankCtl = isAnchor
+      ? '<span style="font-size:10px;background:#fefcbf;color:#975a16;border-radius:5px;padding:2px 6px;font-weight:700;flex-shrink:0;white-space:nowrap">👑1位</span>'
+      : ('<select onchange="sggSetRank(\''+g.gid+'\',\''+cid+'\',this.value)" style="font-size:12px;border:1px solid #cbd5e0;border-radius:5px;padding:2px 4px;flex-shrink:0">'
+          +(function(){ var opts=''; for(var r=2;r<=total;r++){ opts+='<option value="'+r+'"'+(r===rank?' selected':'')+'>'+r+'位</option>'; } return opts; })()
+          +'</select>');
+    return '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px dashed #edf2f7;'+(invalid?'opacity:.5':'')+'">'
+      +rankCtl
+      +'<span style="flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(nm)+(addr?' <span style="font-weight:400;font-size:11px;color:#a0aec0">'+e(addr)+'</span>':'')+'</span>'
+      +(invalid?'<span style="font-size:9px;background:#fed7d7;color:#c53030;border-radius:4px;padding:1px 5px;flex-shrink:0">無効</span>':'')
+      +(!isAnchor&&!invalid?('<button type="button" onclick="sggSetAnchor(\''+g.gid+'\',\''+cid+'\')" title="中心にする" style="border:none;background:none;color:#d69e2e;font-size:13px;cursor:pointer;flex-shrink:0;padding:2px 4px;white-space:nowrap">👑中心に</button>'):'')
       +'<button type="button" onclick="sggRemoveMember(\''+g.gid+'\',\''+cid+'\')" title="外す" style="border:none;background:none;color:#cbd5e0;font-size:15px;cursor:pointer;flex-shrink:0;padding:2px 5px">✕</button>'
       +'</div>';
   }).join('');
-  return '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:12px">'
+  return '<div style="grid-column:1 / -1;background:#fff;border:2px solid #bee3f8;border-radius:12px;padding:12px 14px">'
     +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">'
-    +'<span style="font-size:14px;font-weight:800;color:#2c5282;flex:1;min-width:120px">🎯 '+e(g.name)+'</span>'
+    +'<span onclick="sggToggleExpand(\''+g.gid+'\')" style="cursor:pointer;font-size:14px;font-weight:800;color:#2c5282;flex:1;min-width:120px">▼ 🎯 '+e(g.name)+'</span>'
     +(g.overCapacity?'<span style="font-size:11px;background:#fed7d7;color:#c53030;border-radius:5px;padding:3px 7px;font-weight:700">定員超過</span>':'')
     +'<button type="button" onclick="sggRename(\''+g.gid+'\')" style="background:#edf2f7;color:#4a5568;border:none;border-radius:6px;padding:5px 9px;font-size:11px;cursor:pointer;font-family:inherit">✏️ リネーム</button>'
     +(g.nameMode==='custom'?('<button type="button" onclick="sggNameAuto(\''+g.gid+'\')" style="background:#edf2f7;color:#4a5568;border:none;border-radius:6px;padding:5px 9px;font-size:11px;cursor:pointer;font-family:inherit">自動に戻す</button>'):'')
+    +'<button type="button" onclick="sggDeleteGroup(\''+g.gid+'\')" style="background:#fff5f5;color:#c53030;border:1px solid #feb2b2;border-radius:6px;padding:5px 9px;font-size:11px;cursor:pointer;font-family:inherit">🗑 削除</button>'
     +'</div>'
     +(thin?'<div style="font-size:12px;color:#b7791f;background:#fffaf0;border:1px solid #feebc8;border-radius:7px;padding:7px 10px;margin-bottom:8px">ショットガンとしての厚みが不足しています。候補から追加してください。</div>':'')
-    +rows
-    +(g.memberIds.length<SGG_MAX?('<button type="button" onclick="sggOpenAddPick(\''+g.gid+'\')" style="margin-top:8px;background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 候補を追加</button>')
-      :('<div style="font-size:11px;color:#b7791f;margin-top:6px">上限の'+SGG_MAX+'名に達しています</div>'))
+    +'<div style="margin-bottom:8px">'+rows+'</div>'
+    +(g.memberIds.length<SGG_MAX?('<button type="button" onclick="sggOpenAddPick(\''+g.gid+'\')" style="background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 候補を追加</button>')
+      :('<div style="font-size:11px;color:#b7791f">上限の'+SGG_MAX+'名に達しています</div>'))
     +'</div>';
 }
 
@@ -10529,36 +10552,63 @@ function sggRename(gid){
   nm=String(nm).trim();
   if(!nm) return;
   members.forEach(function(c){ if(c.sg){ c.sg.name=nm; c.sg.nameMode='custom'; } });
-  sggPersistGroup(gid);
+  sggPersistGroup(gid, true); // forceSave: name先行書き換えでchanged判定が空振りしてもsaveLSを保証
   sggRenderAll();
 }
 function sggNameAuto(gid){
   var members=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
   members.forEach(function(c){ if(c.sg) c.sg.nameMode='auto'; });
-  sggPersistGroup(gid); // 自動名の再計算はsggPersistGroup内部（実効anchorの名前を使用）
+  sggPersistGroup(gid, true); // forceSave: nameMode先行書き換えでchanged判定が空振りしてもsaveLSを保証
   sggRenderAll();
+}
+
+/* ---- グループごと削除 ---- */
+function sggDeleteGroup(gid){
+  var members=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
+  if(!members.length) return;
+  var g=sggOf(members[0].id);
+  var nm=g?g.name:'このショットガン';
+  aibisConfirm(e(nm)+'を<br>グループごと削除しますか？（元に戻せません）', function(){
+    var nowIso=_sggNowIso();
+    members.forEach(function(c){ delete c.sg; c.updated_at=nowIso; });
+    delete _sggExpanded[gid];
+    try{ saveLS(); }catch(_e){}
+    sggRenderAll();
+    toast('🗑 '+nm+'を削除しました');
+  }, '削除する', 'やめる');
 }
 
 /* ---- 中心変更 ---- */
 function sggSetAnchor(gid, cardId){
   var members=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
+  var target=null, rank1Member=null;
+  members.forEach(function(c){
+    if(c.id===cardId) target=c;
+    if(c.sg && c.sg.rank===1) rank1Member=c;
+  });
+  if(!target || !target.sg) return;
+  // 中心=1位をrank上でも必ず満たす（anchorフラグだけの変更はNG）。旧1位とrankをswapする。
+  // 例：4位を中心にする→4位が1位、旧1位が4位（間の2位・3位は不動＝挿入型シフトとは別扱い）
+  if(target.sg.rank!==1){
+    var targetOldRank=target.sg.rank;
+    if(rank1Member && rank1Member.sg){ rank1Member.sg.rank=targetOldRank; }
+    target.sg.rank=1;
+  }
   members.forEach(function(c){ if(c.sg) c.sg.anchor=(c.id===cardId); });
   sggPersistGroup(gid);
   sggRenderAll();
 }
 
-/* ---- 順位変更（現在のソート順で隣と入れ替え） ---- */
-function sggMoveUp(gid, cardId){ _sggSwapRank(gid, cardId, -1); }
-function sggMoveDown(gid, cardId){ _sggSwapRank(gid, cardId, 1); }
-function _sggSwapRank(gid, cardId, dir){
-  var members=_sggMembersOf(gid);
+/* ---- 順位変更（中心=1位固定。2位以下は直接選択→挿入型シフト。1位より前の並びには影響しない） ---- */
+function sggSetRank(gid, cardId, newRank){
+  newRank=parseInt(newRank, 10);
+  var members=_sggMembersOf(gid); // 現在のrank昇順
   var idx=-1; for(var i=0;i<members.length;i++){ if(members[i].id===cardId){ idx=i; break; } }
-  var swapIdx=idx+dir;
-  if(idx<0 || swapIdx<0 || swapIdx>=members.length) return;
-  var a=members[idx], b=members[swapIdx];
-  var tmp=(a.sg&&typeof a.sg.rank==='number')?a.sg.rank:0;
-  if(a.sg) a.sg.rank=(b.sg&&typeof b.sg.rank==='number')?b.sg.rank:0;
-  if(b.sg) b.sg.rank=tmp;
+  if(idx<0 || idx===0) { sggRenderAll(); return; } // 1位(中心)はこの操作の対象外
+  if(!newRank || newRank<2 || newRank>members.length || (idx+1)===newRank){ sggRenderAll(); return; }
+  var m=members.splice(idx,1)[0];
+  members.splice(newRank-1, 0, m);
+  members.forEach(function(c, i2){ if(c.sg) c.sg.rank=i2+1; });
   sggPersistGroup(gid);
   sggRenderAll();
 }
@@ -10569,10 +10619,10 @@ function sggRemoveMember(gid, cardId){
   var nm=(c&&c.name)?(c.name+'様'):'このメンバー';
   var members=(cards||[]).filter(function(x){ return x.sg && x.sg.gid===gid; });
   if(members.length<=1){
-    aibisConfirm('最後のメンバーを外すため、このショットガンは消滅します。よろしいですか？', function(){ _sggDoRemove(gid, cardId); }, '外す', 'やめる');
+    aibisConfirm('最後のメンバーを外します。<br>このショットガンは消滅しますが、よろしいですか？', function(){ _sggDoRemove(gid, cardId); }, '外す', 'やめる');
     return;
   }
-  aibisConfirm(nm+'をこのショットガンから外しますか？', function(){ _sggDoRemove(gid, cardId); }, '外す', 'やめる');
+  aibisConfirm(nm+'を<br>このショットガンから外しますか？', function(){ _sggDoRemove(gid, cardId); }, '外す', 'やめる');
 }
 function _sggDoRemove(gid, cardId){
   var c=_sggCard(cardId);
@@ -10582,8 +10632,9 @@ function _sggDoRemove(gid, cardId){
   sggRenderAll();
 }
 
-/* ---- 候補検索（追加／新規作成の共通モーダル。氏名・自宅住所・計画地住所のcontains検索・上位30件） ---- */
+/* ---- 候補検索（追加／新規作成の共通モーダル。氏名・自宅住所・計画地住所のcontains検索・上位30件・氏名順/エリア順の並び替え） ---- */
 var _sggPickGid=null; // 追加対象グループ。nullなら「新しいショットガン」＝新規作成モード
+var _sggPickSort='name'; // 'name' | 'area'
 function sggOpenAddPick(gid){ _sggPickGid=gid; _sggOpenPickModal('🎯 候補を追加'); }
 function sggOpenNewPick(){ _sggPickGid=null; _sggOpenPickModal('🎯 新しいショットガンの中心客を選ぶ'); }
 function _sggOpenPickModal(title){
@@ -10595,6 +10646,7 @@ function _sggOpenPickModal(title){
     ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:420px;width:100%;max-height:70vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">'
       +'<div style="padding:12px 14px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px"><span id="sggPickTitle" style="flex:1;font-size:14px;font-weight:800;color:#1a202c"></span><button type="button" onclick="sggClosePick()" style="border:none;background:none;font-size:18px;color:#a0aec0;cursor:pointer">✕</button></div>'
       +'<div style="padding:10px 14px 0"><input id="sggPickSearch" oninput="sggPickFilter(this.value)" placeholder="氏名・住所で絞り込み…" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e0;border-radius:7px;font-size:13px"></div>'
+      +'<div style="padding:8px 14px 0" id="sggPickSortRow"></div>'
       +'<div id="sggPickList" style="flex:1;overflow-y:auto;padding:8px 14px 14px"></div></div>';
     ov.onclick=sggClosePick;
     document.body.appendChild(ov);
@@ -10605,8 +10657,21 @@ function _sggOpenPickModal(title){
   sggPickFilter('');
 }
 function sggClosePick(){ var ov=document.getElementById('sggPickOv'); if(ov) ov.style.display='none'; }
+function _sggPickSortRowHTML(){
+  var sm=_sggPickSort;
+  return '<span style="display:inline-flex;border:1px solid #cbd5e0;border-radius:7px;overflow:hidden;margin-bottom:6px">'
+    +'<button type="button" onclick="sggPickSetSort(\'name\')" style="border:none;padding:4px 9px;font-size:11px;cursor:pointer;font-family:inherit;background:'+(sm==='name'?'#2c5282':'#fff')+';color:'+(sm==='name'?'#fff':'#718096')+'">氏名順</button>'
+    +'<button type="button" onclick="sggPickSetSort(\'area\')" style="border:none;padding:4px 9px;font-size:11px;cursor:pointer;font-family:inherit;background:'+(sm==='area'?'#2c5282':'#fff')+';color:'+(sm==='area'?'#fff':'#718096')+'">📍 エリア順</button>'
+    +'</span>';
+}
+function sggPickSetSort(mode){
+  _sggPickSort=mode;
+  var s=document.getElementById('sggPickSearch');
+  sggPickFilter(s?s.value:'');
+}
 function sggPickFilter(q){
   var host=document.getElementById('sggPickList'); if(!host) return;
+  var sortRow=document.getElementById('sggPickSortRow'); if(sortRow) sortRow.innerHTML=_sggPickSortRowHTML();
   q=String(q||'').trim();
   var hit=(cards||[]).filter(function(o){
     if(!o||!o.id) return false;
@@ -10615,7 +10680,17 @@ function sggPickFilter(q){
     if(!q) return true;
     var hay=(o.name||'')+' '+(o.address||'')+' '+(o.plan_address||'');
     return hay.indexOf(q)>=0;
-  }).slice(0,30);
+  });
+  if(_sggPickSort==='area'){
+    hit.sort(function(a,b){
+      var pa=(typeof planCity==='function')?planCity(a):(a.address||''); var pb=(typeof planCity==='function')?planCity(b):(b.address||'');
+      if(pa!==pb) return pa<pb?-1:1;
+      return (a.name||'')<(b.name||'')?-1:((a.name||'')>(b.name||'')?1:0);
+    });
+  } else {
+    hit.sort(function(a,b){ return (a.name||'')<(b.name||'')?-1:((a.name||'')>(b.name||'')?1:0); });
+  }
+  hit=hit.slice(0,30);
   host.innerHTML=hit.length?hit.map(function(o){
     return '<div onclick="sggPickChoose(\''+o.id+'\')" style="padding:8px 6px;border-bottom:1px dashed #edf2f7;cursor:pointer"><span style="font-size:13px;font-weight:700;color:#1a202c">'+e(o.name||'(無名)')+'様</span>'+(o.address?(' <span style="font-size:11px;color:#a0aec0">'+e(String(o.address).slice(0,18))+'</span>'):'')+'</div>';
   }).join(''):'<div style="text-align:center;color:#a0aec0;font-size:12px;padding:14px">該当するカードがありません</div>';
@@ -10634,6 +10709,7 @@ function sggCreate(anchorCardId){
   var gid=_sggGid(); var nowIso=_sggNowIso();
   c.sg={ gid:gid, rank:1, anchor:true, name:_sggAutoName(c), nameMode:'auto', createdAt:nowIso, updatedAt:nowIso };
   sggPersistGroup(gid);
+  _sggExpanded[gid]=true;
   sggRenderAll();
   toast('🎯 '+_sggAutoName(c)+'を作成しました');
   return gid;
@@ -10661,12 +10737,12 @@ function sggAddMember(gid, cardId){
 }
 
 window.sggOpen=sggOpen; window.sggClose=sggClose; window.sggOverlayClick=sggOverlayClick;
-window.sggRenderAll=sggRenderAll;
+window.sggRenderAll=sggRenderAll; window.sggToggleExpand=sggToggleExpand;
 window.sggRename=sggRename; window.sggNameAuto=sggNameAuto; window.sggSetAnchor=sggSetAnchor;
-window.sggMoveUp=sggMoveUp; window.sggMoveDown=sggMoveDown;
+window.sggSetRank=sggSetRank; window.sggDeleteGroup=sggDeleteGroup;
 window.sggRemoveMember=sggRemoveMember;
 window.sggOpenAddPick=sggOpenAddPick; window.sggOpenNewPick=sggOpenNewPick;
-window.sggPickFilter=sggPickFilter; window.sggPickChoose=sggPickChoose; window.sggClosePick=sggClosePick;
+window.sggPickFilter=sggPickFilter; window.sggPickChoose=sggPickChoose; window.sggClosePick=sggClosePick; window.sggPickSetSort=sggPickSetSort;
 window.sggCreate=sggCreate; window.sggAddMember=sggAddMember;
 
 /* ===== 本日の予定表（フェーズ1・PC専用） ===== */
@@ -11037,7 +11113,7 @@ function _sbPaint(){
  var ov=document.getElementById('sakusenView'); if(!ov) return;
  var nSel=0; Object.keys(window._sbSel||{}).forEach(function(k){ if(window._sbSel[k]) nSel++; });
  ov.innerHTML='<div style="background:#fff;max-width:720px;margin:0 auto;border-radius:12px;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
-  +'<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:16px;color:#2c5282">\ud83c\udfaf 今日の作戦盤</b><button onclick="zSbClose()" style="background:none;border:none;font-size:17px;cursor:pointer;font-family:inherit">\u2716</button></div>'
+  +'<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:16px;color:#2c5282">\ud83c\udfaf 今日の作戦盤</b><span style="display:flex;gap:6px;align-items:center"><button onclick="zSbOpenShotgun()" title="ショットガン（営業作戦グループ）" style="background:#d69e2e;color:#1a1300;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\ud83c\udfaf ショットガン</button><button onclick="zSbClose()" style="background:none;border:none;font-size:17px;cursor:pointer;font-family:inherit">\u2716</button></span></div>'
   +(function(){var jm=cards.filter(_judgeMissing);return jm.length?'<div style="font-size:11.5px;color:#c53030;font-weight:700;background:#fff5f5;border:1px solid #feb2b2;border-radius:6px;padding:5px 8px;margin:6px 0">\u26a0 ランク判定漏れ '+jm.length+'件：'+jm.slice(0,3).map(function(c){return e(c.name||'無名')+'様';}).join('・')+(jm.length>3?' 他':'')+'（判定は必須です）</div>':'';})()+'<div style="font-size:11.5px;color:#718096;margin:4px 0 8px">\u2b50が予定表の金枠に入る優先3客（タップで入れ替え可・最大3）。チェックで予定表入り、チップで今日のアクション。忙しい朝は「選ばずに予定表へ」でOK。</div>'
   +'<div style="font-weight:800;color:#b7791f;font-size:13px;margin:8px 0 2px">\ud83c\udfc6 推奨・優先3客（連想以上\u00d7B以上\u00d7訪問期日到来）</div>'
   +(window._sbPri.length?window._sbPri.map(function(o,ix){return _sbRowHTML(o,true,ix);}).join(''):'<div style="font-size:11px;color:#999;padding:6px 4px">該当なし</div>')
@@ -11092,6 +11168,8 @@ function zSbMake(){
 }
 function zSbSkip(){ zSbClose(); planMorningSweep(); _plan=loadPlan(); showPlanner(); }
 function zSbClose(){ var ov=document.getElementById('sakusenView'); if(ov) ov.style.display='none'; }
+function zSbOpenShotgun(){ zSbClose(); if(typeof sggOpen==='function') sggOpen(); }
+window.zSbOpenShotgun=zSbOpenShotgun;
 window.openSakusenban=openSakusenban; window.zSbToggle=zSbToggle; window.zSbAct=zSbAct; window.zSbStar=zSbStar;
 function openSakusenbanFromPlanner(){ try{ localStorage.setItem("pl_sb_opened","1"); }catch(e){} try{ var _sb=document.getElementById("plSbBtn"); if(_sb) _sb.classList.remove("pl-blink"); }catch(e){} openSakusenban(); }
 window.openSakusenbanFromPlanner=openSakusenbanFromPlanner;
