@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.64";
+var APP_VERSION = "v10.65";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -10788,8 +10788,12 @@ function planUntimedCount(exceptIdx){ return (_plan.entries||[]).filter(function
 function planUntimedFullWarn(){ if(typeof aibisAlert==='function') aibisAlert('時間未定の見込み客は<b>10件まで</b>だよ！<br>それ以上入れても行けないでしょ😅 まずはこの10件を回り切ろう。<br><span style="font-size:12px;color:#718096">⏰時刻を指定したアポなら追加できるよ。入れ替えたいときは✕で1件外してね。</span>'); else toast('時間未定は10件まで'); }
 function makePlanEntry(c){ var appo=planHasTodayAppo(c); return {cardId:c.id,target:(c.name||'(無名)'),sub:planAreaStage(c),kind:appo?'k1':'k3',purpose:planSuggestPurpose(c.stage),time:'',note:'',result:''}; }
 function openPlannerFromSelected(){
+  /* 第167弾: 旧作戦盤への強制直行を廃止（Fable5設計レビュー承認）。
+   * 未選択時も普通の予定表を開く（空でもよい）。openSakusenban()自体は削除せず、
+   * 予定表内の「🎯 作戦盤」ボタン(openSakusenbanFromPlanner)から任意に開ける状態を維持する。
+   * 将来（第168弾）、新しい出陣ボード「今日はどう攻める？」をこの入口に差し替える余地を残すため、
+   * この関数の役割は「予定表を開く（必要なら選択カードを事前投入する）」のみに単純化しておく。 */
   var ids=Object.keys(selectedIds);
-  if(!ids.length){ openSakusenban(); return; }
   planMorningSweep();
   _plan=loadPlan(); var added=0;
   var skipped=0;
@@ -11444,8 +11448,11 @@ function _sbPaint(){
   +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><b style="font-size:16px;color:#2c5282;flex-shrink:0">\ud83c\udfaf 今日の作戦盤</b><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">'
   /* 第162弾-1: 決定ボタンを上段にも複製（下段と同一ハンドラzSbMake/zSbSkipを呼ぶだけ・ロジック不変） */
   +'<button onclick="zSbMake()" title="選んだ'+nSel+'件で予定表を作る" style="background:#2c5282;color:#fff;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\ud83d\udcc5 選択で作成</button>'
+  /* 第167弾: 作戦盤内の「🎯 ショットガン」ボタンは撤去（予定表側に独立入口が完成済みのため導線重複。
+   * Fable5設計レビュー承認・安全寄り方針）。zSbOpenShotgun()関数自体と、ショットガン画面側の
+   * 戻り先分岐(sakusen)は今回は削除せず未使用のまま温存する（後続の整理弾で判断）。 */
   +'<button onclick="zSbSkip()" title="選ばずに予定表へ" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\u23e9 そのまま</button>'
-  +'<button onclick="zSbOpenShotgun()" title="ショットガン（営業作戦グループ）" style="background:#d69e2e;color:#1a1300;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\ud83c\udfaf ショットガン</button><button onclick="zSbClose()" style="background:none;border:none;font-size:17px;cursor:pointer;font-family:inherit">\u2716</button></span></div>'
+  +'<button onclick="zSbClose()" style="background:none;border:none;font-size:17px;cursor:pointer;font-family:inherit">\u2716</button></span></div>'
   +(function(){var jm=cards.filter(_judgeMissing);return jm.length?'<div style="font-size:11.5px;color:#c53030;font-weight:700;background:#fff5f5;border:1px solid #feb2b2;border-radius:6px;padding:5px 8px;margin:6px 0">\u26a0 ランク判定漏れ '+jm.length+'件：'+jm.slice(0,3).map(function(c){return e(c.name||'無名')+'様';}).join('・')+(jm.length>3?' 他':'')+'（判定は必須です）</div>':'';})()+'<div style="font-size:11.5px;color:#718096;margin:4px 0 8px">\u2b50が予定表の金枠に入る優先3客（タップで入れ替え可・最大3）。チェックで予定表入り、チップで今日のアクション。忙しい朝は「選ばずに予定表へ」でOK。</div>'
   +'<div style="font-weight:800;color:#b7791f;font-size:13px;margin:8px 0 2px">\ud83c\udfc6 推奨・優先3客（連想以上\u00d7B以上\u00d7訪問期日到来）</div>'
   +(window._sbPri.length?window._sbPri.map(function(o,ix){return _sbRowHTML(o,true,ix);}).join(''):'<div style="font-size:11px;color:#999;padding:6px 4px">該当なし</div>')
