@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.63";
+var APP_VERSION = "v10.64";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6147,7 +6147,10 @@ function updateSelectCount(){
   if(bar) bar.style.borderColor=n>0?'#2c5282':'#e2e8f0';
 }
 // ===== 送信ヘルパ：Web共有（ファイル添付）優先・mailtoフォールバック v6.75 =====
-function _sendCards(selected, toEmail, ccEmail, subjPrefix, onDone, copyAddr, bd){
+/* 第166弾: extraBody（任意）は本文末尾にそのまま追記する。省略時（他5箇所の既存呼び出し）は
+ * これまでと完全に同じ本文になる後方互換の追加引数（ショットガン順路URLをplannerToPhoneの
+ * 送信内容に含めるための唯一の追加口。他の送信ボタンの挙動は一切変えない）。 */
+function _sendCards(selected, toEmail, ccEmail, subjPrefix, onDone, copyAddr, bd, extraBody){
   var data=JSON.stringify(selected,null,2);
   var now=new Date();
   var ts=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0')+'_'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0');
@@ -6160,7 +6163,7 @@ function _sendCards(selected, toEmail, ccEmail, subjPrefix, onDone, copyAddr, bd
   var _isAllSel=(Array.isArray(cards)&&cards.length>0&&Array.isArray(selected)&&selected.length===cards.length);
   var subj='AIBIS '+(subjPrefix||'')+' '+ts+' ('+selected.length+' cards'+(_isAllSel?' ALL':'')+')';
   var brk=bd?('\nNew:'+bd.n+'  Updated:'+bd.u+'  Forwarded:'+bd.f):'';
-  var body='AIBIS '+(subjPrefix||'')+(_isAllSel?' [ALL選択]':'')+brk+'\n'+ts;
+  var body='AIBIS '+(subjPrefix||'')+(_isAllSel?' [ALL選択]':'')+brk+'\n'+ts+(extraBody?('\n\n'+extraBody):'');
   var clipAddr=(typeof copyAddr!=='undefined'&&copyAddr!==null&&copyAddr!=='')?copyAddr:(toEmail||'');
   var cardFile=null; try{ cardFile=new File([data],fn,{type:'application/json'}); }catch(_e){}
   function fallback(files){
@@ -10874,6 +10877,7 @@ function planPick(id){ if(id) planAddCard(id); }
 function renderPlanner(){
   var host=document.getElementById('plannerInput'); if(!host) return; sortPlan();
   if(typeof sgResetPlanShown==='function') sgResetPlanShown(); /* 第160弾: ショットガン候補の重複抑止をリセット */
+  if(typeof _planRouteResetShown==='function') _planRouteResetShown(); /* 第166弾: 順路ボタンの重複抑止をリセット（1ブロック1ボタン） */
   var sm=(_plan.sort||'time');
   var appoCards=cards.filter(function(c){ return planHasTodayAppo(c) && !_plan.entries.some(function(e){return e.cardId===c.id;}); });
   var sug='';
@@ -10946,6 +10950,7 @@ function planEntryHTML(en,i){
     +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">'+kindSeg+purp+'</div>'
     +'<input value="'+planEsc(en.note)+'" oninput="planSet('+i+',\'note\',this.value)" placeholder="訪問結果はカードに入力" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;box-sizing:border-box">'
     +(typeof sgPlanCandidatesHTML==='function'?sgPlanCandidatesHTML(en):'')
+    +(typeof _planRouteButtonHTML==='function'?_planRouteButtonHTML(en):'')
     +'</div>';
 }
 function planSet(i,k,v){ if(!_plan.entries[i])return;
@@ -11149,6 +11154,116 @@ function planCloseShotgunPick(){ var ov=document.getElementById('planSgPickOv');
  * onclick/onchange属性から呼ぶ新関数は単一IIFE家法によりここで明示公開する。 */
 window.planOpenShotgunPick=planOpenShotgunPick; window.planCloseShotgunPick=planCloseShotgunPick;
 window.planSgPickApply=planSgPickApply; window.planSgToggleMember=planSgToggleMember;
+
+/* ===== 第166弾: ショットガン訪問順路 × Googleマップ連携（Opus 4.8決定） =====
+ * 方針（詳細: docs/ledger.md 第166弾）:
+ * ・GoogleマップURL方式のみ。APIキー・Directions API・Maps JavaScript API・GPS・現在地取得は使わない
+ *   （既存house patternの maps/dir/?api=1&origin=...&destination=...&waypoints=...&travelmode=driving を
+ *   踏襲。source/main/maps/basic.js の mapRoute() と同じURL形式・同じAndroid intent橋渡し方式）
+ * ・順路対象のグルーピングは必ず entries.sgBlockId を使う（card.sgの現在値には依存しない）
+ * ・並び順は中心→sgRank昇順。距離計算・最短順並び替え・ルート最適化は行わない
+ *   （Google側でユーザーが必要に応じて順番を調整できる前提）
+ * ・住所は entries側のスナップショットではなく、最新の card.address を参照する
+ *   （entries.subは短縮住所のためURL用途に不適・entries側に住所スナップショットは追加しない）
+ * ・住所未登録メンバーは順路対象から除外し、氏名付きで警告する
+ * ・住所ありメンバーが2名未満なら順路は開かない（ボタンも表示しない）
+ * ・PC予定表の🗺順路ボタンと、plannerToPhone送信内容の両方が同じ内部関数
+ *   （planShotgunRouteBuild）を使う（実装の二重化を避ける） */
+
+/* 同一ブロック内の中心客を判定する。判定順：
+ * 1) sgRank===1 の行 2) sgAnchorIdと一致するcardIdの行
+ * 3) 同ブロック内の最小sgRankの行 4) それも無ければentries出現順の先頭
+ * （中心客が予定から削除されていても、順路機能自体は落ちないようにする） */
+function _planRouteCenterEntry(blockEntries){
+  for(var i=0;i<blockEntries.length;i++){ if(blockEntries[i].sgRank===1) return blockEntries[i]; }
+  var anchorId=null;
+  for(var j=0;j<blockEntries.length;j++){ if(blockEntries[j].sgAnchorId){ anchorId=blockEntries[j].sgAnchorId; break; } }
+  if(anchorId){ for(var k=0;k<blockEntries.length;k++){ if(blockEntries[k].cardId===anchorId) return blockEntries[k]; } }
+  var minEn=null;
+  blockEntries.forEach(function(en){ if(typeof en.sgRank==='number' && (!minEn || en.sgRank<minEn.sgRank)) minEn=en; });
+  return minEn||blockEntries[0];
+}
+/* 当日の予定表に存在するショットガンブロックを、entries出現順（distinct・重複なし）で返す */
+function planShotgunBlocks(){
+  var seen={}, out=[];
+  ((_plan&&_plan.entries)||[]).forEach(function(en){
+    if(!en||!en.sgBlockId||seen[en.sgBlockId]) return;
+    seen[en.sgBlockId]=1; out.push(en.sgBlockId);
+  });
+  return out;
+}
+/* 順路URL生成の共通コア。PC予定表ボタン・plannerToPhoneの両方がここを呼ぶ（実装の二重化を避ける）。
+ * 戻り値 {ok, reason, url, path, members, skipped, blockName}。
+ * ok=false（reason='noblock'|'too_few'）のときurlはnull。members/skippedは常に住所判定結果を返す。 */
+function planShotgunRouteBuild(blockId){
+  var blockEntries=((_plan&&_plan.entries)||[]).filter(function(en){ return en&&en.sgBlockId===blockId; });
+  if(!blockEntries.length) return {ok:false, reason:'noblock', url:null, path:null, members:[], skipped:[], blockName:''};
+  var center=_planRouteCenterEntry(blockEntries);
+  var rest=blockEntries.filter(function(en){ return en!==center; })
+    .sort(function(a,b){ var ra=(typeof a.sgRank==='number')?a.sgRank:9999, rb=(typeof b.sgRank==='number')?b.sgRank:9999; return ra-rb; });
+  var ordered=[center].concat(rest);
+  var members=[], skipped=[];
+  ordered.forEach(function(en){
+    var c=null; for(var i=0;i<cards.length;i++){ if(cards[i].id===en.cardId){ c=cards[i]; break; } }
+    var nmDisp=(c&&c.name)?c.name:(en.target||'(無名)'); // 最新card名を優先。カード削除済みならentries側の表示名にフォールバック
+    var addr=(c&&c.address)?String(c.address).trim():''; // 住所は必ず最新card.addressを参照（entries側に住所スナップショットは持たない）
+    if(addr){ members.push({cardId:en.cardId, name:nmDisp, address:addr}); }
+    else { skipped.push({cardId:en.cardId, name:nmDisp}); }
+  });
+  var blockName=center.sgName||'ショットガン';
+  if(members.length<2){
+    return {ok:false, reason:'too_few', url:null, path:null, members:members, skipped:skipped, blockName:blockName};
+  }
+  var addrs=members.map(function(m){ return m.address; });
+  var origin=addrs[0], destination=addrs[addrs.length-1], waypoints=addrs.slice(1,-1);
+  var path='maps/dir/?api=1&origin='+encodeURIComponent(origin)+'&destination='+encodeURIComponent(destination)
+    +(waypoints.length?('&waypoints='+encodeURIComponent(waypoints.join('|'))):'')+'&travelmode=driving';
+  return {ok:true, reason:'', url:'https://www.google.com/'+path, path:path, members:members, skipped:skipped, blockName:blockName};
+}
+/* PC予定表の🗺順路ボタンから呼ぶ（onclick駆動）。クリック時点のcard.addressで再計算する
+ * （表示時から住所が変わっていても最新を反映。GPS・現在地取得はしない）。 */
+function planOpenShotgunRoute(blockId){
+  var r=planShotgunRouteBuild(blockId);
+  if(!r.ok){
+    if(typeof aibisAlert==='function') aibisAlert('順路を作れる住所が2件以上ありません。');
+    else toast('順路を作れる住所が2件以上ありません');
+    return;
+  }
+  if(r.skipped.length){ toast('📍 住所未登録のため順路から除外：'+r.skipped.map(function(s){return s.name+'様';}).join('・')); }
+  if(typeof _isAndroid==='function' && _isAndroid()){ location.href=_mapsAppUrl(r.path, r.url); }
+  else { window.open(r.url,'_blank'); }
+}
+window.planOpenShotgunRoute=planOpenShotgunRoute;
+/* 予定表描画（planEntryHTML）専用：同一sgBlockIdの最初に出現した行にのみ🗺順路ボタンを添える
+ * （renderPlanner冒頭の_planRouteResetShown()で描画ごとにリセット。時刻順/エリア順どちらでも
+ * 1ブロックにつき最大1ボタン。住所ありメンバーが2名未満のブロックはボタンを出さない）。 */
+var _planRouteShown=null;
+function _planRouteResetShown(){ _planRouteShown={}; }
+function _planRouteButtonHTML(en){
+  if(!en||!en.sgBlockId) return '';
+  if(!_planRouteShown) _planRouteShown={};
+  if(_planRouteShown[en.sgBlockId]) return '';
+  _planRouteShown[en.sgBlockId]=1;
+  var r=planShotgunRouteBuild(en.sgBlockId);
+  if(!r.ok) return '';
+  return '<div style="margin-top:7px"><button type="button" onclick="planOpenShotgunRoute(\''+en.sgBlockId+'\')" title="このショットガングループのGoogleマップ順路を開く" style="background:#e6fffa;color:#234e52;border:1px solid #81e6d9;border-radius:7px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🗺 順路</button></div>';
+}
+/* plannerToPhone送信内容（メール本文/共有テキスト）に添える、当日のショットガン順路まとめ。
+ * 住所ありメンバー2名未満のブロックは（ボタン非表示と同じ基準で）省略する。
+ * スマホ側に新しい編集UIは作らない：本文中のURLをタップして開ける状態にするだけ。 */
+function _planRouteToPhoneText(){
+  var blocks=(typeof planShotgunBlocks==='function')?planShotgunBlocks():[];
+  var lines=[];
+  blocks.forEach(function(blockId){
+    var r=planShotgunRouteBuild(blockId);
+    if(!r.ok) return;
+    lines.push('🗺 ショットガン順路：'+r.blockName);
+    lines.push(r.url);
+    if(r.skipped.length){ lines.push('（住所未登録のため除外：'+r.skipped.map(function(s){return s.name+'様';}).join('・')+'）'); }
+    lines.push('');
+  });
+  return lines.length?lines.join('\n').replace(/\n+$/,''):'';
+}
 function resetPlanner(){ if(!_plan.entries||!_plan.entries.length){ toast('リセットする予定がありません'); return; }
   aibisAlert('本日の予定表（全'+_plan.entries.length+'件）をリセットするよ⚠<br>前回の予定をまとめて消去します。この操作は取り消せません。<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
@@ -11418,7 +11533,11 @@ function plannerToPhone(){
   var ids=_plan.entries.filter(function(en){return en.cardId;}).map(function(en){return en.cardId;});
   if(!ids.length){ aibisAlert('予定表にお客様カードがありません（イベント・自由入力はカードがないため送れません）。'); return; }
   var sel=cards.filter(function(c){ return ids.indexOf(c.id)>=0; });
-  _sendCards(sel, selfEmail||'', '', 'Schedule-to-Phone', null, undefined, _bd('self',sel));  // 他の送信ボタンと同一挙動
+  /* 第166弾: 予定表はPC専用だが、Googleマップ順路を実際に使うのは現場スマホのため、
+   * 送信内容（メール本文/共有テキスト）に当日のショットガン順路URLを含める。
+   * スマホ側に新しい編集UIは作らない（本文中のURLをタップして開けるだけ）。 */
+  var routeText=(typeof _planRouteToPhoneText==='function')?_planRouteToPhoneText():'';
+  _sendCards(sel, selfEmail||'', '', 'Schedule-to-Phone', null, undefined, _bd('self',sel), routeText);
 }
 window.openPlannerFromSelected=openPlannerFromSelected; window.openPlannerToday=openPlannerToday; window.closePlanner=closePlanner; window.plannerTab=plannerTab; window.planSet=planSet; window.planDel=planDel; window.planAddCard=planAddCard; window.planSearch=planSearch; window.planAddEvent=planAddEvent; window.planAddFree=planAddFree; window.printPlanner=printPlanner; window.plannerToPhone=plannerToPhone; window.resetPlanner=resetPlanner; window.doResetPlanner=doResetPlanner; window.planPick=planPick; window.planSort=planSort;
 
