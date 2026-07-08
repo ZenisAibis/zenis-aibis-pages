@@ -1748,7 +1748,7 @@ body.is-mob .mob-menu{display:inline-block}
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
       <button onclick="plannerBack()" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">← 一覧に戻る</button><button class="pl-tab pl-on" data-t="input" onclick="plannerTab('input')">✏️ 入力</button>
       <button class="pl-tab" data-t="prev" onclick="plannerTab('prev')">🖨 印刷プレビュー</button>
-      <button id="plSbBtn" onclick="openSakusenbanFromPlanner()" style="background:#d69e2e;color:#1a1300;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🎯 作戦盤</button>
+      <button id="plSbBtn" onclick="openSortieBoardFromPlanner()" style="background:#d69e2e;color:#1a1300;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🎯 作戦盤</button>
       <button onclick="plannerToPhone()" style="margin-left:auto;background:#3182ce;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">📧 スマホへ</button>
     </div>
     <div id="plannerInput"></div>
@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.65";
+var APP_VERSION = "v10.67";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -10794,6 +10794,14 @@ function openPlannerFromSelected(){
    * 将来（第168弾）、新しい出陣ボード「今日はどう攻める？」をこの入口に差し替える余地を残すため、
    * この関数の役割は「予定表を開く（必要なら選択カードを事前投入する）」のみに単純化しておく。 */
   var ids=Object.keys(selectedIds);
+  /* 第168弾: 出陣ボード自動表示ゲート（Fable5最終レビュー修正C）。
+   * カード選択済み時はゲートを一切見ない＝出陣ボードを出さず、従来どおり投入→予定表直行する
+   * （選択済み＝担当者が既に意思決定済みの状態のため）。未選択時のみ、当日planにcardId行が0・
+   * 当日未表示・未スキップの3条件を満たす場合に限り自動表示する。 */
+  if(!ids.length && typeof _sortieShouldAutoShow==='function' && _sortieShouldAutoShow()){
+    openSortieBoardAuto();
+    return;
+  }
   planMorningSweep();
   _plan=loadPlan(); var added=0;
   var skipped=0;
@@ -10827,7 +10835,7 @@ var _silent=false;
 var _navReplaceNext=false;
 function _navGo(zv,id){ if(_silent) return; try{ if(_navReplaceNext){ _navReplaceNext=false; history.replaceState({zv:zv,id:id||null},''); } else { history.pushState({zv:zv,id:id||null},''); } }catch(e){} }
 function _navToList(){
-  ['editView','plannerView','helpView','setupView','shotgunView'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
+  ['editView','plannerView','helpView','setupView','shotgunView','sortieBoardView'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
   var lv=document.getElementById('listView'); if(lv) lv.style.display=(hasFSA&&!isMob)?'flex':'block';
 }
 /* 編集→一覧：履歴の積み重なりに依存せず必ず1回で一覧へ。履歴の先頭をlistに正規化 */
@@ -10850,6 +10858,11 @@ window.addEventListener('popstate',function(ev){
   try{
     if(zv==='shotgun'){ if(typeof sggOpen==='function' && (!_sgv || _sgv.style.display==='none')){ var _lv=document.getElementById('listView'); if(_lv)_lv.style.display='none'; if(_sgv)_sgv.style.display='block'; if(typeof sggRenderAll==='function') sggRenderAll(); } }
     else if(zv==='planner'){ var v=document.getElementById('plannerView'); if(!v||v.style.display==='none') showPlanner(); }
+    /* 第168弾: 出陣ボードは明示起動（予定表内🎯ボタン）時のみ_navGoでpushされる。
+     * 自動表示時はhistory非pushのため、この分岐はブラウザ戻る→出陣ボードへの復元にのみ使われる。
+     * openSortieBoard()自体がhasFSAゲートと_navGo呼び出しを持つが、_silent=true中は_navGoが
+     * no-opになるためここでの再呼び出しは安全（余分な履歴は積まれない）。 */
+    else if(zv==='sortie'){ var _sov=document.getElementById('sortieBoardView'); if(!_sov||_sov.style.display==='none'){ if(typeof openSortieBoard==='function') openSortieBoard('explicit'); } }
     else if(zv==='help'){ var h=document.getElementById('helpView'); if(!h||h.style.display==='none') showHelp(); }
     else if(zv==='edit'){ if(st.id){ openCard(st.id); var ev2=document.getElementById('editView'); if(!ev2||ev2.style.display==='none') _navToList(); } else _navToList(); }
     else { _navToList(); }
@@ -11513,6 +11526,359 @@ window.openSakusenban=openSakusenban; window.zSbToggle=zSbToggle; window.zSbAct=
 function openSakusenbanFromPlanner(){ try{ localStorage.setItem("pl_sb_opened","1"); }catch(e){} try{ var _sb=document.getElementById("plSbBtn"); if(_sb) _sb.classList.remove("pl-blink"); }catch(e){} openSakusenban(); }
 window.openSakusenbanFromPlanner=openSakusenbanFromPlanner;
 window.zSbMake=zSbMake; window.zSbSkip=zSbSkip; window.zSbClose=zSbClose;
+/* ===== 第168弾: 作戦盤2.0「出陣ボード」（Fable5最終レビュー CONDITIONAL PASS・修正A〜C反映） =====
+ * 定義：担当者が今日の攻め方を自分で選び、候補を絞り、訪問量を見て、自分で布陣を決める画面。
+ * 旧作戦盤(openSakusenban)の問題は「Aibisが毎回候補を押しつける強制表示」だった。
+ * 出陣ボードは「今日はどう攻める？」という軽い入口から、担当者自身が選ぶ形にする。
+ *
+ * 【方針の要点】
+ * ・旧作戦盤(openSakusenban/zSbOpenShotgun/_sggReturnTo==='sakusen')は物理削除しない（安全温存）。
+ *   本弾では、旧作戦盤UIへの通常導線を無くし、予定表内「🎯 作戦盤」ボタンの行き先だけを
+ *   この出陣ボードへ差し替える（置き換え。併存させない）。
+ * ・予定表ボタン(openPlannerFromSelected)の自動表示ゲート：
+ *   カード未選択 AND 当日planにcardId行が0 AND 当日未表示・未スキップ、のときのみ自動表示。
+ *   カード選択済み時は出陣ボードを一切出さず、従来どおり投入→予定表直行（修正C）。
+ *   表示済みフラグは自動表示した瞬間に記録する（閉じる/中断による再表示ループを防ぐ）。
+ * ・候補プール（優先客・再訪）は旧作戦盤のロジックをそのまま関数抽出して流用し、
+ *   スコア式・閾値は一切変更しない（score.js / zwl_model.js / PACE_LIMIT / S/A/B判定は非接触）。
+ * ・新ボードはcards配列へ書き込まない（読み取りのみ）。予定投入は必ずmakePlanEntry経由。
+ * ・ショットガン2系統（回る/作る）はチップなしで即橋渡し（修正A）。候補再生成・一括投入の
+ *   再実装はしない。既存のplanOpenShotgunPick()/sggOpen()へ委ねる。
+ * ・残り4コマンドの人数チップの意味＝「候補プール上位N名を初期チェックする数」（修正B）。
+ *   プールの表示件数そのものではない。ユーザーは確定前に自由にチェックを増減できる。
+ * ・投入はatomic（第165弾ショットガン一括投入と同じ原則）：時間未定上限(PLAN_UNTIMED_MAX=10)を
+ *   超える場合は1件も入れず、調整を促す。距離計算・近場自動判定・GPS・geolocationは行わない。
+ * ・訪問メーターはcardIdを持つ予定行の総数（行事・自由入力はcardId=''のため自然に除外される）。
+ *   12名は営業目安であり、技術的なブロック上限ではない（12名以上は12+表示）。
+ * ・低人数トーストは「確定した瞬間の1回のみ」。距離・近場・最短系の表現は使わない。
+ * ・履歴：自動表示時はhistory非push（戻る＝一覧）。明示起動時（予定表内🎯ボタン）は
+ *   _navGo('sortie')で通常のオーバーレイ履歴に乗せる（第164弾の恒久ルールに準拠）。
+ * ・hasFSAゲートは予定表と同じくボード表示より先に適用する（スマホでは行き止まりにしない）。
+ */
+
+/* ---- 日付付きフラグ（当日1回だけの制御・翌日は自然に別日扱い＝planMorningSweep相当の思想） ---- */
+function _sortieDayKey(){ return planKey().slice(5); } // 'plan_20260708' → '20260708'
+function _sortieShownKey(){ return 'sortie_shown_'+_sortieDayKey(); }
+function _sortieSkipKey(){ return 'sortie_skip_'+_sortieDayKey(); }
+function _sortieDoneKey(){ return 'sortie_done12_'+_sortieDayKey(); }
+function _sortieCleanOldFlags(){
+  try{
+    var today=_sortieDayKey(), stale=[];
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(/^sortie_(shown|skip|done12)_\d{8}$/.test(k) && k.indexOf(today)<0) stale.push(k);
+    }
+    stale.forEach(function(k){ localStorage.removeItem(k); });
+  }catch(e){}
+}
+
+/* ---- 訪問メーター：cardIdを持つ予定行の総数（行事・自由入力はcardId=''で自然に除外） ---- */
+function _sortieVisitCount(){ return ((_plan&&_plan.entries)||[]).filter(function(en){ return !!(en&&en.cardId); }).length; }
+
+/* ---- 自動表示ゲート（修正C: カード選択済み時はそもそも呼ばれない＝openPlannerFromSelected側で分岐） ---- */
+function _sortieShouldAutoShow(){
+  _sortieCleanOldFlags();
+  _plan=loadPlan();
+  if(_sortieVisitCount()>0) return false; // 当日既に予定(cardId行)がある→直行
+  if(localStorage.getItem(_sortieShownKey())) return false; // 当日表示済み
+  if(localStorage.getItem(_sortieSkipKey())) return false; // 当日スキップ済み
+  return true;
+}
+
+/* ---- 候補プール：優先客・再訪（旧作戦盤openSakusenban()のロジックを関数抽出・スコア式は無変更） ---- */
+function _sortiePriPool(){
+  function byUrg(a,b){ var d=calcPaceOverrate(b)-calcPaceOverrate(a); if(d) return d; return calcScore(b)-calcScore(a); }
+  function byScore(a,b){ return calcScore(b)-calcScore(a); }
+  function fresh(c){ var ld=+lastContactDays(c); return ld<0||ld>=2; }
+  var pri=cards.filter(function(c){return +(c.stage||0)>=3&&(c.pursuit_judge==='S'||c.pursuit_judge==='A'||c.pursuit_judge==='B')&&calcPaceOverrate(c)>=1&&fresh(c);}).sort(byUrg).slice(0,3);
+  if(pri.length<3){
+    var pids0={}; pri.forEach(function(c){pids0[c.id]=1;});
+    var fill=cards.filter(function(c){return !pids0[c.id]&&calcPaceOverrate(c)>=1&&fresh(c);}).sort(byUrg).slice(0,3-pri.length);
+    pri=pri.concat(fill);
+  }
+  if(!pri.length) pri=cards.filter(function(c){return +(c.stage||0)>=3&&fresh(c);}).sort(byScore).slice(0,3);
+  if(!pri.length) pri=cards.filter(fresh).sort(byScore).slice(0,3);
+  return pri;
+}
+function _sortieRevPool(){
+  var pri=_sortiePriPool(); var pids={}; pri.forEach(function(c){pids[c.id]=1;});
+  return cards.filter(function(c){return !pids[c.id];}).map(function(c){
+    var u=(calcPaceOverrate(c)>1?1000:0)+(_dTrigSoon(c)?800:0)+Math.min(+lastContactDays(c)||0,365)+(100-((basicInputStat(c)||{}).pct||0))*0.5;
+    return {c:c,u:u};
+  }).sort(function(a,b){return b.u-a.u;}).slice(0,9).map(function(o){return o.c;});
+}
+
+/* ---- 候補プール：説明・ヒアリング（新規カテゴリ。新しいスコア式・AI判定は作らず、既存フィールドの
+ * 充足チェックのみで判定。対象フィールドと閾値は台帳(docs/ledger.md 第168弾)にも明記する）。
+ * 対象5フィールド：家族構成(family/family_headcount)・資産背景(shisan_kibo)・
+ * 土地情報(land_asset)・会話状況(kaiwa)・計画地備考(souteim=想定・提案イメージ)。
+ * 空欄数が2以上（5項目中）を「情報不足」とみなす。 */
+var SORTIE_HEARING_MISSING_THRESHOLD=2;
+function _sortieHearingMissingCount(c){
+  c=c||{};
+  var kw=Array.isArray(c.kaiwa)?c.kaiwa:(c.kaiwa?[c.kaiwa]:[]);
+  var checks=[
+    !((Array.isArray(c.family)&&c.family.length>0)||c.family_headcount), // 家族構成
+    !(c.shisan_kibo&&String(c.shisan_kibo).trim()), // 資産背景
+    !(c.land_asset&&String(c.land_asset).trim()), // 土地情報
+    !(kw.length>0), // 会話状況
+    !(c.souteim&&String(c.souteim).trim()) // 計画地備考（想定・提案イメージ）
+  ];
+  return checks.filter(Boolean).length;
+}
+function _sortieHearingPool(){
+  return cards.filter(function(c){
+    var st=+(c.stage||0);
+    return st>=2 && st<=4 && c.pursuit_judge!=='X' && _sortieHearingMissingCount(c)>=SORTIE_HEARING_MISSING_THRESHOLD;
+  }).sort(function(a,b){
+    var ma=_sortieHearingMissingCount(a), mb=_sortieHearingMissingCount(b);
+    if(mb!==ma) return mb-ma; // 1) 情報不足が多い順
+    var la=+lastContactDays(a)||0, lb=+lastContactDays(b)||0;
+    if(lb!==la) return lb-la; // 2) 未接触日数が長い順
+    var sa=+(a.stage||0), sb=+(b.stage||0);
+    if(sb!==sa) return sb-sa; // 3) 心理ステージ（2〜4の中でより進んだ方を先に）
+    return calcScore(b)-calcScore(a); // 4) 既存スコア順
+  }).slice(0,9);
+}
+
+/* ---- 候補プール：エリア（planCityの市区町村文字列一致選択式。距離計算・近場自動判定はしない） ---- */
+function _sortieAreaCities(){
+  var seen={}, out=[];
+  cards.forEach(function(c){ var city=planCity(c); if(city&&!seen[city]){ seen[city]=1; out.push(city); } });
+  return out.sort(function(a,b){ return a.localeCompare(b,'ja'); });
+}
+function _sortieAreaPool(city){
+  return cards.filter(function(c){ return planCity(c)===city; }).sort(function(a,b){ return calcScore(b)-calcScore(a); });
+}
+
+/* ---- 6コマンド定義（人数チップ含む。ショットガン2系統はchips:null＝チップなし即橋渡し＝修正A） ---- */
+var SORTIE_COMMANDS=[
+  {id:'priority', label:'🔥 優先客を攻める', chips:[{label:'1人集中',n:1},{label:'2人攻略',n:2},{label:'3人勝負',n:3},{label:'自分で選ぶ',n:0}]},
+  {id:'revisit', label:'🚶 再訪を深める', chips:[{label:'軽く3',n:3},{label:'標準5',n:5},{label:'厚め7',n:7},{label:'自分で選ぶ',n:0}]},
+  {id:'hearing', label:'🗣 説明・ヒアリングに行く', chips:[{label:'2人',n:2},{label:'3人',n:3},{label:'5人',n:5},{label:'自分で選ぶ',n:0}]},
+  {id:'area', label:'🧭 エリアで回る', chips:[{label:'3人',n:3},{label:'6人',n:6},{label:'9人',n:9},{label:'自分で選ぶ',n:0}]},
+  {id:'sg_route', label:'🎯 ショットガンで回る', chips:null},
+  {id:'sg_build', label:'🧩 ショットガンを作る', chips:null}
+];
+
+/* ---- 低人数トースト（確定した瞬間の1回のみ。距離・近場・最短系の表現は使わない） ---- */
+var SORTIE_LOW_TOASTS={
+  priority: function(n){ return n<=1?'今日は集中勝負ですね。もし留守だった時のために、予備候補も見ておきますか？':''; },
+  revisit: function(n){ return n<=2?'再訪は厚みが出るほど流れを作れます。あと数件、追加候補を足せます。':''; },
+  hearing: function(n){ return n<=1?'ヒアリングは複数件回ると流れが掴みやすくなります。あと数件、追加候補を足せますか？':''; },
+  area: function(n){ return n<=2?'このエリアなら、もう少し候補を足せます。空振り対策に追加しますか？':''; }
+};
+
+/* ---- 訪問メーター表示（0/3/6/9/12の色段階。12は目安であってブロック上限ではない） ---- */
+function _sortieMeterHTML(){
+  var n=_sortieVisitCount();
+  var pct=Math.min(100, Math.round(n/12*100));
+  var color = n>=12?'#e53e3e' : n>=9?'#dd6b20' : n>=6?'#d69e2e' : n>=3?'#2f855a' : '#2b6cb0';
+  var label = n>=12?'赤・最大火力（出陣完成）' : n>=9?'橙・攻めの布陣' : n>=6?'黄・標準的な布陣' : n>=3?'緑・動き始めた' : '青・静かな立ち上がり';
+  return '<div style="margin:10px 0" data-sortie-meter="1">'
+    +'<div style="display:flex;justify-content:space-between;font-size:11px;color:#718096;margin-bottom:3px">'
+    +'<span>訪問メーター</span><span>'+n+(n>=12?'+':'')+'名／12名目安・'+label+'</span></div>'
+    +'<div style="height:8px;border-radius:5px;background:#edf2f7;overflow:hidden">'
+    +'<div style="height:100%;width:'+pct+'%;background:'+color+';transition:width .3s"></div></div></div>';
+}
+/* ---- 12名達成演出（日付付きフラグで1日1回のみ。12→11→12の往復でも再発火しない。達成音なし） ---- */
+function _sortieCheckAchievement(){
+  if(_sortieVisitCount()>=12 && !localStorage.getItem(_sortieDoneKey())){
+    try{ localStorage.setItem(_sortieDoneKey(),'1'); }catch(e){}
+    setTimeout(function(){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9999;display:flex;align-items:center;justify-content:center;animation:sortieFadeIn .25s ease';
+      ov.innerHTML='<div style="background:linear-gradient(135deg,#742a2a,#c53030);color:#fff;border-radius:14px;padding:22px 30px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.4);animation:sortiePop .35s ease">'
+        +'<div style="font-size:30px;margin-bottom:6px">🔥</div>'
+        +'<div style="font-size:16px;font-weight:800">本日の布陣、完成しました。</div>'
+        +'<div style="font-size:14px;margin-top:2px">12名出陣です。</div></div>';
+      ov.addEventListener('click',function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); });
+      document.body.appendChild(ov);
+      setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); },2600);
+    },300);
+  }
+}
+function _sortieEnsureStyle(){
+  if(document.getElementById('sortieStyleTag')) return;
+  var st=document.createElement('style'); st.id='sortieStyleTag';
+  st.textContent='@keyframes sortieFadeIn{from{opacity:0}to{opacity:1}}@keyframes sortiePop{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}';
+  document.head.appendChild(st);
+}
+
+/* ---- ボード状態・overlay ---- */
+var _sortieState=null; // {cmd, city, pool:[card,...], sel:{cardId:true}}
+function _sortieEnsureOv(){
+  var ov=document.getElementById('sortieBoardView');
+  if(!ov){
+    ov=document.createElement('div'); ov.id='sortieBoardView';
+    ov.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.55);z-index:9000;overflow:auto;padding:26px 12px;display:none';
+    // 背景クリックは「予定表だけ開く」と同じ扱い（押しつけない・必ずスキップ記録して抜けられる）
+    ov.addEventListener('click',function(ev){ if(ev.target===ov) _sortieSkipToPlain(); });
+    document.body.appendChild(ov);
+  }
+  return ov;
+}
+function _sortieCmdForState(){
+  var st=_sortieState; if(!st) return null;
+  var base=SORTIE_COMMANDS.filter(function(c){return c.id===st.cmd;})[0]; if(!base) return null;
+  if(st.cmd==='area'&&st.city) return {id:'area', label:'🧭 '+st.city+'で回る', chips:base.chips};
+  return base;
+}
+
+/* ---- 画面1: 入口「今日はどう攻める？」 ---- */
+function _sortiePaintIntro(){
+  _sortieEnsureStyle();
+  var ov=_sortieEnsureOv();
+  ov.innerHTML='<div style="background:#fff;max-width:640px;margin:0 auto;border-radius:14px;padding:22px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
+    +'<div style="font-size:17px;font-weight:800;color:#2c5282;margin-bottom:4px">\u2694\ufe0f 今日はどう攻める？</div>'
+    +'<div style="font-size:12px;color:#718096;margin-bottom:10px">今日の攻め方を選ぶと、候補を絞り込んで予定表に入れられます。</div>'
+    +_sortieMeterHTML()
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0">'
+    +SORTIE_COMMANDS.map(function(cmd){
+      return '<button onclick="_sortiePickCommand(\''+cmd.id+'\')" style="text-align:left;background:#f7fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;font-size:13.5px;font-weight:700;color:#2d3748;cursor:pointer;font-family:inherit">'+cmd.label+'</button>';
+    }).join('')
+    +'</div>'
+    +'<button onclick="_sortieSkipToPlain()" style="width:100%;background:#e2e8f0;color:#2d3748;border:none;border-radius:9px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">📅 予定表だけ開く</button>'
+    +'</div>';
+  ov.style.display='block';
+}
+/* ---- コマンド選択の振り分け ---- */
+function _sortiePickCommand(cmdId){
+  if(cmdId==='sg_route'){
+    /* 修正A: チップなしで即橋渡し。候補再生成・一括投入の再実装はしない（既存機能を使うだけ）。 */
+    _sortieClose(); showPlanner();
+    setTimeout(function(){ if(typeof planOpenShotgunPick==='function') planOpenShotgunPick(); },50);
+    return;
+  }
+  if(cmdId==='sg_build'){
+    _sortieClose(); showPlanner();
+    setTimeout(function(){ if(typeof sggOpen==='function') sggOpen(); },50);
+    return;
+  }
+  if(cmdId==='area'){ _sortiePaintAreaPick(); return; }
+  var pool = cmdId==='priority' ? _sortiePriPool() : cmdId==='revisit' ? _sortieRevPool() : _sortieHearingPool();
+  _sortieState={cmd:cmdId, pool:pool, sel:{}};
+  _sortiePaintPicker();
+}
+/* ---- エリア: 市区町村選択画面 ---- */
+function _sortiePaintAreaPick(){
+  var ov=_sortieEnsureOv();
+  var cities=_sortieAreaCities();
+  ov.innerHTML='<div style="background:#fff;max-width:640px;margin:0 auto;border-radius:14px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    +'<b style="font-size:15px;color:#2c5282">🧭 エリアで回る</b>'
+    +'<button onclick="_sortiePaintIntro()" style="background:none;border:none;color:#718096;font-size:12px;cursor:pointer;font-family:inherit">← 戻る</button></div>'
+    +'<div style="font-size:12px;color:#718096;margin-bottom:8px">市区町村を選んでください（住所ありのカードのみ対象）</div>'
+    +(cities.length
+      ? ('<div style="display:flex;flex-wrap:wrap;gap:6px">'+cities.map(function(city){
+          return '<button onclick="_sortiePickAreaCity(\''+city.replace(/'/g,"\\'")+'\')" style="background:#f0fff4;color:#276749;border:1px solid #9ae6b4;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">'+e(city)+'</button>';
+        }).join('')+'</div>')
+      : '<div style="font-size:12px;color:#a0aec0;padding:8px 4px">住所ありのカードがありません</div>')
+    +'</div>';
+  ov.style.display='block';
+}
+function _sortiePickAreaCity(city){
+  _sortieState={cmd:'area', city:city, pool:_sortieAreaPool(city), sel:{}};
+  _sortiePaintPicker();
+}
+/* ---- 画面2: チップ＋候補選択（修正B: チップ＝プール上位N名の初期チェック数。表示件数ではない） ---- */
+function _sortieApplyChip(n){
+  var st=_sortieState; if(!st) return;
+  st.sel={};
+  st.pool.slice(0,n).forEach(function(c){ st.sel[c.id]=true; });
+}
+function _sortiePickChip(n){ _sortieApplyChip(n); _sortiePaintPicker(); }
+function _sortieToggleSel(id){ var st=_sortieState; if(!st) return; st.sel[id]=!st.sel[id]; _sortiePaintPicker(); }
+function _sortiePaintPicker(){
+  var st=_sortieState; if(!st) return;
+  var cmd=_sortieCmdForState(); if(!cmd) return;
+  var ov=_sortieEnsureOv();
+  var nSel=Object.keys(st.sel).filter(function(k){return st.sel[k];}).length;
+  var already={}; ((_plan&&_plan.entries)||[]).forEach(function(en){ if(en.cardId) already[en.cardId]=1; });
+  var rows=st.pool.map(function(c){
+    var inPlan=!!already[c.id], on=!!st.sel[c.id];
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #edf2f7;'+(inPlan?'opacity:.5':'')+'">'
+      +'<input type="checkbox" '+(on?'checked':'')+(inPlan?' disabled':'')+' onchange="_sortieToggleSel(\''+c.id+'\')">'
+      +'<b style="font-size:13px">'+e(c.name||'無名')+'様</b>'
+      +'<span style="font-size:11px;color:#718096;margin-left:auto">'+e(getArea(c.address||''))+(inPlan?'　<span style="color:#a0aec0">予定済み</span>':'')+'</span>'
+      +'</label>';
+  }).join('') || '<div style="font-size:12px;color:#a0aec0;padding:10px 4px">該当する候補がいません</div>';
+  ov.innerHTML='<div style="background:#fff;max-width:640px;margin:0 auto;border-radius:14px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    +'<b style="font-size:15px;color:#2c5282">'+cmd.label+'</b>'
+    +'<button onclick="_sortiePaintIntro()" style="background:none;border:none;color:#718096;font-size:12px;cursor:pointer;font-family:inherit">← 戻る</button></div>'
+    +_sortieMeterHTML()
+    +(cmd.chips?('<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">'
+      +cmd.chips.map(function(ch){ return '<button onclick="_sortiePickChip('+ch.n+')" style="background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">'+ch.label+'</button>'; }).join('')
+      +'</div>'):'')
+    +'<div style="max-height:40vh;overflow-y:auto;border-top:1px solid #e2e8f0">'+rows+'</div>'
+    +'<button onclick="_sortieConfirm()" style="width:100%;margin-top:14px;background:#2c5282;color:#fff;border:none;border-radius:9px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📅 選んだ '+nSel+' 件で予定表に入れる</button>'
+    +'</div>';
+  ov.style.display='block';
+}
+/* ---- atomic投入（第165弾ショットガン一括投入と同じ原則。時間未定上限を超えるなら1件も入れない） ---- */
+function _sortieConfirm(){
+  var st=_sortieState; if(!st) return;
+  _plan=loadPlan();
+  var poolIds={}; st.pool.forEach(function(c){poolIds[c.id]=1;});
+  var already={}; (_plan.entries||[]).forEach(function(en){ if(en.cardId) already[en.cardId]=1; });
+  var toAdd=Object.keys(st.sel).filter(function(id){ return st.sel[id] && poolIds[id] && !already[id]; });
+  if(!toAdd.length){ toast('選択されたメンバーがいません'); return; }
+  if(planUntimedCount()+toAdd.length>PLAN_UNTIMED_MAX){
+    var free=PLAN_UNTIMED_MAX-planUntimedCount(); if(free<0) free=0;
+    if(typeof aibisAlert==='function') aibisAlert('このまま追加すると予定表の上限（時間未定<b>'+PLAN_UNTIMED_MAX+'件</b>）を超えます。<br>チェックを外して人数を調整してください。<br><span style="font-size:12px;color:#718096">空き'+free+'件に対して'+toAdd.length+'名を選択中</span>');
+    else toast('このまま追加すると予定表の上限を超えます。候補を調整してください。');
+    return; /* atomic: 誰も追加しない。画面は閉じずチェック調整に戻す */
+  }
+  toAdd.forEach(function(id){
+    var c=st.pool.filter(function(x){return x.id===id;})[0]; if(!c) return;
+    _plan.entries.push(makePlanEntry(c)); /* cards配列へは書き込まない。投入は必ずmakePlanEntry経由 */
+  });
+  savePlan();
+  var toastFn=SORTIE_LOW_TOASTS[st.cmd]; var lowMsg=toastFn?toastFn(toAdd.length):'';
+  var cmdIdDone=st.cmd;
+  _sortieClose();
+  showPlanner();
+  toast(toAdd.length+'件を予定表に追加しました');
+  if(lowMsg){ setTimeout(function(){ toast(lowMsg); },700); } // 確定した瞬間の1回のみ（renderのたびには出さない）
+  _sortieCheckAchievement();
+}
+/* ---- 「予定表だけ開く」＝押しつけない必須導線。スキップ済みフラグを保存し、低人数トーストは出さない ---- */
+function _sortieSkipToPlain(){
+  try{ localStorage.setItem(_sortieSkipKey(),'1'); }catch(e){}
+  _sortieClose();
+  showPlanner();
+}
+function _sortieClose(){ var ov=document.getElementById('sortieBoardView'); if(ov) ov.style.display='none'; _sortieState=null; }
+
+/* ---- 入口関数（hasFSAゲートはボード表示より先。予定表と同じPC専用導線に乗せる） ---- */
+function openSortieBoard(mode){
+  if(!hasFSA){ aibisAlert('本日の予定表はPC版（Chrome）でのみ使えるよ！'); return; }
+  _plan=loadPlan();
+  if(mode==='explicit' && typeof _navGo==='function') _navGo('sortie');
+  _sortiePaintIntro();
+}
+/* 一覧「📅 本日の予定表」からの自動表示ゲート通過時に呼ぶ（history非push・表示した瞬間にフラグ記録） */
+function openSortieBoardAuto(){
+  try{ localStorage.setItem(_sortieShownKey(),'1'); }catch(e){}
+  openSortieBoard('auto');
+}
+/* 予定表内「🎯 作戦盤」ボタンからの明示起動（旧openSakusenbanFromPlannerの置き換え） */
+function openSortieBoardFromPlanner(){
+  try{ localStorage.setItem('pl_sb_opened','1'); }catch(e){}
+  try{ var _sb=document.getElementById('plSbBtn'); if(_sb) _sb.classList.remove('pl-blink'); }catch(e){}
+  openSortieBoard('explicit');
+}
+window.openSortieBoard=openSortieBoard;
+window.openSortieBoardFromPlanner=openSortieBoardFromPlanner;
+window._sortiePickCommand=_sortiePickCommand;
+window._sortiePickChip=_sortiePickChip;
+window._sortieToggleSel=_sortieToggleSel;
+window._sortieConfirm=_sortieConfirm;
+window._sortieSkipToPlain=_sortieSkipToPlain;
+window._sortiePaintIntro=_sortiePaintIntro;
+window._sortiePickAreaCity=_sortiePickAreaCity;
+
 
 function renderPlannerSheet(){
   var host=document.getElementById('plannerPreview'); if(!host)return;
