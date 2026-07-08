@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.57";
+var APP_VERSION = "v10.58";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -10516,7 +10516,7 @@ function _sggGroupCardHTML(g){
     var addr = (c&&c.address)?String(c.address).slice(0,20):'';
     var rankCtl = isAnchor
       ? '<span style="font-size:10px;background:#fefcbf;color:#975a16;border-radius:5px;padding:2px 6px;font-weight:700;flex-shrink:0;white-space:nowrap">👑1位</span>'
-      : ('<select onchange="sggSetRank(\''+g.gid+'\',\''+cid+'\',this.value)" style="font-size:12px;border:1px solid #cbd5e0;border-radius:5px;padding:2px 4px;flex-shrink:0">'
+      : ('<select onchange="sggSetRank(\''+g.gid+'\',\''+cid+'\',this.value)" style="width:60px;min-width:60px;flex-shrink:0;box-sizing:border-box;font-size:12px;border:1px solid #cbd5e0;border-radius:5px;padding:2px 4px">'
           +(function(){ var opts=''; for(var r=2;r<=total;r++){ opts+='<option value="'+r+'"'+(r===rank?' selected':'')+'>'+r+'位</option>'; } return opts; })()
           +'</select>');
     return '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px dashed #edf2f7;'+(invalid?'opacity:.5':'')+'">'
@@ -10645,7 +10645,7 @@ function _sggOpenPickModal(title){
     ov.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px';
     ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:420px;width:100%;max-height:70vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">'
       +'<div style="padding:12px 14px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px"><span id="sggPickTitle" style="flex:1;font-size:14px;font-weight:800;color:#1a202c"></span><button type="button" onclick="sggClosePick()" style="border:none;background:none;font-size:18px;color:#a0aec0;cursor:pointer">✕</button></div>'
-      +'<div style="padding:10px 14px 0"><input id="sggPickSearch" oninput="sggPickFilter(this.value)" placeholder="氏名・住所で絞り込み…" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e0;border-radius:7px;font-size:13px"></div>'
+      +'<div style="padding:10px 14px 0;display:flex;gap:6px;align-items:center"><button type="button" id="sggPickMicBtn" class="mic-btn" onclick="micStart(\'sggPickSearch\',this)" style="flex-shrink:0;margin-top:0" title="音声で絞り込み">🎤</button><input id="sggPickSearch" oninput="sggPickFilter(this.value)" placeholder="氏名・住所で絞り込み…" style="flex:1;min-width:0;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e0;border-radius:7px;font-size:13px"></div>'
       +'<div style="padding:8px 14px 0" id="sggPickSortRow"></div>'
       +'<div id="sggPickList" style="flex:1;overflow-y:auto;padding:8px 14px 14px"></div></div>';
     ov.onclick=sggClosePick;
@@ -10692,7 +10692,8 @@ function sggPickFilter(q){
   }
   hit=hit.slice(0,30);
   host.innerHTML=hit.length?hit.map(function(o){
-    return '<div onclick="sggPickChoose(\''+o.id+'\')" style="padding:8px 6px;border-bottom:1px dashed #edf2f7;cursor:pointer"><span style="font-size:13px;font-weight:700;color:#1a202c">'+e(o.name||'(無名)')+'様</span>'+(o.address?(' <span style="font-size:11px;color:#a0aec0">'+e(String(o.address).slice(0,18))+'</span>'):'')+'</div>';
+    var addr=o.address?String(o.address).slice(0,18):(o.plan_address?('📍計画地 '+String(o.plan_address).slice(0,14)):''); /* 第162弾-5: 自宅住所が無ければ計画地住所をフォールバック表示 */
+    return '<div onclick="sggPickChoose(\''+o.id+'\')" style="padding:8px 6px;border-bottom:1px dashed #edf2f7;cursor:pointer"><span style="font-size:13px;font-weight:700;color:#1a202c">'+e(o.name||'(無名)')+'様</span>'+(addr?(' <span style="font-size:11px;color:#a0aec0">'+e(addr)+'</span>'):'')+'</div>';
   }).join(''):'<div style="text-align:center;color:#a0aec0;font-size:12px;padding:14px">該当するカードがありません</div>';
 }
 function sggPickChoose(cardId){
@@ -10864,8 +10865,9 @@ function renderPlanner(){
     +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
     +'<select id="plEvTime" onchange="planUpdateAddState()" style="width:78px;padding:6px 4px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;font-weight:700;color:#2c5282"><option value="">時刻</option>'+slots+'</select>'
     +[['本社イベント','#e0e7ff','#4338ca','#c7d2fe'],['本社講習','#d6f5ee','#0f766e','#a7f3d0'],['支店イベント','#fef3c7','#92400e','#fde68a'],['支店講習','#fce7f3','#9d174d','#fbcfe8']].map(function(v){ return '<button class="pl-evbtn" onclick="planAddEvent(\''+v[0]+'\')" style="background:'+v[1]+';color:'+v[2]+';border:1px solid '+v[3]+';border-radius:6px;padding:5px 7px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap">'+v[0]+'</button>'; }).join('')
+    +'<button class="pl-evbtn" onclick="planOpenShotgunPick()" title="ショットガンから予定に入れる" style="background:#faf089;color:#744210;border:1px solid #f6e05e;border-radius:6px;padding:5px 7px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">🎯 ショットガン</button>'
     +'<button class="pl-evbtn" onclick="planAddFree()" style="background:#edf2f7;color:#4a5568;border:1px solid #cbd5e0;border-radius:6px;padding:5px 7px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap">自由入力</button>'
-    +'<input id="plSearch" oninput="planSearch(this.value)" placeholder="見込み客を検索…" style="flex:1;min-width:120px;padding:6px 8px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;box-sizing:border-box">'
+    +'<input id="plSearch" oninput="planSearch(this.value)" placeholder="見込み客を検索…" style="flex:1;min-width:100px;padding:6px 8px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;box-sizing:border-box">'
     +'<button type="button" id="plMicBtn" class="mic-btn" onclick="micStart(\'plSearch\',this)" style="flex-shrink:0;margin-top:0" title="音声で検索">🎤</button>'
     +'</div>'
     +'<div id="plSearchResults" style="margin-top:8px"></div>'
@@ -10941,6 +10943,54 @@ function planTogglePrio(i){
   savePlan(); renderPlanner();
 }
 window.planTogglePrio=planTogglePrio;
+
+/* 第162弾-2: 予定表からショットガンを投入するポップアップ。
+ * ・sggAll()のグループを中心客名で一覧。グループ名タップ＝実効中心客を予定に追加、
+ *   メンバーチップタップ＝その1名を予定に追加。追加は既存planAddCard経由で1名のみ
+ *   （_plan.entriesへ複数流し込まない＝PLAN_UNTIMED_MAX・件数・スコアを汚さない）。
+ * ・重複はplanAddCard内の既存トーストに委ねる。card.sgには一切書き込まない（読み取りのみ）。 */
+function planOpenShotgunPick(){
+  if(typeof sggAll!=='function'){ toast('ショットガン機能が読み込まれていません'); return; }
+  var groups=sggAll();
+  var ov=document.getElementById('planSgPickOv');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='planSgPickOv';
+    ov.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9200;align-items:center;justify-content:center;padding:16px';
+    ov.onclick=planCloseShotgunPick;
+    document.body.appendChild(ov);
+  }
+  var inner='<div style="background:#fff;border-radius:12px;max-width:440px;width:100%;max-height:74vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">'
+    +'<div style="padding:12px 14px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:14px;font-weight:800;color:#1a202c">🎯 ショットガンから予定に入れる</span><button type="button" onclick="planCloseShotgunPick()" style="border:none;background:none;font-size:18px;color:#a0aec0;cursor:pointer">✕</button></div>'
+    +'<div style="flex:1;overflow-y:auto;padding:10px 14px 14px">';
+  if(!groups.length){
+    inner+='<div style="text-align:center;color:#a0aec0;font-size:12px;padding:18px">ショットガングループがまだありません。<br>作戦盤の🎯ショットガンから作成できます。</div>';
+  } else {
+    inner+='<div style="font-size:11px;color:#718096;line-height:1.6;margin-bottom:8px">グループ名タップで中心客を、名前タップでその1名を予定表に追加します。</div>';
+    inner+=groups.map(function(g){
+      var anchorCard=(g.effectiveAnchorId&&typeof _cardById==='function')?_cardById(g.effectiveAnchorId):null;
+      var chips=(g.validMemberIds||g.memberIds||[]).map(function(id){
+        var c=(typeof _cardById==='function')?_cardById(id):null; if(!c) return '';
+        var isAnchor=(id===g.effectiveAnchorId);
+        return '<button type="button" onclick="planAddFromShotgun(\''+id+'\')" style="background:'+(isAnchor?'#fefcbf':'#edf2f7')+';color:'+(isAnchor?'#744210':'#4a5568')+';border:1px solid '+(isAnchor?'#f6e05e':'#cbd5e0')+';border-radius:6px;padding:4px 9px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;margin:0 4px 4px 0">'+(isAnchor?'👑':'')+e((c.name||'(無名)'))+'様</button>';
+      }).join('');
+      return '<div style="border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;margin-bottom:8px">'
+        +'<div onclick="planAddFromShotgun(\''+(g.effectiveAnchorId||'')+'\')" style="font-size:13px;font-weight:800;color:#2c5282;cursor:pointer;margin-bottom:6px">🎯 '+e(g.name)+'</div>'
+        +'<div style="display:flex;flex-wrap:wrap">'+(chips||'<span style="font-size:11px;color:#a0aec0">有効なメンバーがいません</span>')+'</div>'
+        +'</div>';
+    }).join('');
+  }
+  inner+='</div></div>';
+  ov.innerHTML=inner;
+  ov.style.display='flex';
+}
+function planCloseShotgunPick(){ var ov=document.getElementById('planSgPickOv'); if(ov) ov.style.display='none'; }
+function planAddFromShotgun(cardId){
+  if(!cardId){ toast('対象が見つかりません'); return; }
+  planCloseShotgunPick();
+  planAddCard(cardId); /* 追加・重複警告・保存・再描画はすべて既存関数に委譲 */
+}
+window.planOpenShotgunPick=planOpenShotgunPick; window.planCloseShotgunPick=planCloseShotgunPick; window.planAddFromShotgun=planAddFromShotgun;
 function resetPlanner(){ if(!_plan.entries||!_plan.entries.length){ toast('リセットする予定がありません'); return; }
   aibisAlert('本日の予定表（全'+_plan.entries.length+'件）をリセットするよ⚠<br>前回の予定をまとめて消去します。この操作は取り消せません。<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
@@ -11113,7 +11163,11 @@ function _sbPaint(){
  var ov=document.getElementById('sakusenView'); if(!ov) return;
  var nSel=0; Object.keys(window._sbSel||{}).forEach(function(k){ if(window._sbSel[k]) nSel++; });
  ov.innerHTML='<div style="background:#fff;max-width:720px;margin:0 auto;border-radius:12px;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
-  +'<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:16px;color:#2c5282">\ud83c\udfaf 今日の作戦盤</b><span style="display:flex;gap:6px;align-items:center"><button onclick="zSbOpenShotgun()" title="ショットガン（営業作戦グループ）" style="background:#d69e2e;color:#1a1300;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\ud83c\udfaf ショットガン</button><button onclick="zSbClose()" style="background:none;border:none;font-size:17px;cursor:pointer;font-family:inherit">\u2716</button></span></div>'
+  +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><b style="font-size:16px;color:#2c5282;flex-shrink:0">\ud83c\udfaf 今日の作戦盤</b><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">'
+  /* 第162弾-1: 決定ボタンを上段にも複製（下段と同一ハンドラzSbMake/zSbSkipを呼ぶだけ・ロジック不変） */
+  +'<button onclick="zSbMake()" title="選んだ'+nSel+'件で予定表を作る" style="background:#2c5282;color:#fff;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\ud83d\udcc5 選択で作成</button>'
+  +'<button onclick="zSbSkip()" title="選ばずに予定表へ" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\u23e9 そのまま</button>'
+  +'<button onclick="zSbOpenShotgun()" title="ショットガン（営業作戦グループ）" style="background:#d69e2e;color:#1a1300;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\ud83c\udfaf ショットガン</button><button onclick="zSbClose()" style="background:none;border:none;font-size:17px;cursor:pointer;font-family:inherit">\u2716</button></span></div>'
   +(function(){var jm=cards.filter(_judgeMissing);return jm.length?'<div style="font-size:11.5px;color:#c53030;font-weight:700;background:#fff5f5;border:1px solid #feb2b2;border-radius:6px;padding:5px 8px;margin:6px 0">\u26a0 ランク判定漏れ '+jm.length+'件：'+jm.slice(0,3).map(function(c){return e(c.name||'無名')+'様';}).join('・')+(jm.length>3?' 他':'')+'（判定は必須です）</div>':'';})()+'<div style="font-size:11.5px;color:#718096;margin:4px 0 8px">\u2b50が予定表の金枠に入る優先3客（タップで入れ替え可・最大3）。チェックで予定表入り、チップで今日のアクション。忙しい朝は「選ばずに予定表へ」でOK。</div>'
   +'<div style="font-weight:800;color:#b7791f;font-size:13px;margin:8px 0 2px">\ud83c\udfc6 推奨・優先3客（連想以上\u00d7B以上\u00d7訪問期日到来）</div>'
   +(window._sbPri.length?window._sbPri.map(function(o,ix){return _sbRowHTML(o,true,ix);}).join(''):'<div style="font-size:11px;color:#999;padding:6px 4px">該当なし</div>')
@@ -12957,10 +13011,14 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         <button type="button" class="bc" style="padding:8px;font-size:12px" onclick="mapRoute()">🚗 計画地から自宅</button>
         <button type="button" class="bc" style="padding:8px;font-size:12px" onclick="mapStation()">🚉 最寄り駅まで徒歩</button>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">
         <span style="font-size:12px;color:#4a5568;flex-shrink:0">🚉 最寄り駅 徒歩</span>
         <button type="button" id="ekitohoBtn" onclick="toggleEkitoho()" style="flex-shrink:0;padding:9px 18px;border:2px solid #cbd5e0;border-radius:7px;background:white;cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;color:#718096;white-space:nowrap;min-height:40px;min-width:104px">🚉 未確認</button>
         <span class="pc-hide-tap" style="font-size:10px;color:#a0aec0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">タップで切替</span>
+        <!-- 🎯 ショットガン所属表示（第162弾-4: 最寄り駅行の右へ移動。PC=右寄せ・モバイル=flex-wrapで下段折返し。所属時のみ表示。編集はPC版#shotgunView） -->
+        <div class="no-print" id="cardShotgunLine" style="display:none;margin-left:auto;padding:4px 8px;cursor:pointer;background:#ebf8ff;border:1px solid #bee3f8;border-radius:7px" onclick="sggCardLineClick()">
+          <span id="cardShotgunLineText" style="font-size:12px;font-weight:700;color:#2c5282"></span>
+        </div>
       </div>
     </div>
     <!-- 📷 計画地写真（アイビスカメラ連携・表示専用） -->
@@ -12968,10 +13026,6 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       <summary class="stitle cps-sum" style="display:flex;align-items:center;gap:8px"><span style="flex:1">📷 計画地写真 <span id="cardPhotoCount" style="font-weight:600;color:#718096;font-size:12px"></span></span><button type="button" id="cardCamBtn" class="cps-hdr-btn cps-hdr-cam" onclick="cardOpenCam(curId)" title="カメラで撮影（このカードに紐付く）">📷</button><button type="button" id="cardInbBtn" class="cps-hdr-btn" onclick="openInboxForCard()" title="インボックスから写真を選ぶ・管理">📥</button><button type="button" id="cardPhotoPrintBtn" class="cps-hdr-btn" onclick="openPlanPhotoPrint()" title="計画地写真を印刷（筆を選んでA4縦）">🖨</button></summary>
       <div id="cardPhotoBody"></div>
     </details>
-    <!-- 🎯 ショットガン所属表示（第161弾Phase3・所属時のみ1行表示。編集はPC版#shotgunViewで行う） -->
-    <div class="no-print" id="cardShotgunLine" style="display:none;padding:8px 4px;cursor:pointer;border-bottom:1px solid #edf2f7" onclick="sggCardLineClick()">
-      <span id="cardShotgunLineText" style="font-size:13px;font-weight:600;color:#2c5282"></span>
-    </div>
     <!-- 購買ステージ + 資産背景 -->
     <div class="sec">
       <!-- 購買ステージ -->
