@@ -1763,7 +1763,7 @@ body.is-mob .mob-menu{display:inline-block}
       <span style="font-size:16px;font-weight:700;color:#2c5282">🎯 ショットガン（営業作戦グループ）</span>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-      <button onclick="sggClose()" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">← 一覧に戻る</button>
+      <button onclick="sggClose()" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">← 戻る</button>
       <button onclick="sggOpenNewPick()" style="margin-left:auto;background:#3182ce;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 新しいショットガン</button>
     </div>
     <div id="shotgunViewBody"></div>
@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.58";
+var APP_VERSION = "v10.62";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -10145,6 +10145,7 @@ function sggCardLineClick(){
   var line=document.getElementById('cardShotgunLine'); if(!line) return;
   var gid=line.getAttribute('data-gid'); if(!gid) return;
   if(!hasFSA){ toast('ショットガンの編集はPC版で'); return; }
+  if(typeof sggSetReturnTo==='function') sggSetReturnTo('edit'); /* 第164弾: カード経由は戻るでカードへ */
   sggOpen();
   setTimeout(function(){
     var el=document.getElementById('sggCard_'+gid);
@@ -10471,10 +10472,27 @@ function sggOpen(){
   var lv=document.getElementById('listView'); if(lv) lv.style.display='none';
   var v=document.getElementById('shotgunView'); if(v) v.style.display='block';
   sggRenderAll();
+  if(typeof _navGo==='function') _navGo('shotgun'); /* 第164弾: ブラウザ戻る対応。履歴に1件積む */
 }
-function sggClose(){
+/* 第163弾→164弾: ショットガン画面の戻り先。'list'（既定・一覧へ）／'sakusen'（作戦盤へ）／'edit'（カードへ）。
+ * 入口ごとに設定し、戻るボタンでもブラウザ戻るでも「一つ前の画面」へ戻す。 */
+var _sggReturnTo='list';
+function sggSetReturnTo(dest){ _sggReturnTo=(dest==='sakusen'||dest==='edit')?dest:'list'; }
+/* 実際に画面を戻す処理（戻り先を消費）。戻るボタン・ブラウザ戻る・枠外クリックの共通出口。 */
+function _sggShowReturn(){
   var v=document.getElementById('shotgunView'); if(v) v.style.display='none';
+  var back=_sggReturnTo; _sggReturnTo='list'; // 1回で消費
+  if(back==='sakusen' && typeof openSakusenban==='function'){ openSakusenban(); return; }
+  if(back==='edit'){ var ev=document.getElementById('editView'); if(ev){ ev.style.display=(hasFSA&&!isMob)?'flex':'block'; return; } }
   var lv=document.getElementById('listView'); if(lv) lv.style.display=(hasFSA&&!isMob)?'flex':'block';
+}
+/* 戻るボタン：plannerBackと同じ流儀。履歴にshotgunがあればhistory.back()でpopstate経由に一本化
+ * （ブラウザ戻ると完全に同じ挙動になる）。無ければ直接戻す。 */
+function sggClose(){
+  try{
+    if(history.state && history.state.zv==='shotgun'){ history.back(); return; }
+  }catch(e){}
+  _sggShowReturn();
 }
 function sggOverlayClick(ev){ if(ev.target && ev.target.id==='shotgunView'){ sggClose(); } }
 
@@ -10737,7 +10755,7 @@ function sggAddMember(gid, cardId){
   return true;
 }
 
-window.sggOpen=sggOpen; window.sggClose=sggClose; window.sggOverlayClick=sggOverlayClick;
+window.sggOpen=sggOpen; window.sggClose=sggClose; window.sggOverlayClick=sggOverlayClick; window.sggSetReturnTo=sggSetReturnTo; window.sggShowReturn=_sggShowReturn;
 window.sggRenderAll=sggRenderAll; window.sggToggleExpand=sggToggleExpand;
 window.sggRename=sggRename; window.sggNameAuto=sggNameAuto; window.sggSetAnchor=sggSetAnchor;
 window.sggSetRank=sggSetRank; window.sggDeleteGroup=sggDeleteGroup;
@@ -10801,7 +10819,7 @@ var _silent=false;
 var _navReplaceNext=false;
 function _navGo(zv,id){ if(_silent) return; try{ if(_navReplaceNext){ _navReplaceNext=false; history.replaceState({zv:zv,id:id||null},''); } else { history.pushState({zv:zv,id:id||null},''); } }catch(e){} }
 function _navToList(){
-  ['editView','plannerView','helpView','setupView'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
+  ['editView','plannerView','helpView','setupView','shotgunView'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
   var lv=document.getElementById('listView'); if(lv) lv.style.display=(hasFSA&&!isMob)?'flex':'block';
 }
 /* 編集→一覧：履歴の積み重なりに依存せず必ず1回で一覧へ。履歴の先頭をlistに正規化 */
@@ -10816,9 +10834,14 @@ window.addEventListener('popstate',function(ev){
   var _gov=document.getElementById('geoMapOv'); if(_gov && _gov.classList.contains('show')){ _gov.classList.remove('show'); try{ if(typeof curId!=='undefined' && curId){ history.pushState({zv:'edit',id:curId},''); } }catch(e){} return; } // 地図オーバーレイは閉じるだけ（土台のカード/光速を維持）
   try{ autoCommitEdit(); }catch(_e){}
   var st=ev.state||{}; var zv=st.zv||'list';
+  /* 第164弾: ショットガンが開いている状態でブラウザ戻る→戻るボタンと同じ出口(_sggShowReturn)へ一本化。
+   * 戻り先(_sggReturnTo: list/sakusen/edit)を尊重するので、どの入口から来ても「一つ前」へ戻る。 */
+  var _sgv=document.getElementById('shotgunView');
+  if(_sgv && _sgv.style.display!=='none' && zv!=='shotgun'){ _silent=true; try{ if(typeof sggShowReturn==='function') sggShowReturn(); else _sgv.style.display='none'; }catch(e){} _silent=false; return; }
   _silent=true;
   try{
-    if(zv==='planner'){ var v=document.getElementById('plannerView'); if(!v||v.style.display==='none') showPlanner(); }
+    if(zv==='shotgun'){ if(typeof sggOpen==='function' && (!_sgv || _sgv.style.display==='none')){ var _lv=document.getElementById('listView'); if(_lv)_lv.style.display='none'; if(_sgv)_sgv.style.display='block'; if(typeof sggRenderAll==='function') sggRenderAll(); } }
+    else if(zv==='planner'){ var v=document.getElementById('plannerView'); if(!v||v.style.display==='none') showPlanner(); }
     else if(zv==='help'){ var h=document.getElementById('helpView'); if(!h||h.style.display==='none') showHelp(); }
     else if(zv==='edit'){ if(st.id){ openCard(st.id); var ev2=document.getElementById('editView'); if(!ev2||ev2.style.display==='none') _navToList(); } else _navToList(); }
     else { _navToList(); }
@@ -11222,7 +11245,7 @@ function zSbMake(){
 }
 function zSbSkip(){ zSbClose(); planMorningSweep(); _plan=loadPlan(); showPlanner(); }
 function zSbClose(){ var ov=document.getElementById('sakusenView'); if(ov) ov.style.display='none'; }
-function zSbOpenShotgun(){ zSbClose(); if(typeof sggOpen==='function') sggOpen(); }
+function zSbOpenShotgun(){ zSbClose(); if(typeof sggSetReturnTo==='function') sggSetReturnTo('sakusen'); if(typeof sggOpen==='function') sggOpen(); }
 window.zSbOpenShotgun=zSbOpenShotgun;
 window.openSakusenban=openSakusenban; window.zSbToggle=zSbToggle; window.zSbAct=zSbAct; window.zSbStar=zSbStar;
 function openSakusenbanFromPlanner(){ try{ localStorage.setItem("pl_sb_opened","1"); }catch(e){} try{ var _sb=document.getElementById("plSbBtn"); if(_sb) _sb.classList.remove("pl-blink"); }catch(e){} openSakusenban(); }
