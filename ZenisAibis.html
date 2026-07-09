@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.67";
+var APP_VERSION = "v10.68";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -11789,16 +11789,38 @@ function _sortieApplyChip(n){
 }
 function _sortiePickChip(n){ _sortieApplyChip(n); _sortiePaintPicker(); }
 function _sortieToggleSel(id){ var st=_sortieState; if(!st) return; st.sel[id]=!st.sel[id]; _sortiePaintPicker(); }
+/* 第169弾: ⭐絶対訪問（＝既存の⭐優先3客・prioの再解釈。新しいデータ構造は作らない）。
+ * 「優先客を攻める」コマンドの候補選択画面に限定して表示する（高田様指示）。
+ * ここでの☆は「確定時にen.prioを付けたい」という意思表示にとどめ、実際のprio番号
+ * （1/2/3）は_sortieConfirm()側で、その時点の既存prio件数を踏まえて確定する
+ * （既存のplanTogglePrioと同じ「used+1」方式・重複番号を防ぐ）。 */
+function _sortieToggleStar(id){
+  var st=_sortieState; if(!st || st.cmd!=='priority') return;
+  if(!st.star) st.star={};
+  if(st.star[id]){ delete st.star[id]; }
+  else {
+    if(Object.keys(st.star).length>=3){ toast('⭐絶対訪問は最大3名までです'); return; }
+    st.star[id]=true;
+  }
+  _sortiePaintPicker();
+}
 function _sortiePaintPicker(){
   var st=_sortieState; if(!st) return;
   var cmd=_sortieCmdForState(); if(!cmd) return;
   var ov=_sortieEnsureOv();
   var nSel=Object.keys(st.sel).filter(function(k){return st.sel[k];}).length;
+  var isPriorityCmd=(st.cmd==='priority'); // 第169弾: ⭐絶対訪問トグルは「優先客を攻める」限定
+  var starCount=(isPriorityCmd && st.star)?Object.keys(st.star).length:0;
   var already={}; ((_plan&&_plan.entries)||[]).forEach(function(en){ if(en.cardId) already[en.cardId]=1; });
   var rows=st.pool.map(function(c){
     var inPlan=!!already[c.id], on=!!st.sel[c.id];
+    var starOn=isPriorityCmd && st.star && st.star[c.id];
+    var starBtn=isPriorityCmd
+      ? '<button type="button" onclick="event.stopPropagation();_sortieToggleStar(\''+c.id+'\')" '+(inPlan?'disabled':'')+' title="⭐絶対訪問に指定（本日の優先3客・最大3名）" style="border:none;background:none;font-size:15px;cursor:'+(inPlan?'default':'pointer')+';padding:0 2px;flex-shrink:0;opacity:'+(inPlan?'.35':'1')+';color:'+(starOn?'#b7791f':'#cbd5e0')+'">'+(starOn?'⭐':'☆')+'</button>'
+      : '';
     return '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #edf2f7;'+(inPlan?'opacity:.5':'')+'">'
       +'<input type="checkbox" '+(on?'checked':'')+(inPlan?' disabled':'')+' onchange="_sortieToggleSel(\''+c.id+'\')">'
+      +starBtn
       +'<b style="font-size:13px">'+e(c.name||'無名')+'様</b>'
       +'<span style="font-size:11px;color:#718096;margin-left:auto">'+e(getArea(c.address||''))+(inPlan?'　<span style="color:#a0aec0">予定済み</span>':'')+'</span>'
       +'</label>';
@@ -11808,6 +11830,7 @@ function _sortiePaintPicker(){
     +'<b style="font-size:15px;color:#2c5282">'+cmd.label+'</b>'
     +'<button onclick="_sortiePaintIntro()" style="background:none;border:none;color:#718096;font-size:12px;cursor:pointer;font-family:inherit">← 戻る</button></div>'
     +_sortieMeterHTML()
+    +(isPriorityCmd?'<div style="font-size:11px;color:#b7791f;font-weight:700;margin:4px 0">☆をタップして⭐絶対訪問（本日の優先3客）に指定できます（'+starCount+'/3）</div>':'')
     +(cmd.chips?('<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">'
       +cmd.chips.map(function(ch){ return '<button onclick="_sortiePickChip('+ch.n+')" style="background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">'+ch.label+'</button>'; }).join('')
       +'</div>'):'')
@@ -11834,6 +11857,20 @@ function _sortieConfirm(){
     var c=st.pool.filter(function(x){return x.id===id;})[0]; if(!c) return;
     _plan.entries.push(makePlanEntry(c)); /* cards配列へは書き込まない。投入は必ずmakePlanEntry経由 */
   });
+  /* 第169弾: ⭐絶対訪問（＝既存の⭐優先3客・prioの再解釈。新しいフィールドは作らない）。
+   * 「優先客を攻める」コマンドで☆指定された候補にのみ、既存のplanTogglePrioと同じ
+   * 「used+1」方式でprioを付与する（その日すでに他の行でprioが使われている場合も
+   * 重複番号にならない・上限3は既存ロジックで自然に守られる）。 */
+  if(st.cmd==='priority' && st.star){
+    toAdd.forEach(function(id){
+      if(!st.star[id]) return;
+      var en=null;
+      for(var i=_plan.entries.length-1;i>=0;i--){ if(_plan.entries[i].cardId===id){ en=_plan.entries[i]; break; } }
+      if(!en || en.prio) return;
+      var used=_plan.entries.filter(function(x){return x.prio;}).length;
+      if(used<3){ en.prio=used+1; }
+    });
+  }
   savePlan();
   var toastFn=SORTIE_LOW_TOASTS[st.cmd]; var lowMsg=toastFn?toastFn(toAdd.length):'';
   var cmdIdDone=st.cmd;
@@ -11874,6 +11911,7 @@ window.openSortieBoardFromPlanner=openSortieBoardFromPlanner;
 window._sortiePickCommand=_sortiePickCommand;
 window._sortiePickChip=_sortiePickChip;
 window._sortieToggleSel=_sortieToggleSel;
+window._sortieToggleStar=_sortieToggleStar;
 window._sortieConfirm=_sortieConfirm;
 window._sortieSkipToPlain=_sortieSkipToPlain;
 window._sortiePaintIntro=_sortiePaintIntro;
