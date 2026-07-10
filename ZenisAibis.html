@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.69";
+var APP_VERSION = "v10.71";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -5564,6 +5564,115 @@ function renderSelfDash(tid, targetManager){
  if(!isMob && !tid) loadSelfMemo();
 }
 window.toggleSelfDash=toggleSelfDash; window.openSelfDash=openSelfDash; window.closeSelfDash=closeSelfDash; window.renderSelfDash=renderSelfDash;
+/* ==== 第171弾: 住所ソート共通補正（addr-sort-key）====
+ * 目的：本体一覧の住所ソートと出陣ボード「エリアで回る」で、同じ住所グルーピング思想を使う。
+ * 方針（高田様・Fable5確定）：
+ *  - 既存のplanCity()/planAddrNum()を内部で呼ぶ合成関数のみ。両関数本体は無改変・正規化の再実装はしない。
+ *  - 距離計算・GPS・地図API・辞書型住所DBは使わない。
+ *  - 保存データ・表示住所は一切変えない。ソート・グルーピング時にだけ使う一時キー。
+ *  - fold対応表はソート/候補生成の呼び出し都度メモリ内で構築する（キャッシュ・永続化はしない）。
+ *
+ * city/town分割の罠（Fable5指摘）：
+ *  素朴に [市区町村郡] で非貪欲に切ると、裸の「金町」は末尾の「町」に反応してcity扱いに
+ *  誤判定され、町名foldの土俵に乗らない。そのため本ファイルでは [市区郡] のみで区切り、
+ *  「町」「村」は裸文字列のcity終端として扱わない。郡付き住所は「郡」で切れるため実用上
+ *  問題ない。町村単独自治体（例：埼玉県毛呂山町など）は担当エリア外の既知の制約として
+ *  ここに明記する（誤ってcity扱いされず、bareな町名として扱われる＝fold対象になり得る）。
+ *
+ * foldルール：
+ *  - 町名foldは完全一致のみ（部分一致・前方一致・あいまい一致は禁止）。
+ *  - 裸町名は、手持ちデータ内で同じ町名キーが単一の市区町村にしか現れない場合だけ、
+ *    その市区町村へ寄せる（＝fold）。複数市区町村に同名町名が現れる場合は曖昧扱いとし、
+ *    無理に寄せない。
+ */
+'use strict';
+
+var ADDR_AMBIGUOUS = '__ADDR_AMBIGUOUS__'; /* foldMap内部専用の番人値 */
+
+/* 住所文字列（planCity()適用済みのブロブ＝都道府県prefix・数字・丁目は既に除去済み）を
+ * 市区町村部分と町名部分に分割する。plainCity()自体は改変せず、その出力をさらに割るだけ。
+ * 戻り値：{cityKey, townKey, missingFlag} */
+function extractAddressParts(c) {
+  var blob = planCity(c); // 既存関数を流用（合成のみ・再実装しない）
+  if (!blob) return { cityKey: '', townKey: '', missingFlag: true };
+  var m = blob.match(/^(.+?[市区郡])(.*)$/); // 「町」「村」はcity終端としない（金町問題対策）
+  if (m) return { cityKey: m[1], townKey: m[2], missingFlag: false };
+  return { cityKey: '', townKey: blob, missingFlag: false }; // 裸町名（市区町村部分なし）
+}
+
+/* 町名foldマップ構築：市区町村+町名が両方揃っているカードから townKey→cityKey を集計する。
+ * 1つのcityKeyにしか対応しなければfold可、2つ以上ならAMBIGUOUS。
+ * 呼び出し都度メモリ内で構築（キャッシュ・永続化はしない）。 */
+function buildTownFoldMap() {
+  var map = {};
+  cards.forEach(function (c) {
+    var p = extractAddressParts(c);
+    if (p.cityKey && p.townKey) {
+      if (!(p.townKey in map)) map[p.townKey] = p.cityKey;
+      else if (map[p.townKey] !== p.cityKey) map[p.townKey] = ADDR_AMBIGUOUS;
+    }
+  });
+  return map;
+}
+
+/* 住所ソートキー生成（本体一覧・出陣ボード共通）。
+ * sourceLevel: 0=市区町村+町名あり（裸町名からのfold成功を含む） / 1=市区町村のみ（町名なし）
+ *              / 2=曖昧・未fold裸町名 / 3=判定不能（住所なし・番地/建物名のみ等）
+ * foldMapは呼び出し側でbuildTownFoldMap()により毎回新規生成したものを渡す（永続化しない）。 */
+function makeAddressSortKey(c, foldMap) {
+  var p = extractAddressParts(c);
+  if (p.missingFlag) {
+    return { sourceLevel: 3, cityKey: '', townKey: '', numKey: planAddrNum(c), ambiguousFlag: false, missingFlag: true };
+  }
+  if (p.cityKey && p.townKey) {
+    return { sourceLevel: 0, cityKey: p.cityKey, townKey: p.townKey, numKey: planAddrNum(c), ambiguousFlag: false, missingFlag: false };
+  }
+  if (p.cityKey && !p.townKey) {
+    return { sourceLevel: 1, cityKey: p.cityKey, townKey: '', numKey: planAddrNum(c), ambiguousFlag: false, missingFlag: false };
+  }
+  // 裸町名（市区町村部分が取れない住所）
+  var fold = foldMap ? foldMap[p.townKey] : undefined;
+  if (fold && fold !== ADDR_AMBIGUOUS) {
+    return { sourceLevel: 0, cityKey: fold, townKey: p.townKey, numKey: planAddrNum(c), ambiguousFlag: false, missingFlag: false };
+  }
+  return { sourceLevel: 2, cityKey: '', townKey: p.townKey, numKey: planAddrNum(c), ambiguousFlag: true, missingFlag: false };
+}
+
+/* 本体一覧・出陣ボード共通の比較関数。
+ * 市区町村のみ住所（sourceLevel:1）は、同じ市区町村ブロックの末尾に置く（＝cityKeyが同じ
+ * グループ内で町名ありの後ろ）。曖昧・判定不能は全体の末尾（曖昧→判定不能の順）に置く。 */
+function compareAddressSortKey(ka, kb, dir) {
+  dir = dir || 1;
+  var ga = ka.sourceLevel <= 1 ? 0 : ka.sourceLevel; // 0/1は同じ「市区町村配下」グループとして扱う
+  var gb = kb.sourceLevel <= 1 ? 0 : kb.sourceLevel;
+  if (ga !== gb) return dir * (ga - gb);
+  if (ga === 0) {
+    var c1 = dir * ka.cityKey.localeCompare(kb.cityKey, 'ja'); if (c1) return c1;
+    var ta = ka.sourceLevel === 1 ? 1 : 0, tb = kb.sourceLevel === 1 ? 1 : 0; // 町名ありが先、市区町村のみは同city内末尾
+    if (ta !== tb) return dir * (ta - tb);
+    var c2 = dir * ka.townKey.localeCompare(kb.townKey, 'ja'); if (c2) return c2;
+    var La = ka.numKey.length, Lb = kb.numKey.length, L = Math.max(La, Lb);
+    for (var i = 0; i < L; i++) { var x = ka.numKey[i] || 0, y = kb.numKey[i] || 0; if (x !== y) return dir * (x - y); }
+    return 0;
+  }
+  if (ga === 2) { return dir * ka.townKey.localeCompare(kb.townKey, 'ja'); }
+  return 0; // sourceLevel===3同士は元の順（安定ソート）のまま
+}
+
+/* 出陣ボード「エリアで回る」専用：候補一覧・候補プールの両方が参照する単一の実効エリアキー。
+ * 市区町村+町名あり／市区町村のみ → planCity(c)と同じ文字列（従来どおり・不変）。
+ * 裸町名でfold成功 → 統合先（市区町村+町名）の文字列と一致させ、既存の全体候補へ合流させる。
+ * 裸町名でfold不成立（曖昧・未fold） → 裸町名そのまま＝独立候補として残す。 */
+function _sortieEffectiveAreaKey(c, foldMap) {
+  var p = extractAddressParts(c);
+  if (p.missingFlag) return '';
+  if (p.cityKey) return p.cityKey + p.townKey;
+  if (!p.townKey) return '';
+  var fold = foldMap[p.townKey];
+  if (fold && fold !== ADDR_AMBIGUOUS) return fold + p.townKey;
+  return p.townKey;
+}
+
 // ===== 一覧 =====
 function renderList() {
   updateCount(); updateSaved(); updateFileDisp();
@@ -5876,8 +5985,14 @@ function getSorted() {
     arr = arr.filter(function(c){return c&&c.cust_type==='顧客';});
     arr.sort(function(a,b){ return _cTs(b)-_cTs(a); });
   } else if (sortKey==='ad') {
+    /* 第171弾: 共通住所ソートキー（addr_sort.js）経由に変更。
+     * 旧実装（getArea()文字列の単純localeCompare）は、都道府県ありだと市区町村までしか
+     * 見ず町名が失われ、都道府県なしだとfallback(先頭10文字)で番地混入するなど、
+     * 出陣ボード側(planCity)とは別系統の二重実装だった（診断で実測確認）。
+     * foldMapはこの呼び出し内でのみ構築し、キャッシュ・永続化はしない。 */
     var adDir = sortDir['ad']==='desc' ? -1 : 1;
-    arr.sort(function(a,b){ return adDir * getArea(a.address||'').localeCompare(getArea(b.address||''),'ja'); });
+    var _adFoldMap = buildTownFoldMap();
+    arr.sort(function(a,b){ return compareAddressSortKey(makeAddressSortKey(a,_adFoldMap), makeAddressSortKey(b,_adFoldMap), adDir); });
   } else if (sortKey==='st') {
     arr.sort(function(a,b){
       var sa = (a.stage!==''&&a.stage!=null) ? +a.stage : (dir>0?-1:99);
@@ -11590,26 +11705,30 @@ function _sortieShouldAutoShow(){
 }
 
 /* ---- 候補プール：優先客・再訪（旧作戦盤openSakusenban()のロジックを関数抽出・スコア式は無変更） ---- */
+/* 第172弾: 優先客プールを最大3名から最大9名へ拡張（表示候補数拡張。ランキング式・
+ * 抽出条件は無変更。⭐絶対訪問の上限3は別ロジック(_sortieToggleStar)で維持される）。 */
 function _sortiePriPool(){
   function byUrg(a,b){ var d=calcPaceOverrate(b)-calcPaceOverrate(a); if(d) return d; return calcScore(b)-calcScore(a); }
   function byScore(a,b){ return calcScore(b)-calcScore(a); }
   function fresh(c){ var ld=+lastContactDays(c); return ld<0||ld>=2; }
-  var pri=cards.filter(function(c){return +(c.stage||0)>=3&&(c.pursuit_judge==='S'||c.pursuit_judge==='A'||c.pursuit_judge==='B')&&calcPaceOverrate(c)>=1&&fresh(c);}).sort(byUrg).slice(0,3);
-  if(pri.length<3){
+  var pri=cards.filter(function(c){return +(c.stage||0)>=3&&(c.pursuit_judge==='S'||c.pursuit_judge==='A'||c.pursuit_judge==='B')&&calcPaceOverrate(c)>=1&&fresh(c);}).sort(byUrg).slice(0,9);
+  if(pri.length<9){
     var pids0={}; pri.forEach(function(c){pids0[c.id]=1;});
-    var fill=cards.filter(function(c){return !pids0[c.id]&&calcPaceOverrate(c)>=1&&fresh(c);}).sort(byUrg).slice(0,3-pri.length);
+    var fill=cards.filter(function(c){return !pids0[c.id]&&calcPaceOverrate(c)>=1&&fresh(c);}).sort(byUrg).slice(0,9-pri.length);
     pri=pri.concat(fill);
   }
-  if(!pri.length) pri=cards.filter(function(c){return +(c.stage||0)>=3&&fresh(c);}).sort(byScore).slice(0,3);
-  if(!pri.length) pri=cards.filter(fresh).sort(byScore).slice(0,3);
+  if(!pri.length) pri=cards.filter(function(c){return +(c.stage||0)>=3&&fresh(c);}).sort(byScore).slice(0,9);
+  if(!pri.length) pri=cards.filter(fresh).sort(byScore).slice(0,9);
   return pri;
 }
+/* 第172弾: 表示上限(.slice(0,9))を撤廃し、全件ソート済み配列を返す。ページwindow表示は
+ * _sortiePaintPicker側で行う。緊急度式(u)・除外条件は無変更。 */
 function _sortieRevPool(){
   var pri=_sortiePriPool(); var pids={}; pri.forEach(function(c){pids[c.id]=1;});
   return cards.filter(function(c){return !pids[c.id];}).map(function(c){
     var u=(calcPaceOverrate(c)>1?1000:0)+(_dTrigSoon(c)?800:0)+Math.min(+lastContactDays(c)||0,365)+(100-((basicInputStat(c)||{}).pct||0))*0.5;
     return {c:c,u:u};
-  }).sort(function(a,b){return b.u-a.u;}).slice(0,9).map(function(o){return o.c;});
+  }).sort(function(a,b){return b.u-a.u;}).map(function(o){return o.c;});
 }
 
 /* ---- 候補プール：説明・ヒアリング（新規カテゴリ。新しいスコア式・AI判定は作らず、既存フィールドの
@@ -11630,29 +11749,42 @@ function _sortieHearingMissingCount(c){
   ];
   return checks.filter(Boolean).length;
 }
+/* 第172弾: 対象心理ステージを2〜4から2〜3へ変更（高田様実機判断。心理4は説明・ヒアリング
+ * というより提案寄りのため対象外に）。表示上限(.slice(0,9))は撤廃し全件ソート済み配列を返す。 */
 function _sortieHearingPool(){
   return cards.filter(function(c){
     var st=+(c.stage||0);
-    return st>=2 && st<=4 && c.pursuit_judge!=='X' && _sortieHearingMissingCount(c)>=SORTIE_HEARING_MISSING_THRESHOLD;
+    return st>=2 && st<=3 && c.pursuit_judge!=='X' && _sortieHearingMissingCount(c)>=SORTIE_HEARING_MISSING_THRESHOLD;
   }).sort(function(a,b){
     var ma=_sortieHearingMissingCount(a), mb=_sortieHearingMissingCount(b);
     if(mb!==ma) return mb-ma; // 1) 情報不足が多い順
     var la=+lastContactDays(a)||0, lb=+lastContactDays(b)||0;
     if(lb!==la) return lb-la; // 2) 未接触日数が長い順
     var sa=+(a.stage||0), sb=+(b.stage||0);
-    if(sb!==sa) return sb-sa; // 3) 心理ステージ（2〜4の中でより進んだ方を先に）
+    if(sb!==sa) return sb-sa; // 3) 心理ステージ（2〜3の中でより進んだ方を先に）
     return calcScore(b)-calcScore(a); // 4) 既存スコア順
-  }).slice(0,9);
+  });
 }
 
-/* ---- 候補プール：エリア（planCityの市区町村文字列一致選択式。距離計算・近場自動判定はしない） ---- */
+/* ---- 候補プール：エリア（第171弾: 候補キー統合＝案A'。addr_sort.jsの_sortieEffectiveAreaKey
+ * を候補一覧・候補プールの両方が参照する単一の実効キーとして使う。片方だけ新キー化すると
+ * 「候補は統合されたのにカードが出ない」事故になるため、必ず両方をこの1関数経由にする。
+ * 距離計算・近場自動判定はしない。曖昧・未fold裸町名は独立候補として一覧末尾に残す。 ---- */
 function _sortieAreaCities(){
-  var seen={}, out=[];
-  cards.forEach(function(c){ var city=planCity(c); if(city&&!seen[city]){ seen[city]=1; out.push(city); } });
-  return out.sort(function(a,b){ return a.localeCompare(b,'ja'); });
+  var foldMap = buildTownFoldMap();
+  var seen={}, full=[], bare=[];
+  cards.forEach(function(c){
+    var key=_sortieEffectiveAreaKey(c,foldMap); if(!key||seen[key]) return; seen[key]=1;
+    var p=extractAddressParts(c);
+    (p.cityKey?full:bare).push(key);
+  });
+  full.sort(function(a,b){ return a.localeCompare(b,'ja'); });
+  bare.sort(function(a,b){ return a.localeCompare(b,'ja'); });
+  return full.concat(bare); // 曖昧・未fold裸町名（例：本一色）は一覧末尾の独立候補として残る
 }
 function _sortieAreaPool(city){
-  return cards.filter(function(c){ return planCity(c)===city; }).sort(function(a,b){ return calcScore(b)-calcScore(a); });
+  var foldMap = buildTownFoldMap();
+  return cards.filter(function(c){ return _sortieEffectiveAreaKey(c,foldMap)===city; }).sort(function(a,b){ return calcScore(b)-calcScore(a); });
 }
 
 /* ---- 6コマンド定義（人数チップ含む。ショットガン2系統はchips:null＝チップなし即橋渡し＝修正A） ---- */
@@ -11665,12 +11797,17 @@ var SORTIE_COMMANDS=[
   {id:'sg_build', label:'🧩 ショットガンを作る', chips:null}
 ];
 
+/* 第172弾: 各コマンドのページサイズ（候補プールの表示window単位）。優先客のみdan168由来の
+ * 3名単位を維持し、他は9名単位に統一。 */
+var SORTIE_PAGE_SIZE={priority:3, revisit:9, hearing:9, area:9};
+
 /* ---- 第170弾: 抽出条件・並び順の説明（現行ロジックの言語化のみ。ロジック自体は無変更）----
  * 高田様確認済み事項に基づく文言。「優先客を攻める」は"一番濃い客"ではなく
- * "訪問ペースが遅れている重要客"順である点を、画面上で正直に伝える。 */
+ * "訪問ペースが遅れている重要客"順である点を、画面上で正直に伝える。
+ * 第172弾: 4E→4Eye表記統一、優先客の上限記述を3→9(ページ送り)へ更新、ヒアリングを短文化＋心理2〜3。 */
 var SORTIE_EXPLAIN={
   priority:{
-    extract:'心理3以上・4E判定S/A/Bのうち、訪問ペースが遅れている重要客を表示（最大3名）',
+    extract:'心理3以上・4Eye判定S/A/Bのうち、訪問ペースが遅れている重要客を表示（最大9名・3名ずつページ送り）',
     sort:'ペース超過率 → 既存スコア順',
     chip:'人数ボタンは、上位N名を初期チェックします。あとから手動で変更できます。'
   },
@@ -11680,7 +11817,7 @@ var SORTIE_EXPLAIN={
     chip:'人数ボタンは、上位N名を初期チェックします。あとから手動で変更できます。'
   },
   hearing:{
-    extract:'心理2〜4で、情報不足（家族構成・資産背景・土地情報・会話状況・計画地備考）が2項目以上ある客を表示',
+    extract:'心理2〜3・情報不足2項目以上',
     sort:'情報不足数 → 最終接触日数 → 心理 → 既存スコア順',
     chip:'人数ボタンは、上位N名を初期チェックします。あとから手動で変更できます。'
   },
@@ -11787,6 +11924,14 @@ function _sortiePaintIntro(){
 /* ---- コマンド選択の振り分け ---- */
 function _sortiePickCommand(cmdId){
   if(cmdId==='sg_route'){
+    /* 第172弾: ショットガングループが1つも無い場合は、遷移せずトーストのみ。
+     * _sortieClose()より前に判定し、履歴操作なし・ボードに留まる。
+     * 判定は既存sggAll()（cards[].sg.gidの読み取り集計のみ・書込みなし）を流用。
+     * 空グループ（メンバー0名）は「あり」扱いのまま従来経路へ進める（高田様確認済み）。 */
+    if(typeof sggAll==='function' && sggAll().length===0){
+      toast('まだショットガングループがありません。先に🧩で作成してください');
+      return;
+    }
     /* 修正A: チップなしで即橋渡し。候補再生成・一括投入の再実装はしない（既存機能を使うだけ）。 */
     _sortieClose(); showPlanner();
     setTimeout(function(){ if(typeof planOpenShotgunPick==='function') planOpenShotgunPick(); },50);
@@ -11799,7 +11944,7 @@ function _sortiePickCommand(cmdId){
   }
   if(cmdId==='area'){ _sortiePaintAreaPick(); return; }
   var pool = cmdId==='priority' ? _sortiePriPool() : cmdId==='revisit' ? _sortieRevPool() : _sortieHearingPool();
-  _sortieState={cmd:cmdId, pool:pool, sel:{}};
+  _sortieState={cmd:cmdId, pool:pool, sel:{}, page:0};
   _sortiePaintPicker();
 }
 /* ---- エリア: 市区町村選択画面 ---- */
@@ -11820,7 +11965,7 @@ function _sortiePaintAreaPick(){
   ov.style.display='block';
 }
 function _sortiePickAreaCity(city){
-  _sortieState={cmd:'area', city:city, pool:_sortieAreaPool(city), sel:{}};
+  _sortieState={cmd:'area', city:city, pool:_sortieAreaPool(city), sel:{}, page:0};
   _sortiePaintPicker();
 }
 /* ---- 画面2: チップ＋候補選択（修正B: チップ＝プール上位N名の初期チェック数。表示件数ではない） ---- */
@@ -11828,8 +11973,19 @@ function _sortieApplyChip(n){
   var st=_sortieState; if(!st) return;
   st.sel={};
   st.pool.slice(0,n).forEach(function(c){ st.sel[c.id]=true; });
+  st.page=0; /* 第172弾: チップ押下時は1ページ目へ戻す（2ページ目で押すと「上位N名」の意味が濁るため） */
 }
 function _sortiePickChip(n){ _sortieApplyChip(n); _sortiePaintPicker(); }
+/* 第172弾: 「次の◯名」ボタン。ページを1つ進める（先頭ループしない・最終ページでボタン自体を
+ * 非表示にするため、通常はmaxPageを超えて呼ばれない）。チェック状態(st.sel)はcardIdキーの
+ * マップのままなのでページを跨いでも自然に保持される（追加実装不要）。 */
+function _sortieNextPage(){
+  var st=_sortieState; if(!st) return;
+  var pageSize=SORTIE_PAGE_SIZE[st.cmd]||9;
+  var maxPage=Math.max(0, Math.ceil(st.pool.length/pageSize)-1);
+  st.page=Math.min((st.page||0)+1, maxPage);
+  _sortiePaintPicker();
+}
 function _sortieToggleSel(id){ var st=_sortieState; if(!st) return; st.sel[id]=!st.sel[id]; _sortiePaintPicker(); }
 /* 第169弾: ⭐絶対訪問（＝既存の⭐優先3客・prioの再解釈。新しいデータ構造は作らない）。
  * 「優先客を攻める」コマンドの候補選択画面に限定して表示する（高田様指示）。
@@ -11849,9 +12005,15 @@ function _sortieToggleStar(id){
 /* ---- 第170弾: 候補カード表示ヘルパー（表示専用。選定・並び順には一切影響しない）---- */
 var SORTIE_STAGE_LABELS=['面識','注意','興味','連想','欲求','比較','信念','決心'];
 function _sortieStageLabel(c){ var si=(c.stage!==''&&c.stage!=null)?+c.stage:-1; return si>=0?SORTIE_STAGE_LABELS[si]:'未設定'; }
-/* ランク表示：高田様確定仕様。pursuit_judge(4E＝確定/フォーアイズ判定)を主表示、
- * pursuit_judge_ai(AI提案ランク)を副表示。どちらも空欄時は崩れない安全表示にする。 */
-function _sortieRankTag(c){ return '4E-'+(c.pursuit_judge||'未')+' / AI-'+(c.pursuit_judge_ai||'未'); }
+/* ランク表示：高田様確定仕様。pursuit_judge(4Eye＝確定/フォーアイズ判定)を主表示、
+ * pursuit_judge_ai(AI提案ランク)を副表示。どちらも空欄時は崩れない安全表示にする。
+ * 第172弾: 表記を「4E」→「4Eye」へ統一（出陣ボード内限定・他画面は非対象）。 */
+function _sortieRankTag(c){ return '4Eye-'+(c.pursuit_judge||'未')+' / AI-'+(c.pursuit_judge_ai||'未'); }
+/* 第172弾: 入力率（基本11項目充足率）を全候補カードに常時表示する。既存basicInputStat()を
+ * そのまま使う（再訪プールの緊急度式が既に同じ指標を内部で使っており一貫性がある）。
+ * ヒアリングの「情報不足N項目」は別の5項目系指標であり、分母が異なる点に注意
+ * （docs/ledger.mdに混同防止を明記）。 */
+function _sortieInputPct(c){ var bis=basicInputStat(c); return bis?bis.pct:0; }
 /* プロセス表示：既存の会話状況(kaiwa)フィールドの最高到達値を使う（list_cards.jsのkmax方式と同一ロジックを流用）。
  * 再訪回数・追客回数からの独自分類は作らない（高田様指示）。該当データが無ければ「プロセス未確認」。 */
 var SORTIE_KAIWA_LABELS=['ピンポン','立ち話','玄関内','連れ出し','上り込み'];
@@ -11867,7 +12029,7 @@ function _sortieReasonChips(cmdId,c){
   if(cmdId==='priority'){
     var pace=calcPaceOverrate(c);
     if(pace>=1) chips.push('ペース'+pace.toFixed(1)+'倍超過');
-    if(c.pursuit_judge) chips.push('4E-'+c.pursuit_judge);
+    if(c.pursuit_judge) chips.push('4Eye-'+c.pursuit_judge);
     chips.push('心理'+(+(c.stage||0)));
   } else if(cmdId==='revisit'){
     var pace2=calcPaceOverrate(c);
@@ -11902,14 +12064,25 @@ function _sortiePaintPicker(){
   var isPriorityCmd=(st.cmd==='priority'); // 第169弾: ⭐絶対訪問トグルは「優先客を攻める」限定
   var starCount=(isPriorityCmd && st.star)?Object.keys(st.star).length:0;
   var already={}; ((_plan&&_plan.entries)||[]).forEach(function(en){ if(en.cardId) already[en.cardId]=1; });
-  var rows=st.pool.map(function(c){
+  /* 第172弾: 候補ページング。プールは全件ソート済み配列のまま（抽出・並びロジック無変更）、
+   * 表示だけをpageSize単位のwindowで切り出す。1ページ目の出力は従来の全出力と完全一致する
+   * （回帰条件。優先客のみpageSize=3で従来どおり、他は元々sliceで切られていた分がそのまま
+   * 1ページ目に来る）。 */
+  var pageSize=SORTIE_PAGE_SIZE[st.cmd]||9;
+  var page=st.page||0;
+  var totalCount=st.pool.length;
+  var startIdx=page*pageSize;
+  var pageItems=st.pool.slice(startIdx, startIdx+pageSize);
+  var hasNext=(startIdx+pageSize)<totalCount;
+  var rows=pageItems.map(function(c){
     var inPlan=!!already[c.id], on=!!st.sel[c.id];
     var starOn=isPriorityCmd && st.star && st.star[c.id];
     var starBtn=isPriorityCmd
       ? '<button type="button" onclick="event.stopPropagation();_sortieToggleStar(\''+c.id+'\')" '+(inPlan?'disabled':'')+' title="⭐絶対訪問に指定（本日の優先3客・最大3名）" style="border:none;background:none;font-size:15px;cursor:'+(inPlan?'default':'pointer')+';padding:0 2px;flex-shrink:0;opacity:'+(inPlan?'.35':'1')+';color:'+(starOn?'#b7791f':'#cbd5e0')+'">'+(starOn?'⭐':'☆')+'</button>'
       : '';
-    /* 第170弾: 候補カードを3行以内へ改善（1行目=選択+氏名、2行目=ランク・心理、3行目=住所・プロセス・理由チップ）。
-     * 氏名・住所はellipsisで崩れを防止。⭐/☆トグルは従来どおり1行目に維持。 */
+    /* 第170弾: 候補カードを3行以内へ改善（1行目=選択+氏名、2行目=ランク・心理・入力率、
+     * 3行目=住所・プロセス・理由チップ）。氏名・住所はellipsisで崩れを防止。
+     * 第172弾: 2行目に入力率を追加（_sortieInputPct）。 */
     return '<label style="display:block;padding:7px 4px;border-bottom:1px solid #edf2f7;'+(inPlan?'opacity:.5':'')+'">'
       +'<div style="display:flex;align-items:center;gap:8px">'
       +'<input type="checkbox" '+(on?'checked':'')+(inPlan?' disabled':'')+' onchange="_sortieToggleSel(\''+c.id+'\')">'
@@ -11917,7 +12090,7 @@ function _sortiePaintPicker(){
       +'<b style="font-size:13px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(c.name||'無名')+'様</b>'
       +(inPlan?'<span style="font-size:10.5px;color:#a0aec0;margin-left:auto">予定済み</span>':'')
       +'</div>'
-      +'<div style="font-size:11px;color:#4a5568;margin:2px 0 0 26px">'+e(_sortieRankTag(c))+'　心理'+(+(c.stage||0))+':'+e(_sortieStageLabel(c))+'</div>'
+      +'<div style="font-size:11px;color:#4a5568;margin:2px 0 0 26px">'+e(_sortieRankTag(c))+'　心理'+(+(c.stage||0))+':'+e(_sortieStageLabel(c))+'　入力'+_sortieInputPct(c)+'%</div>'
       +'<div style="font-size:11px;color:#718096;margin:2px 0 0 26px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">'
       +'<span style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">'+e(getArea(c.address||'')||'住所未設定')+'</span>'
       +'<span style="flex-shrink:0">'+e(_sortieProcessTag(c))+'</span>'
@@ -11925,6 +12098,15 @@ function _sortiePaintPicker(){
       +'</div>'
       +'</label>';
   }).join('') || '<div style="font-size:12px;color:#a0aec0;padding:10px 4px">該当する候補がいません</div>';
+  /* 第172弾: 位置表示（例「4〜6位 / 全9名」）とページング（次の◯名）ボタン。
+   * 最終ページではボタン非表示（先頭ループしない・「これ以上ありません」トーストも出さない）。 */
+  var posLabel=totalCount>0 ? ((startIdx+1)+'〜'+Math.min(startIdx+pageSize,totalCount)+'位 / 全'+totalCount+'名') : '';
+  var pagingHTML=(totalCount>pageSize)
+    ? ('<div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0;font-size:11px;color:#718096">'
+      +'<span>'+posLabel+'</span>'
+      +(hasNext?('<button onclick="_sortieNextPage()" style="background:#edf2f7;color:#2c5282;border:1px solid #cbd5e0;border-radius:7px;padding:5px 11px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit">次の'+pageSize+(st.cmd==='priority'?'人':'名')+'</button>'):'')
+      +'</div>')
+    : '';
   ov.innerHTML='<div style="background:#fff;max-width:640px;margin:0 auto;border-radius:14px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
     +'<b style="font-size:15px;color:#2c5282">'+cmd.label+'</b>'
@@ -11935,8 +12117,10 @@ function _sortiePaintPicker(){
     +(cmd.chips?('<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">'
       +cmd.chips.map(function(ch){ return '<button onclick="_sortiePickChip('+ch.n+')" style="background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">'+ch.label+'</button>'; }).join('')
       +'</div>'):'')
+    +'<div style="font-size:11.5px;color:#4a5568;font-weight:700;margin:2px 0 4px">'+nSel+'名選択中</div>'
     +'<div style="max-height:40vh;overflow-y:auto;border-top:1px solid #e2e8f0">'+rows+'</div>'
-    +'<button onclick="_sortieConfirm()" style="width:100%;margin-top:14px;background:#2c5282;color:#fff;border:none;border-radius:9px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📅 選んだ '+nSel+' 件で予定表に入れる</button>'
+    +pagingHTML
+    +'<button onclick="_sortieConfirm()" style="width:100%;margin-top:10px;background:#2c5282;color:#fff;border:none;border-radius:9px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📅 選んだ '+nSel+' 件で予定表に入れる</button>'
     +'</div>';
   ov.style.display='block';
 }
@@ -11947,7 +12131,13 @@ function _sortieConfirm(){
   var poolIds={}; st.pool.forEach(function(c){poolIds[c.id]=1;});
   var already={}; (_plan.entries||[]).forEach(function(en){ if(en.cardId) already[en.cardId]=1; });
   var toAdd=Object.keys(st.sel).filter(function(id){ return st.sel[id] && poolIds[id] && !already[id]; });
-  if(!toAdd.length){ toast('選択されたメンバーがいません'); return; }
+  if(!toAdd.length){
+    toast('選択されたメンバーがいません');
+    /* 第172弾: 0件投入時はトースト後に「今日はどう攻める？」へ戻す。
+     * _sortieClose()は呼ばない＝履歴操作なし・ボードは開いたまま（dan170戻る二層原則と無衝突）。 */
+    _sortiePaintIntro();
+    return;
+  }
   if(planUntimedCount()+toAdd.length>PLAN_UNTIMED_MAX){
     var free=PLAN_UNTIMED_MAX-planUntimedCount(); if(free<0) free=0;
     if(typeof aibisAlert==='function') aibisAlert('このまま追加すると予定表の上限（時間未定<b>'+PLAN_UNTIMED_MAX+'件</b>）を超えます。<br>チェックを外して人数を調整してください。<br><span style="font-size:12px;color:#718096">空き'+free+'件に対して'+toAdd.length+'名を選択中</span>');
@@ -12029,6 +12219,7 @@ window._sortieConfirm=_sortieConfirm;
 window._sortieSkipToPlain=_sortieSkipToPlain;
 window._sortiePaintIntro=_sortiePaintIntro;
 window._sortiePickAreaCity=_sortiePickAreaCity;
+window._sortieNextPage=_sortieNextPage;
 
 
 function renderPlannerSheet(){
