@@ -271,6 +271,7 @@ body.is-mob #extraAnalysis{grid-template-columns:1fr}
 .sb-neglect{background:#FDECEC;color:#C53030;border-color:#F3C0C0}
 .sb-new{background:#EBF5FF;color:#2B6CB0;border-color:#CFE4F7}
 .sb-propgate{background:#FFF3E0;color:#B7791F;border-color:#FCD9A8}
+.sb-revisit{background:#E6F4EC;color:#276749;border-color:#C6E5D2}
 @media(max-width:380px){.sb .sbt{display:none}}
 .lcard:hover{border-color:#2c5282;box-shadow:0 2px 6px rgba(0,0,0,0.08)}
 .lname{font-weight:600;font-size:14px;color:#2d3748;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:8em}
@@ -2446,7 +2447,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.73";
+var APP_VERSION = "v10.74";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6057,9 +6058,22 @@ function onSearchEnter(ev){
   }
 }
 window.onSearchInput=onSearchInput; window.onSearchEnter=onSearchEnter;
+/* 第174弾: 「放置注意」と「再訪目安」の意味分離。判定式・閾値(isNeglected03/calcPaceOverrate/
+ * _isRevisitPhase/REVISIT_PHASE/PACE_LIMIT/NEGLECT_GRACE)は一切変更しない。表示の分岐のみ。
+ * 優先順位: 1)本来の放置(isNeglected03) 2)再訪フェーズ中のペース超過→再訪目安
+ * 3)非再訪フェーズのペース超過→従来どおり放置注意。同時成立時は放置注意を優先する。
+ * 被覆同値: 旧 (calcPaceOverrate(c)>=1||isNeglected03(c)) と、新条件で🚨または🔁いずれかが
+ * 出るカード集合は完全一致する（tools/smoke-runtime.jsで機械検証）。 */
 function _statusBadges(c){
   var out=[];
-  if(calcPaceOverrate(c)>=1||isNeglected03(c)) out.push('<span class="sb sb-neglect">🚨<span class="sbt">放置注意</span></span>');
+  var pace=calcPaceOverrate(c);
+  if(isNeglected03(c)){
+    out.push('<span class="sb sb-neglect">🚨<span class="sbt">放置注意</span></span>');
+  } else if(pace>=1){
+    out.push(_isRevisitPhase(c)
+      ? '<span class="sb sb-revisit">🔁<span class="sbt">再訪目安</span></span>'
+      : '<span class="sb sb-neglect">🚨<span class="sbt">放置注意</span></span>');
+  }
   if((typeof ZWL!=='undefined')&&ZWL.proposalGate(c).violated) out.push('<span class="sb sb-propgate">⭐<span class="sbt">提案依頼必須</span></span>');
   if(c.proposal_req) out.push('<span class="sb sb-prop">⭕<span class="sbt">提案依頼</span></span>');
   var lcd=lastContactDays(c), noRev=!(Array.isArray(c.revisits)&&c.revisits.length);
@@ -6458,7 +6472,11 @@ function newCard(){
   document.getElementById('listView').style.display='none';
   document.getElementById('setupView').style.display='none';
   document.getElementById('editView').style.display=hasFSA&&!isMob?'flex':'block';
-  switchTab('ti'); fillForm(cur); window.scrollTo(0,0);
+  switchTab('ti'); fillForm(cur);
+  /* 第174弾: カードの実スクロール主体はwindowではなくeditView（position:fixed;overflow-y:auto）。
+   * window.scrollTo(0,0)は効いておらず、背後の一覧のスクロールを毎回0に戻していただけだった。
+   * editView.scrollTop=0へ変更し、背後の一覧位置を破壊しないようにする（意図した改善）。 */
+  (function(){ var _ev=document.getElementById('editView'); if(_ev) _ev.scrollTop=0; })();
   if(typeof renderCardPhotos==='function') renderCardPhotos(curId);
   if(typeof renderCardShotgun==='function') renderCardShotgun(curId);
   setTimeout(function(){setDirty(false);},100);
@@ -6479,7 +6497,9 @@ function openCard(id){
   document.getElementById('listView').style.display='none';
   document.getElementById('setupView').style.display='none';
   document.getElementById('editView').style.display=hasFSA&&!isMob?'flex':'block';
-  switchTab('ti'); fillForm(cur); window.scrollTo(0,0);
+  switchTab('ti'); fillForm(cur);
+  /* 第174弾: 実スクロール主体のeditViewをカード先頭へ（window.scrollTo(0,0)は無効だったため置換）。 */
+  (function(){ var _ev=document.getElementById('editView'); if(_ev) _ev.scrollTop=0; })();
   if(typeof renderCardPhotos==='function') renderCardPhotos(curId);
   if(typeof renderCardShotgun==='function') renderCardShotgun(curId);
   setTimeout(function(){setDirty(false);},100);
@@ -6489,16 +6509,36 @@ function openCard(id){
 }
 function fitTabsTop(){ var h=document.querySelector('#editView header'); var hh=(h&&h.offsetHeight)||66; document.documentElement.style.setProperty('--hdrTop', hh+'px'); if(isMob) return; var nav=document.getElementById('cardNav'); var nh=(nav && nav.style.display!=='none' && nav.offsetHeight)?nav.offsetHeight:0; document.documentElement.style.setProperty('--tabsTop', (hh+nh)+'px'); }
 window.fitTabsTop=fitTabsTop;
+/* 第174弾: rapid navigation対策のシーケンストークン。メモリのみ・永続化しない。 */
+var _navSeq=0;
 function navCard(dir){
   if(!Array.isArray(lastVisible)||!lastVisible.length||!curId) return;
   var idx=lastVisible.findIndex(function(c){return c.id===curId;});
   if(idx<0) return;
   var ni=idx+dir; if(ni<0||ni>=lastVisible.length) return;
   var _act=document.querySelector('.tab.active'); var _keep=_act?_act.dataset.tab:'';
+  /* 第174弾: 送り前に、現在タブ先頭からの相対閲覧位置を保存する（絶対scrollTopではなく相対値。
+   * 次カードの内容量が違っても意味が保たれる）。history.state/localStorage/カードJSONへは
+   * 一切保存しない（このスコープのローカル変数のみ）。 */
+  var _ev=document.getElementById('editView');
+  var _rel=0;
+  if(_keep && _ev){
+    _rel=_ev.scrollTop-_cardPanelTop(_keep)+_cardStickyH();
+  }
+  var _seq=++_navSeq;
   if(typeof autoCommitEdit==='function') autoCommitEdit();
   _navReplaceNext=true;
   openCard(lastVisible[ni].id);
   if(_keep){ try{ switchTab(_keep); }catch(e){} }
+  /* 第174弾: DOM確定後（double rAF）に同タブ先頭＋相対値へ復元。短い内容は_cardScrollToPanel内の
+   * _cardClampScrollで安全にクランプされる。高速連打時はseqが古くなった呼び出しを無視し、
+   * 最後の操作の復元だけが有効になる。_sortieReturn・出陣ボード復帰文脈には一切触れない。 */
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      if(_seq!==_navSeq) return;
+      if(_keep && typeof _cardScrollToPanel==='function') _cardScrollToPanel(_keep,_rel);
+    });
+  });
 }
 function updateCardNav(){
   var bar=document.getElementById('cardNav'); if(!bar) return;
@@ -6528,6 +6568,79 @@ function updateTabProgress(){
   document.querySelectorAll('.tab').forEach(function(t){ var k=t.dataset.tab; if(k in done) t.classList.toggle('done', !!done[k]); });
 }
 window.updateTabProgress=updateTabProgress;
+
+/* ===== 第174弾: カードスクロール共通ヘルパー（card-view-ux） =====
+ * editViewはposition:fixed;overflow-y:autoのため、カードの実スクロール主体はwindowではなくeditView。
+ * offsetTop連鎖・固定値・isMob・scrollIntoView・window.scrollToは一切使わない。
+ * すべてgetBoundingClientRect()の差分とeditView.scrollTopの実測から算出する。
+ * switchTab()本体・switchTabAndCopy()はここでは一切変更しない（無改修のまま）。 */
+function _cardScroller(){
+  return document.getElementById('editView');
+}
+/* 上部sticky帯の実測高。共通: header＋表示中cardNav。PCのみ: 上部tabsも加算。
+ * スマホは.tabsが画面下部fixedのため加算しない（isMobではなくcomputed positionで判定）。 */
+function _cardStickyH(){
+  var ev=_cardScroller();
+  if(!ev) return 0;
+
+  var total=0;
+
+  var header=ev.querySelector('header');
+  if(header) total+=header.offsetHeight||0;
+
+  var nav=document.getElementById('cardNav');
+  if(nav && getComputedStyle(nav).display!=='none'){
+    total+=nav.offsetHeight||0;
+  }
+
+  var tabs=ev.querySelector('.tabs');
+  if(tabs && getComputedStyle(tabs).position!=='fixed'){
+    total+=tabs.offsetHeight||0;
+  }
+
+  return total;
+}
+/* editView.scrollTop基準での対象パネル絶対位置。rect差分方式（offsetTop連鎖を使わない）。 */
+function _cardPanelTop(id){
+  var ev=_cardScroller();
+  var panel=document.getElementById(id);
+  if(!ev || !panel) return 0;
+
+  return panel.getBoundingClientRect().top
+    - ev.getBoundingClientRect().top
+    + ev.scrollTop;
+}
+/* editViewの実スクロール範囲内へ丸める最終clamp。 */
+function _cardClampScroll(value){
+  var ev=_cardScroller();
+  if(!ev) return 0;
+
+  var max=Math.max(0,ev.scrollHeight-ev.clientHeight);
+  return Math.max(0,Math.min(Math.round(value||0),max));
+}
+/* 指定タブパネルの「先頭」（sticky帯直下）へeditView.scrollTopを合わせる。relで相対オフセット指定可。 */
+function _cardScrollToPanel(id,rel){
+  var ev=_cardScroller();
+  if(!ev) return;
+
+  var target=_cardPanelTop(id)-_cardStickyH()+(rel||0);
+  ev.scrollTop=_cardClampScroll(target);
+}
+
+/* 第174弾: ユーザーのタブクリック専用ラッパー。HTMLの4タブ（ti/tr/tp/ta）だけがこれを使う。
+ * switchTab()自体はprogrammatic呼び出し（openCard/newCard/navCard/AIコピー等）にも使われるため
+ * スクロール副作用を入れない方針を維持し、クリック時のスクロール処理はこちら側に閉じ込める。
+ * 同じactiveタブを再度押した場合もswitchTab(id)は素通りするだけなので、常にそのタブ先頭へ戻る。 */
+function clickCardTab(id){
+  switchTab(id);
+
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      _cardScrollToPanel(id,0);
+    });
+  });
+}
+window.clickCardTab=clickCardTab;
 
 // ===== フォーム =====
 var TF = ['f_disc','f_name','f_social','f_genjo','f_tel','f_addr','f_plan',
@@ -7397,7 +7510,9 @@ function _restoreDraft(){
   document.getElementById('listView').style.display='none';
   document.getElementById('setupView').style.display='none';
   document.getElementById('editView').style.display=hasFSA&&!isMob?'flex':'block';
-  switchTab('ti'); fillForm(cur); window.scrollTo(0,0);
+  switchTab('ti'); fillForm(cur);
+  /* 第174弾: openCard/newCardと同じ理由でeditView.scrollTop=0へ統一（3経路目）。 */
+  (function(){ var _ev=document.getElementById('editView'); if(_ev) _ev.scrollTop=0; })();
   if(typeof renderCardPhotos==='function') renderCardPhotos(curId);
   if(typeof renderCardShotgun==='function') renderCardShotgun(curId);
   setDirty(true);
@@ -14111,10 +14226,10 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       <button id="cardNavNext" onclick="navCard(1)" style="background:#fff;border:1px solid #b9cce8;color:#2c5282;border-radius:8px;font-size:13px;font-weight:700;padding:8px 18px;min-height:38px;cursor:pointer;font-family:inherit">次 ›</button>
     </div>
   <div class="tabs no-print">
-    <div class="tab active" data-tab="ti" onclick="switchTab('ti')" style="color:#2c5282;font-size:15px;font-weight:700"><span class="ic">📋</span>初訪</div>
-    <div class="tab" data-tab="tr" onclick="switchTab('tr')" style="color:#276749;font-size:15px;font-weight:700"><span class="ic">🔁</span>再訪</div>
-    <div class="tab" data-tab="tp" onclick="switchTab('tp')" style="color:#c53030;font-size:15px;font-weight:700"><span class="ic">🎯</span>追撃</div>
-    <div class="tab" data-tab="ta" onclick="switchTab('ta')" style="background:#553c9a;color:white;font-size:15px;font-weight:700;border-radius:6px 6px 0 0;margin:2px 0 0"><span class="ic">💭</span>戦略協議</div>
+    <div class="tab active" data-tab="ti" onclick="clickCardTab('ti')" style="color:#2c5282;font-size:15px;font-weight:700"><span class="ic">📋</span>初訪</div>
+    <div class="tab" data-tab="tr" onclick="clickCardTab('tr')" style="color:#276749;font-size:15px;font-weight:700"><span class="ic">🔁</span>再訪</div>
+    <div class="tab" data-tab="tp" onclick="clickCardTab('tp')" style="color:#c53030;font-size:15px;font-weight:700"><span class="ic">🎯</span>追撃</div>
+    <div class="tab" data-tab="ta" onclick="clickCardTab('ta')" style="background:#553c9a;color:white;font-size:15px;font-weight:700;border-radius:6px 6px 0 0;margin:2px 0 0"><span class="ic">💭</span>戦略協議</div>
   </div>
   <div class="prhdr" id="prhdr"></div>
 
