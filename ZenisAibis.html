@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.71";
+var APP_VERSION = "v10.72";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6464,6 +6464,7 @@ function newCard(){
   setTimeout(function(){setDirty(false);},100);
   _navGo('edit',curId);
   if(typeof updateCardNav==='function') updateCardNav();
+  if(typeof _syncEditBackButton==='function') _syncEditBackButton();
 }
 var _undoSnaps={};
 function undoCardEdit(){ if(!cur||!curId||!_undoSnaps[curId]){ if(typeof aibisToast==='function') aibisToast('戻せる変更がないよ'); return; } aibisConfirm('このカードを<b>開いた時点</b>の状態に戻す？<br><span style="font-size:12px;color:#718096">この編集での変更は取り消されます（全体の1つ前に戻すとは別だよ）。</span>', function(){ try{ var prev=JSON.parse(_undoSnaps[curId]); var idx=cards.findIndex(function(c){return c.id===curId;}); if(idx>=0){ cards[idx]=prev; } cur=JSON.parse(JSON.stringify(prev)); if(typeof setDirty==='function') setDirty(false); if(typeof doSaveCards==='function') doSaveCards(); fillForm(cur); if(typeof renderCards==='function') renderCards(); if(typeof aibisToast==='function') aibisToast('開いた時点に戻したよ↩️'); }catch(e){ if(typeof aibisToast==='function') aibisToast('戻せなかったよ'); } }, '戻す', 'やめる'); }
@@ -6484,6 +6485,7 @@ function openCard(id){
   setTimeout(function(){setDirty(false);},100);
   _navGo('edit',curId);
   if(typeof updateCardNav==='function') updateCardNav();
+  if(typeof _syncEditBackButton==='function') _syncEditBackButton();
 }
 function fitTabsTop(){ var h=document.querySelector('#editView header'); var hh=(h&&h.offsetHeight)||66; document.documentElement.style.setProperty('--hdrTop', hh+'px'); if(isMob) return; var nav=document.getElementById('cardNav'); var nh=(nav && nav.style.display!=='none' && nav.offsetHeight)?nav.offsetHeight:0; document.documentElement.style.setProperty('--tabsTop', (hh+nh)+'px'); }
 window.fitTabsTop=fitTabsTop;
@@ -10948,6 +10950,11 @@ window.plannerOverlayClick=plannerOverlayClick;
 /* ===== ブラウザ履歴ナビゲーション ===== */
 var _silent=false;
 var _navReplaceNext=false;
+/* 第173弾補正: タイトル・中央ロゴから「一覧へ完全離脱」するとき、edit直下に残る
+ * sortie/planner履歴を順に戻ってlistへ着地し、最後にlistをpushして前方履歴を切り捨てる。
+ * これにより離脱後の端末戻る/ブラウザ戻るで古い出陣ボードが再浮上しない。 */
+var _sortieExitToListPending=false;
+var _sortieExitToListHops=0;
 function _navGo(zv,id){ if(_silent) return; try{ if(_navReplaceNext){ _navReplaceNext=false; history.replaceState({zv:zv,id:id||null},''); } else { history.pushState({zv:zv,id:id||null},''); } }catch(e){} }
 function _navToList(){
   ['editView','plannerView','helpView','setupView','shotgunView','sortieBoardView'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
@@ -10961,7 +10968,71 @@ function editGoList(){
   try{ if(typeof renderCards==='function') renderCards(); }catch(e){}
 }
 window.editGoList=editGoList;
+
+/* 第173弾: 左上戻るボタン専用の「文脈に応じた戻る」処理。editGoList()自体は無改修のまま
+ * （カードタイトル・中央ロゴが引き続き使う「必ず一覧へ離脱」の意味を保つため）、
+ * ボタンだけこちらを使う。_sortieReturnが無ければ従来どおりeditGoList()に委譲する。 */
+function editBack(){
+  if(typeof _sortieReturn==='undefined' || !_sortieReturn){ editGoList(); return; }
+  try{ if(typeof autoCommitEdit==='function') autoCommitEdit(); }catch(e){}
+  if(history.state && history.state.zv==='edit'){
+    history.back(); // popstateのsortie分岐が_sortieReturnを検知して復元する
+  } else if(typeof _sortieRestoreFromReturn==='function'){
+    _sortieRestoreFromReturn(); // 履歴状態が想定外の場合は直接復元（例外を外へ投げない設計）
+  }
+}
+window.editBack=editBack;
+
+/* 第173弾: カードタイトル・中央ロゴ用の「一覧への完全離脱」処理。出陣復帰状態が生きていても、
+ * ここを通ったら復帰状態ごと破棄する（あとで端末戻るを押しても古い出陣ボードが再浮上しないように）。 */
+function _finishSortieExitToList(){
+  _sortieExitToListPending=false;
+  _sortieExitToListHops=0;
+  /* 現在位置は既存のlist履歴。ここでlistをpushすると前方のplanner/sortie/edit履歴が
+   * ブラウザ仕様で切り捨てられ、あとから古い出陣ボードが再浮上しない。 */
+  try{ history.pushState({zv:'list',id:null},''); }
+  catch(e){ try{ history.replaceState({zv:'list',id:null},''); }catch(_e){} }
+  _navToList();
+  try{ if(typeof renderCards==='function') renderCards(); }catch(e){}
+  if(typeof _syncEditBackButton==='function') _syncEditBackButton();
+}
+function editExitToList(){
+  if(typeof _sortieReturn!=='undefined' && _sortieReturn){
+    try{ if(typeof autoCommitEdit==='function') autoCommitEdit(); }catch(e){}
+    _sortieReturn=null;
+    if(typeof _sortieOpenedExplicit!=='undefined') _sortieOpenedExplicit=false;
+    if(typeof _sortieState!=='undefined') _sortieState=null;
+    _sortieExitToListPending=true;
+    _sortieExitToListHops=0;
+    if(typeof _syncEditBackButton==='function') _syncEditBackButton();
+    try{ history.back(); return; }
+    catch(e){ _finishSortieExitToList(); return; }
+  }
+  editGoList();
+}
+window.editExitToList=editExitToList;
+
+/* 第173弾: 左上戻るボタンのラベルを_sortieReturnの有無に同期する。openCard/navCard/新規カード/
+ * 復帰後/完全離脱後など、編集画面の表示状態が変わる箇所から呼ぶ。 */
+function _syncEditBackButton(){
+  var btn=document.getElementById('editBackBtn'); if(!btn) return;
+  btn.textContent=(typeof _sortieReturn!=='undefined' && _sortieReturn) ? '← 出陣ボード' : '← 一覧';
+}
+window._syncEditBackButton=_syncEditBackButton;
 window.addEventListener('popstate',function(ev){
+  /* 第173弾補正: 一覧完全離脱中はsortie/plannerを画面表示せず履歴だけ順に戻る。
+   * listへ到達したら_finishSortieExitToList()で前方履歴を切り捨てて完了する。 */
+  if(_sortieExitToListPending){
+    var _exitState=ev.state||{};
+    var _exitZv=_exitState.zv||'list';
+    if(_exitZv==='list' || _sortieExitToListHops>=6){
+      _finishSortieExitToList();
+    } else {
+      _sortieExitToListHops++;
+      try{ history.back(); }catch(e){ _finishSortieExitToList(); }
+    }
+    return;
+  }
   var _gov=document.getElementById('geoMapOv'); if(_gov && _gov.classList.contains('show')){ _gov.classList.remove('show'); try{ if(typeof curId!=='undefined' && curId){ history.pushState({zv:'edit',id:curId},''); } }catch(e){} return; } // 地図オーバーレイは閉じるだけ（土台のカード/光速を維持）
   try{ autoCommitEdit(); }catch(_e){}
   var st=ev.state||{}; var zv=st.zv||'list';
@@ -10969,6 +11040,21 @@ window.addEventListener('popstate',function(ev){
    * 戻り先(_sggReturnTo: list/sakusen/edit)を尊重するので、どの入口から来ても「一つ前」へ戻る。 */
   var _sgv=document.getElementById('shotgunView');
   if(_sgv && _sgv.style.display!=='none' && zv!=='shotgun'){ _silent=true; try{ if(typeof sggShowReturn==='function') sggShowReturn(); else _sgv.style.display='none'; }catch(e){} _silent=false; return; }
+  /* 第173弾（出陣ボード残留バグ修正）: 明示表示中にブラウザ/端末戻るを行うと、遷移先が
+   * 'sortie'以外（例：予定表）でも従来はsortieBoardViewが非表示にならず残留していた。
+   * 履歴副作用なしで隠すだけ（_sortieClose()は使わない＝_navReplaceNextを立てない）。
+   * カード編集中(zv==='edit')は_sortieReturnを維持し続け、edit・sortie以外の画面へ
+   * 離脱した場合のみ復帰状態を破棄する（古い出陣ボードが後から再浮上しないようにする保険）。 */
+  var _sov=document.getElementById('sortieBoardView');
+  if(_sov && _sov.style.display!=='none' && zv!=='sortie'){
+    _sov.style.display='none';
+    if(typeof _sortieState!=='undefined') _sortieState=null;
+    if(typeof _sortieOpenedExplicit!=='undefined') _sortieOpenedExplicit=false;
+  }
+  if(zv!=='sortie' && zv!=='edit' && typeof _sortieReturn!=='undefined' && _sortieReturn){
+    _sortieReturn=null;
+    if(typeof _sortieOpenedExplicit!=='undefined') _sortieOpenedExplicit=false;
+  }
   _silent=true;
   try{
     if(zv==='shotgun'){ if(typeof sggOpen==='function' && (!_sgv || _sgv.style.display==='none')){ var _lv=document.getElementById('listView'); if(_lv)_lv.style.display='none'; if(_sgv)_sgv.style.display='block'; if(typeof sggRenderAll==='function') sggRenderAll(); } }
@@ -10976,8 +11062,19 @@ window.addEventListener('popstate',function(ev){
     /* 第168弾: 出陣ボードは明示起動（予定表内🎯ボタン）時のみ_navGoでpushされる。
      * 自動表示時はhistory非pushのため、この分岐はブラウザ戻る→出陣ボードへの復元にのみ使われる。
      * openSortieBoard()自体がhasFSAゲートと_navGo呼び出しを持つが、_silent=true中は_navGoが
-     * no-opになるためここでの再呼び出しは安全（余分な履歴は積まれない）。 */
-    else if(zv==='sortie'){ var _sov=document.getElementById('sortieBoardView'); if(!_sov||_sov.style.display==='none'){ if(typeof openSortieBoard==='function') openSortieBoard('explicit'); } }
+     * no-opになるためここでの再呼び出しは安全（余分な履歴は積まれない）。
+     * 第173弾: _sortieReturnが生きていれば、入口画面ではなく候補画面そのものを復元する。
+     * _sortieRestoreFromReturn()はhistory操作を一切行わない（副作用なし）。 */
+    else if(zv==='sortie'){
+      var _sov2=document.getElementById('sortieBoardView');
+      if(!_sov2||_sov2.style.display==='none'){
+        if(typeof _sortieReturn!=='undefined' && _sortieReturn && typeof _sortieRestoreFromReturn==='function'){
+          _sortieRestoreFromReturn();
+        } else if(typeof openSortieBoard==='function'){
+          openSortieBoard('explicit');
+        }
+      }
+    }
     else if(zv==='help'){ var h=document.getElementById('helpView'); if(!h||h.style.display==='none') showHelp(); }
     else if(zv==='edit'){ if(st.id){ openCard(st.id); var ev2=document.getElementById('editView'); if(!ev2||ev2.style.display==='none') _navToList(); } else _navToList(); }
     else { _navToList(); }
@@ -11886,6 +11983,93 @@ var _sortieState=null; // {cmd, city, pool:[card,...], sel:{cardId:true}}
  * UI内部の一時状態のみ（cards/plan/entries等の永続データ構造は変更しない）。
  * 自動表示由来（history非push）の場合はfalseのままとし、誤ってreplace扱いにしない。 */
 var _sortieOpenedExplicit=false;
+/* 第173弾: 候補カードから個別カードへジャンプする際の復帰用スナップショット。
+ * メモリ上だけに保持（localStorage/sessionStorage/history.state/カードJSONへは一切保存しない）。
+ * poolIdsで候補順を固定し、カードオブジェクト参照は持たない（表示は常に最新cardsから再取得）。
+ * 復帰成功後、または出陣ボードから完全に離れた時点で1回だけ消費（null化）する。 */
+var _sortieReturn=null;
+
+/* 第173弾: 候補カードの氏名クリック入口。カードへ飛ぶ直前のボード状態をスナップショット保存し、
+ * 履歴副作用を起こさない専用hideでオーバーレイを隠してからopenCard()を呼ぶ。
+ * 自動表示由来（history未push）の場合のみ、復帰用の'sortie'錨を1件だけpushする。 */
+function _sortieOpenCardFromPicker(id){
+  var st=_sortieState; if(!st) return;
+  var c=cards.find(function(x){return x.id===id;}); if(!c) return;
+  var pickerEl=document.getElementById('sortiePickerList');
+  var ov=document.getElementById('sortieBoardView');
+  _sortieReturn={
+    cmd:st.cmd||'', city:st.city||'',
+    poolIds:(st.pool||[]).map(function(x){return x.id;}),
+    sel:Object.assign({},st.sel||{}),
+    star:Object.assign({},st.star||{}),
+    page:st.page||0,
+    overlayScrollTop:ov?ov.scrollTop:0,
+    pickerScrollTop:pickerEl?pickerEl.scrollTop:0
+  };
+  if(!history.state || history.state.zv!=='sortie'){
+    _navGo('sortie');
+    _sortieOpenedExplicit=true; // 錨を自前で打った以上、以後の退出処理はexplicit相当として扱う
+  }
+  _sortieHideForJump();
+  openCard(id); // openCard()末尾で_syncEditBackButton()が呼ばれるため、ここでの明示呼び出しは不要
+}
+window._sortieOpenCardFromPicker=_sortieOpenCardFromPicker;
+
+/* 第173弾: 出陣ボードを「履歴に一切触れず」表示だけ隠す専用関数。
+ * _sortieClose()とは役割を明確に分離する（_sortieClose()は明示起動由来の場合
+ * _navReplaceNext=trueを立てるため、カードジャンプ直前に使うと直後のopenCard()内
+ * _navGo('edit')がreplaceとなり、復帰用のsortie錨がedit履歴で上書きされてしまう）。
+ * _sortieState・_sortieReturn・_sortieOpenedExplicit・_navReplaceNext・historyには一切触れない。 */
+function _sortieHideForJump(){
+  var ov=document.getElementById('sortieBoardView'); if(ov) ov.style.display='none';
+}
+
+/* 第173弾: candidate行のキーボード操作（Enter/Space）用ヘルパー。インラインを長くしないための分離。 */
+function _sortieNameKeydown(ev,id){
+  if(ev.key==='Enter'||ev.key===' '||ev.key==='Spacebar'){
+    ev.preventDefault(); ev.stopPropagation();
+    _sortieOpenCardFromPicker(id);
+  }
+}
+window._sortieNameKeydown=_sortieNameKeydown;
+
+/* 第173弾: 候補カードジャンプからの復帰処理。poolIds順に最新cardsから再取得し、
+ * 削除済みIDは除外・sel/starはprune・pageは有効範囲へ補正した上で候補画面を再描画する。
+ * 表示内容は常に最新カードデータ（生データ再取得。スナップショットにカードオブジェクトを
+ * 持たせない設計そのものが、編集直後の内容を正しく反映させるための安全策）。
+ * 失敗時は例外を外へ投げず、出陣ボード入口（今日はどう攻める？）へ安全に戻す。 */
+function _sortieRestoreFromReturn(){
+  var ret=_sortieReturn; if(!ret) return false;
+  _sortieReturn=null; // 1回で消費（成否に関わらずここで手放す＝二重復元防止）
+  try{
+    var pool=ret.poolIds.map(function(id){ return cards.find(function(c){return c.id===id;}); }).filter(Boolean);
+    var sel={}; Object.keys(ret.sel||{}).forEach(function(id){ if(ret.sel[id] && pool.some(function(c){return c.id===id;})) sel[id]=true; });
+    var star={}; Object.keys(ret.star||{}).forEach(function(id){ if(ret.star[id] && pool.some(function(c){return c.id===id;})) star[id]=true; });
+    var pageSize=SORTIE_PAGE_SIZE[ret.cmd]||9;
+    var maxPage=Math.max(0, Math.ceil(pool.length/pageSize)-1);
+    var page=Math.min(Math.max(ret.page||0,0), maxPage);
+    _sortieState={cmd:ret.cmd, city:ret.city, pool:pool, sel:sel, star:star, page:page};
+    var lv=document.getElementById('listView'); if(lv) lv.style.display='none';
+    var ev=document.getElementById('editView'); if(ev) ev.style.display='none';
+    var ov=_sortieEnsureOv(); ov.style.display='block';
+    _sortiePaintPicker();
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        try{
+          var ov2=document.getElementById('sortieBoardView'); if(ov2) ov2.scrollTop=ret.overlayScrollTop||0;
+          var pk=document.getElementById('sortiePickerList'); if(pk) pk.scrollTop=ret.pickerScrollTop||0;
+        }catch(e){}
+      });
+    });
+    return true;
+  }catch(e){
+    _sortieState=null;
+    try{ openSortieBoard('explicit'); }catch(e2){}
+    try{ toast('候補画面の復元に失敗しました。入口へ戻りました'); }catch(e3){}
+    return false;
+  }
+}
+
 function _sortieEnsureOv(){
   var ov=document.getElementById('sortieBoardView');
   if(!ov){
@@ -11958,7 +12142,7 @@ function _sortiePaintAreaPick(){
     +'<div style="font-size:12px;color:#718096;margin-bottom:8px">市区町村を選んでください（住所ありのカードのみ対象）</div>'
     +(cities.length
       ? ('<div style="display:flex;flex-wrap:wrap;gap:6px">'+cities.map(function(city){
-          return '<button onclick="_sortiePickAreaCity(\''+city.replace(/'/g,"\\'")+'\')" style="background:#f0fff4;color:#276749;border:1px solid #9ae6b4;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">'+e(city)+'</button>';
+          return '<button onclick="_sortiePickAreaCity(\''+eAttr(city)+'\')" style="background:#f0fff4;color:#276749;border:1px solid #9ae6b4;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">'+e(city)+'</button>';
         }).join('')+'</div>')
       : '<div style="font-size:12px;color:#a0aec0;padding:8px 4px">住所ありのカードがありません</div>')
     +'</div>';
@@ -12082,12 +12266,15 @@ function _sortiePaintPicker(){
       : '';
     /* 第170弾: 候補カードを3行以内へ改善（1行目=選択+氏名、2行目=ランク・心理・入力率、
      * 3行目=住所・プロセス・理由チップ）。氏名・住所はellipsisで崩れを防止。
-     * 第172弾: 2行目に入力率を追加（_sortieInputPct）。 */
+     * 第172弾: 2行目に入力率を追加（_sortieInputPct）。
+     * 第173弾: 氏名をrole=button化し、クリック/Enter/Spaceで個別カードへジャンプできるように
+     * する。外側labelの中にbutton要素は入れず、spanへrole/tabindexを付与する方式（案A）。
+     * click/keydown双方でstopPropagationし、チェックボックス（label全体のトグル）を誤爆させない。 */
     return '<label style="display:block;padding:7px 4px;border-bottom:1px solid #edf2f7;'+(inPlan?'opacity:.5':'')+'">'
       +'<div style="display:flex;align-items:center;gap:8px">'
       +'<input type="checkbox" '+(on?'checked':'')+(inPlan?' disabled':'')+' onchange="_sortieToggleSel(\''+c.id+'\')">'
       +starBtn
-      +'<b style="font-size:13px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(c.name||'無名')+'様</b>'
+      +'<span role="button" tabindex="0" onclick="event.preventDefault();event.stopPropagation();_sortieOpenCardFromPicker(\''+eAttr(c.id)+'\')" onkeydown="event.stopPropagation();_sortieNameKeydown(event,\''+eAttr(c.id)+'\')" title="カードを開く" style="font-size:13px;font-weight:700;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-decoration:underline;text-decoration-color:#cbd5e0;text-underline-offset:2px">'+e(c.name||'無名')+'様</span>'
       +(inPlan?'<span style="font-size:10.5px;color:#a0aec0;margin-left:auto">予定済み</span>':'')
       +'</div>'
       +'<div style="font-size:11px;color:#4a5568;margin:2px 0 0 26px">'+e(_sortieRankTag(c))+'　心理'+(+(c.stage||0))+':'+e(_sortieStageLabel(c))+'　入力'+_sortieInputPct(c)+'%</div>'
@@ -12118,7 +12305,7 @@ function _sortiePaintPicker(){
       +cmd.chips.map(function(ch){ return '<button onclick="_sortiePickChip('+ch.n+')" style="background:#ebf8ff;color:#2c5282;border:1px solid #bee3f8;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">'+ch.label+'</button>'; }).join('')
       +'</div>'):'')
     +'<div style="font-size:11.5px;color:#4a5568;font-weight:700;margin:2px 0 4px">'+nSel+'名選択中</div>'
-    +'<div style="max-height:40vh;overflow-y:auto;border-top:1px solid #e2e8f0">'+rows+'</div>'
+    +'<div id="sortiePickerList" style="max-height:40vh;overflow-y:auto;border-top:1px solid #e2e8f0">'+rows+'</div>'
     +pagingHTML
     +'<button onclick="_sortieConfirm()" style="width:100%;margin-top:10px;background:#2c5282;color:#fff;border:none;border-radius:9px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📅 選んだ '+nSel+' 件で予定表に入れる</button>'
     +'</div>';
@@ -13893,10 +14080,10 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
   <header>
     <div class="ha" style="width:100%;display:flex;justify-content:space-between;align-items:center">
       <div class="ehdr-l" style="display:flex;align-items:center;gap:6px;flex-shrink:0;max-width:30%">
-        <button class="bg" onclick="editGoList()" style="flex-shrink:0">← 一覧</button>
-        <div onclick="editGoList()" title="タップで一覧に戻る" style="font-size:12px;color:rgba(255,255,255,0.75);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" id="editTitle">-</div>
+        <button class="bg" id="editBackBtn" onclick="editBack()" style="flex-shrink:0">← 一覧</button>
+        <div onclick="editExitToList()" title="タップで一覧に戻る" style="font-size:12px;color:rgba(255,255,255,0.75);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" id="editTitle">-</div>
       </div>
-      <svg class="ehdr-logo" onclick="editGoList()" title="タップで一覧に戻る" width="130" height="40" viewBox="0 0 130 40" xmlns="http://www.w3.org/2000/svg" style="position:absolute;left:50%;transform:translateX(-50%);flex-shrink:0;cursor:pointer"><defs><linearGradient id="tg3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ffffff"/><stop offset="60%" style="stop-color:#e0e7ff"/><stop offset="100%" style="stop-color:#c7d2fe"/></linearGradient></defs><text x="4" y="32" font-family="'Dancing Script','Brush Script MT','Comic Sans MS',cursive" font-size="30" font-weight="700" fill="url(#tg3)" filter="drop-shadow(0 1px 2px rgba(0,0,0,0.4))">z.Aibis</text></svg>
+      <svg class="ehdr-logo" onclick="editExitToList()" title="タップで一覧に戻る" width="130" height="40" viewBox="0 0 130 40" xmlns="http://www.w3.org/2000/svg" style="position:absolute;left:50%;transform:translateX(-50%);flex-shrink:0;cursor:pointer"><defs><linearGradient id="tg3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ffffff"/><stop offset="60%" style="stop-color:#e0e7ff"/><stop offset="100%" style="stop-color:#c7d2fe"/></linearGradient></defs><text x="4" y="32" font-family="'Dancing Script','Brush Script MT','Comic Sans MS',cursive" font-size="30" font-weight="700" fill="url(#tg3)" filter="drop-shadow(0 1px 2px rgba(0,0,0,0.4))">z.Aibis</text></svg>
       <div style="display:flex;gap:4px;flex-shrink:0;align-items:center">
         <span id="dirtyDot" style="display:none;width:8px;height:8px;background:#ed8936;border-radius:50%;margin-right:2px" title="未保存"></span>
         <button id="saveCardBtn" class="bs" onclick="saveCard()" style="font-size:11px;padding:6px 10px">💾 保存</button>
