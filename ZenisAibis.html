@@ -2446,7 +2446,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.72";
+var APP_VERSION = "v10.73";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12015,13 +12015,17 @@ function _sortieOpenCardFromPicker(id){
 }
 window._sortieOpenCardFromPicker=_sortieOpenCardFromPicker;
 
-/* 第173弾: 出陣ボードを「履歴に一切触れず」表示だけ隠す専用関数。
+/* 第173弾追補: 出陣ボードを「履歴に一切触れず」表示だけ隠す専用関数。
  * _sortieClose()とは役割を明確に分離する（_sortieClose()は明示起動由来の場合
  * _navReplaceNext=trueを立てるため、カードジャンプ直前に使うと直後のopenCard()内
  * _navGo('edit')がreplaceとなり、復帰用のsortie錨がedit履歴で上書きされてしまう）。
- * _sortieState・_sortieReturn・_sortieOpenedExplicit・_navReplaceNext・historyには一切触れない。 */
+ * 明示起動では予定表が出陣ボードの下に表示されたままなので、カード表示時に土台の
+ * plannerViewも一時的に隠す。予定表のデータ・タブ・履歴は破棄せず、popstateで戻る際に
+ * showPlanner()が再表示する。_sortieState・_sortieReturn・_sortieOpenedExplicit・
+ * _navReplaceNext・historyには一切触れない。 */
 function _sortieHideForJump(){
   var ov=document.getElementById('sortieBoardView'); if(ov) ov.style.display='none';
+  var pv=document.getElementById('plannerView'); if(pv) pv.style.display='none';
 }
 
 /* 第173弾: candidate行のキーボード操作（Enter/Space）用ヘルパー。インラインを長くしないための分離。 */
