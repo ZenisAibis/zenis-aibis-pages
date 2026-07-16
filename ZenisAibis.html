@@ -2441,13 +2441,116 @@ var HANDK = 'prospect_hand_v1';
 var LSDK = 'prospect_last_saved';
 var FULL_BACKUP_LAST_KEY = 'prospect_full_backup_last_v1'; // 最終フルバックアップ作成日時
 var FULL_BACKUP_WARN_DAYS = 14; // 第157弾: 最終バックアップからの経過注意表示のしきい値（定数化）
+var BACKUP_BASELINE_KEY = 'prospect_backup_baseline_v1'; // 第177弾: 全件読込・完全上書き・フル復元によるデータセット確立基準
+var PRE_RESTORE_BASELINE_KEY = 'prospect_pre_restore_backup_baseline_v1'; // 第177弾: フル復元前のbaseline対スナップショット
 var DEV_UNLOCK_KEY='prospect_dev_unlock_v1';
 var DEV_UNLOCK_HASH='d2077f5f6886f83503d4c1dd4b9543933b165c4246ca784052d92a05d57b05b6'; // 開発者モード解錠用の初期パスワードのハッシュ（第151弾追補・sha256hex、平文はソースに埋め込まない）
 var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
+// ===== 第177弾: 控えbaseline統一（backup-baseline） =====
+// 目的：「外部控えを作った日時」(aibis_last_backup) と、
+// 「外部ファイルから現在データセットを確立した日時」(prospect_backup_baseline_v1) を
+// 意味上分離し、全件JSON読込・完全上書き・フル復元の直後に古いupdated_atを理由として
+// 全件が未控え扱いになる基準不整合を解消する。window公開なし（既存sourceから私設関数として呼ぶ）。
+
+// ---- 4-1: ISO日時の安全化。invalid/futureは0（安全側で無効） ----
+function _saneTs(iso){
+  if(!iso) return 0;
+  var t = Date.parse(iso);
+  if(!Number.isFinite(t)) return 0;
+  if(!(t>0)) return 0;
+  if(t>Date.now()) return 0; // 未来日時（時計巻戻り痕跡）は無効。rawは削除しない＝時計が追いつけば自然回復
+  return t;
+}
+
+// ---- 4-2: baseline読込。不正値はnull ----
+function _readBackupBaseline(){
+  var raw=null;
+  try{ raw=localStorage.getItem(BACKUP_BASELINE_KEY); }catch(_e){ return null; }
+  if(!raw) return null;
+  var obj;
+  try{ obj=JSON.parse(raw); }catch(_e){ return null; }
+  if(!obj || typeof obj!=='object' || Array.isArray(obj)) return null;
+  var validSources={'json-empty-import':1,'json-full-overwrite':1,'full-restore':1};
+  if(!validSources[obj.source]) return null;
+  if(!(_saneTs(obj.at)>0)) return null;
+  var cc=Number(obj.cardCount);
+  if(!Number.isFinite(cc) || cc<0) cc=0; else cc=Math.floor(cc);
+  return {at:obj.at, source:obj.source, cardCount:cc};
+}
+
+// ---- 4-3: baseline書込み。呼出側は必ずsave ok後に呼ぶこと。aibis_last_backupは変更しない ----
+function _writeBackupBaseline(source, cardCount){
+  var validSources={'json-empty-import':1,'json-full-overwrite':1,'full-restore':1};
+  if(!validSources[source]) return false;
+  var cc=Number(cardCount);
+  if(!Number.isFinite(cc) || cc<0) cc=0; else cc=Math.floor(cc);
+  try{
+    localStorage.setItem(BACKUP_BASELINE_KEY, JSON.stringify({at:new Date().toISOString(), source:source, cardCount:cc}));
+    return true;
+  }catch(_e){ return false; }
+}
+
+// ---- 4-4: baseline削除 ----
+function _clearBackupBaseline(){
+  try{ localStorage.removeItem(BACKUP_BASELINE_KEY); }catch(_e){}
+}
+
+// ---- 4-5: 有効基準。実控え日時とbaseline日時のうち新しい方（同時刻はexternal優先） ----
+function _effectiveBackupBase(){
+  var tbRaw=null; try{ tbRaw=localStorage.getItem('aibis_last_backup'); }catch(_e){}
+  var tb=_saneTs(tbRaw);
+  var bl=_readBackupBaseline();
+  var tl=bl?_saneTs(bl.at):0;
+
+  if(!tb && !tl) return {t:0, source:'never'};
+  if(tb>=tl) return {t:tb, source:'external'};
+  return {t:tl, source:bl.source};
+}
+
+// ---- 4-6: 一覧見出し文言。sourceに応じて表現を分ける ----
+function _backupBaseLabel(source, days, atRisk){
+  var labels={
+    'external':          '前回の控えから '+days+'日・未控え '+atRisk+'件',
+    'json-empty-import':  '全件読込後 '+days+'日・その後の未控え '+atRisk+'件',
+    'json-full-overwrite':'全件上書き後 '+days+'日・その後の未控え '+atRisk+'件',
+    'full-restore':       'フル復元後 '+days+'日・その後の未控え '+atRisk+'件'
+  };
+  return labels[source] || labels['external']; // unknownはexternal相当へ安全fallback
+}
+
+// ---- 4-7: フル復元前に、baseline rawの対スナップショットを保存（validationしない・そのまま対にする） ----
+function _snapshotBaselineForRestore(){
+  try{
+    var raw=null;
+    try{ raw=localStorage.getItem(BACKUP_BASELINE_KEY); }catch(_e){}
+    var snap=(raw!==null) ? {existed:true, raw:raw} : {existed:false};
+    localStorage.setItem(PRE_RESTORE_BASELINE_KEY, JSON.stringify(snap));
+  }catch(_e){}
+}
+
+// ---- 4-8: 「復元前へ戻す」時にbaseline対スナップショットを復元 ----
+function _restoreBaselineSnapshot(){
+  var raw=null;
+  try{ raw=localStorage.getItem(PRE_RESTORE_BASELINE_KEY); }catch(_e){ return; }
+  if(raw===null) return; // 不在なら何もしない
+  var snap;
+  try{ snap=JSON.parse(raw); }catch(_e){ return; } // 不正JSONは何もしない
+  if(!snap || typeof snap!=='object') return;
+  try{
+    if(snap.existed===true && typeof snap.raw==='string'){
+      localStorage.setItem(BACKUP_BASELINE_KEY, snap.raw);
+    } else if(snap.existed===false){
+      localStorage.removeItem(BACKUP_BASELINE_KEY);
+    }
+  }catch(_e){}
+  // aibis_last_backup / FULL_BACKUP_LAST_KEY には一切触れない
+}
+
+
 // ===== バージョン =====
-var APP_VERSION = "v10.77";
+var APP_VERSION = "v10.78";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -7704,7 +7807,8 @@ function renderBackupNudge(){
   function hide(){ el.style.display='none'; }
   if(fHandle){ hide(); return; }                       // PC自動保存＝継続バックアップ中なので不要
   if(!Array.isArray(cards)||cards.length===0){ hide(); return; }
-  var now=Date.now(), DAY=86400000, t0=_lastBackupTs(), never=(t0===0), atRisk, days;
+  var now=Date.now(), DAY=86400000;
+  var eff=_effectiveBackupBase(), t0=eff.t, never=(eff.source==='never'), atRisk, days;
   if(never){
     atRisk=cards.length;
     var earliest=now;
@@ -7724,10 +7828,10 @@ function renderBackupNudge(){
   }catch(_e){}
   var hard=days>=BACKUP_REMIND_HARD;
   var bg=hard?'#fff5f5':'#fff8e1', bdc=hard?'#fc8181':'#ffd54f', ink=hard?'#9b2c2c':'#5d4037';
-  var head=never?'まだ一度もPCへ控えていません':('前回の控えから '+days+'日');
+  var head=never?'まだ一度もPCへ控えていません':_backupBaseLabel(eff.source,days,atRisk);
   var lead=hard?'⚠ ':'💾 ';
   var sub=hard?'端末のデータが消えると元に戻せません。今すぐPCへ控えを取りましょう。':'万一に備えて、PCへ控えを取っておくと安心です。';
-  var msg=lead+'<strong>'+head+'</strong>'+(never?'':('・未控え '+atRisk+'件'))
+  var msg=lead+'<strong>'+head+'</strong>'
     +'<br><span style="font-size:11px;color:'+ink+'">'+sub+'</span>';
   var pcNoAuto=(!isMob && hasFSA && !fHandle);
   var ctaLabel=pcNoAuto?'💾 自動保存を設定':'📧 PCへ控える';
@@ -7872,6 +7976,8 @@ async function doMerge(imp){
     imp.forEach(function(c){ var n=c.manager||''; if(n&&names.indexOf(n)<0) names.push(n); });
     // 既存件数を担当者別に集計
     var existCount=cards.filter(function(c){ return names.indexOf(c.manager||'')>=0; }).length;
+    // 第177弾: 対象外担当のカードが0件＝結果が全データの完全置換になるかを、変異前に捕捉
+    var _fullReplace=cards.filter(function(c){ return names.indexOf(c.manager||'')<0; }).length===0;
     // 件数が大きく減る場合は警告（部分ファイルの誤上書き防止）
     if(existCount>imp.length){
       var proceed=await new Promise(function(resolve){
@@ -7894,7 +8000,8 @@ async function doMerge(imp){
     cards=cards.filter(function(c){ return names.indexOf(c.manager||'')<0; });
     cards=cards.concat(imp);
     try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の2つ目・上書き分岐）
-    doSaveCards(function(){
+    doSaveCards(function(ok){
+      if(ok===true && _fullReplace){ _writeBackupBaseline('json-full-overwrite', cards.length); } // 第177弾: 全データ完全置換の場合だけ
       renderList();
       try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} // 写真先行・カード後行のpending解決（第146弾）
       toast('✅ 上書き完了：'+names.map(function(x){return nmSan(x);}).join('・')+' '+imp.length+'件');
@@ -7905,7 +8012,10 @@ async function doMerge(imp){
   if(cards.length===0){
     cards=imp;
     try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の2つ目・マージ空分岐）
-    doSaveCards(function(){ renderList(); try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} toast('✅ '+imp.length+'件を読み込みました'); });
+    doSaveCards(function(ok){
+      if(ok===true){ _writeBackupBaseline('json-empty-import', cards.length); } // 第177弾: 空端末への全件読込＝データセット確立
+      renderList(); try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} toast('✅ '+imp.length+'件を読み込みました');
+    });
     return;
   }
   var newCount=0, updCount=0;
@@ -13196,6 +13306,11 @@ function clearAllCards2(){
 }
 function doClearAllCards(){
   cards=[];
+  try{
+    // 第177弾: データセット固有の基準だけを消す（外部に作成した控えファイルの事実は消さない）
+    _clearBackupBaseline();
+    localStorage.removeItem('aibis_backup_nudge_dismissed');
+  }catch(_e){}
   doSaveCards(function(){
     toast('✅ 全データを削除しました');
     showList();
@@ -13226,6 +13341,11 @@ function resetSmartphone2(){
 }
 function doResetSmartphone(){
   cards = [];
+  try{
+    // 第177弾: データセット固有の基準だけを消す（外部に作成した控えファイルの事実は消さない）
+    _clearBackupBaseline();
+    localStorage.removeItem('aibis_backup_nudge_dismissed');
+  }catch(_e){}
   doSaveCards(function(){ renderList(); });
   var done=function(){ toast('✅ リセット完了。PCから最新データを「添付から読込」してください'); try{ if(typeof updateInboxBadge==='function')updateInboxBadge(); }catch(_e){} try{ if(typeof renderInboxBody==='function')renderInboxBody(); }catch(_e){} };
   if(typeof mClear==='function'){ mClear().then(done).catch(done); } else { done(); }
@@ -13475,7 +13595,10 @@ function fullBackupCreate(){
       var fn="zenis-aibis-full-backup_"+APP_VERSION+"_"+ts+".json";
       var a=document.createElement("a"); a.href=url; a.download=fn; a.click();
       setTimeout(function(){ URL.revokeObjectURL(url); },4000);
-      try{ localStorage.setItem(FULL_BACKUP_LAST_KEY, new Date().toISOString()); }catch(e){}
+      var _nowIso177=new Date().toISOString();
+      try{ localStorage.setItem(FULL_BACKUP_LAST_KEY, _nowIso177); }catch(e){}
+      // 第177弾: フルバックアップ作成＝カード＋写真の真の外部控えのため、aibis_last_backupも同時刻で更新
+      try{ localStorage.setItem('aibis_last_backup', _nowIso177); }catch(e){}
       updateFullBackupLastDisp();
       toast("✅ フルバックアップを作成しました（カード"+manifest.cardCount+"件・写真"+manifest.mediaCount+"枚）");
     }).catch(function(){ aibisAlert("⚠ フルバックアップの作成中にエラーが発生しました。もう一度お試しください。"); });
@@ -13572,6 +13695,7 @@ function _executeFullRestore(data){
   try{
     localStorage.setItem(PRE_RESTORE_SNAPSHOT_KEY, JSON.stringify(cards||[]));
   }catch(e){}
+  _snapshotBaselineForRestore(); // 第177弾: baseline rawの対スナップショットも同じ破壊前タイミングで保存
 
   var newCards=data.cards;
   var newMedia=data.media;
@@ -13603,6 +13727,7 @@ function _executeFullRestore(data){
       var afterManifest=_buildBackupManifest(cards, afterMedia);
       var expected=_buildBackupManifest(newCards, newMedia);
       var mismatch = (afterManifest.cardCount!==expected.cardCount) || (afterManifest.mediaCount!==expected.mediaCount);
+      if(saveOk && !mismatch){ _writeBackupBaseline('full-restore', cards.length); } // 第177弾: 保存成功かつ件数一致の場合だけ
       _showRestoreResult(saveOk, afterManifest, mismatch);
     });
   }).catch(function(err){
@@ -13626,7 +13751,10 @@ function restorePreRestoreSnapshot(){
   if(!snap){ aibisAlert("復元前スナップショットが見つかりませんでした。"); return; }
   try{
     cards=JSON.parse(snap);
-    doSaveCards(function(){ showList(); toast("⏪ 復元前（カードのみ）の状態に戻しました"); });
+    doSaveCards(function(ok){
+      if(ok===true){ _restoreBaselineSnapshot(); } // 第177弾: カード保存成功時だけbaseline対スナップショットも復元
+      showList(); toast("⏪ 復元前（カードのみ）の状態に戻しました");
+    });
   }catch(e){ aibisAlert("スナップショットの読込に失敗しました。"); }
 }
 
