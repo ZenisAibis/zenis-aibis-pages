@@ -2447,7 +2447,7 @@ var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 
 // ===== バージョン =====
-var APP_VERSION = "v10.76";
+var APP_VERSION = "v10.77";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3968,6 +3968,103 @@ function generateAibisComment(key){
   ac.innerHTML='🧚 <b>アイビスより：</b> '+list[idx];
   ac.style.display='block';
 }
+// ===== 第176弾: AI回答貼り付け整形（ai-paste-cleanup） =====
+// normalizeAiPasteText: 純関数。表層の正規化のみ行い、意味的な削除は一切しない。
+// window公開しない（handleAiPasteだけがwindow公開対象）。
+// 手順は固定順（後段が前段の結果に依存するため、順序自体が仕様）。
+function normalizeAiPasteText(raw){
+  var text = (raw==null) ? '' : String(raw);
+
+  // 手順1: 改行統一（CRLF/CR/U+2028/U+2029 → LF）
+  text = text
+    .replace(/\r\n/g,'\n')
+    .replace(/[\r\u2028\u2029]/g,'\n');
+
+  // 手順2: 不可視文字除去（U+FEFF・U+200Bだけ）
+  // 絶対禁止: U+200C（ZWNJ）・U+200D（ZWJ）・U+3000（全角空白）は除去しない。
+  // ZWJ絵文字（家族絵文字等の結合シーケンス）・ZWNJ・全角空白の字下げを破壊するため。
+  text = text.replace(/[\uFEFF\u200B]/g,'');
+
+  // 手順3: NBSP → 通常スペース
+  text = text.replace(/\u00A0/g,' ');
+
+  // 手順4: 行末の半角空白・タブ除去（行頭の空白・タブは箇条書きネストのため変更禁止）
+  text = text.replace(/[ \t]+$/gm,'');
+
+  // 手順5: 外側fence除去（回答全体を囲む単一の外側```fenceだけを、安全条件下で除去）
+  text = _stripOuterFence(text);
+
+  // 手順6: 先頭末尾の空行除去
+  text = text.replace(/^\n+/,'').replace(/\n+$/,'');
+
+  // 手順7: 3行を超える連続空行を2行へ圧縮（Markdown段落の2改行(空行1行)は保持）
+  text = text.replace(/\n{3,}/g,'\n\n');
+
+  return text;
+}
+
+// 私設ヘルパー: 全体を囲む単一の外側code fenceだけを安全条件下で除去する。
+// 内部に別のfenceがある場合・closingがない場合・fence行に前後の空白がある場合は
+// 一切触れない（安全側＝何もしない）。
+function _stripOuterFence(text){
+  var lines = text.split('\n');
+
+  var i0 = -1;
+  for(var i=0;i<lines.length;i++){ if(lines[i].trim()!==''){ i0=i; break; } }
+  if(i0===-1) return text; // 空文字列相当
+
+  var i1 = -1;
+  for(var j=lines.length-1;j>=0;j--){ if(lines[j].trim()!==''){ i1=j; break; } }
+
+  if(!(i1>i0)) return text;
+
+  var openLine = lines[i0];
+  var closeLine = lines[i1];
+  if(!/^```[A-Za-z0-9_+\-]*$/.test(openLine)) return text;
+  if(!/^```$/.test(closeLine)) return text;
+
+  for(var k=i0+1;k<i1;k++){
+    if(/^```/.test(lines[k])) return text; // 内部に別fenceがある＝安全側で何もしない
+  }
+
+  var inner = lines.slice(i0+1, i1);
+  return inner.join('\n');
+}
+
+// handleAiPaste: 8つのAI貼り付けtextareaのonpasteから呼ばれる唯一の公開関数。
+// key引数は持たない（テーマ非依存。timestamp/dirty/検出はすべて既存input経路に委譲）。
+function handleAiPaste(event){
+  if(!event) return;
+  var target = event.target;
+  if(!target || typeof target.value!=='string') return; // targetがtextarea相当でない場合は何もしない
+
+  var cd = event.clipboardData || window.clipboardData;
+  if(!cd) return; // clipboardData非対応環境では既定動作に委ねる
+
+  var raw;
+  try{ raw = cd.getData('text/plain'); }catch(_e){ return; }
+  if(!raw) return; // 空または取得不能ならpreventDefaultせず通常貼り付けへ
+
+  var clean = normalizeAiPasteText(raw);
+
+  event.preventDefault();
+
+  var val = target.value;
+  var start = (typeof target.selectionStart==='number') ? target.selectionStart : val.length;
+  var end = (typeof target.selectionEnd==='number') ? target.selectionEnd : val.length;
+
+  if(typeof target.setRangeText==='function'){
+    target.setRangeText(clean, start, end, 'end');
+  } else {
+    target.value = val.slice(0,start) + clean + val.slice(end);
+    var caret = start + clean.length;
+    if(typeof target.selectionStart==='number'){ target.selectionStart = caret; target.selectionEnd = caret; }
+  }
+
+  target.dispatchEvent(new Event('input',{bubbles:true}));
+}
+window.handleAiPaste = handleAiPaste;
+
 // マニュアルのdetails開閉をJS制御（Android対応）
 document.querySelectorAll('.help-details').forEach(function(d){
   var body=d.querySelector('.help-body');
@@ -6669,6 +6766,31 @@ var TFmap = {
   f_ai_summary:'ai_summary', f_ai_memo:'ai_memo'
 };
 
+// ===== 第176弾: 8テーマ共通ヘルパー（ai-paste-cleanup） =====
+// STRATEGY_THEMES（strategy_tabs.js、8テーマ定義・不可触）を正本として使う。
+// window公開しない。STRATEGY_THEMES未定義時のみ8値フォールバック。
+function _strategyThemeKeys(){
+  return (typeof STRATEGY_THEMES!=='undefined' && Array.isArray(STRATEGY_THEMES))
+    ? STRATEGY_THEMES
+    : ['general','next_visit','motivation','personality','objection','hearing','training','inheritance'];
+}
+// テーマ別分析結果を読み込み（旧: 7テーマ固定配列。第176弾でSTRATEGY_THEMES由来の8テーマへ統一）
+function _fillAiThemes(c){
+  _strategyThemeKeys().forEach(function(k){
+    var el=document.getElementById('f_ai_'+k);
+    if(el) el.value=c['ai_'+k]||'';
+    var at=document.getElementById('at_ai_'+k); if(at) at.textContent=c['ai_'+k+'_at']?('📌 '+_fmtStamp(c['ai_'+k+'_at'])):'';
+    var ac=document.getElementById('ac_'+k);
+    if(ac) ac.style.display='none';
+  });
+}
+// テーマ別分析結果を保存（変更時に貼り付け日時を記録）（旧: 7テーマ固定配列。第176弾で8テーマへ統一）
+function _collectAiThemes(c){
+  _strategyThemeKeys().forEach(function(k){
+    var el=document.getElementById('f_ai_'+k); if(el){ var nv=el.value; if(!nv.trim()){ c['ai_'+k+'_at']=''; } else if(!c['ai_'+k+'_at']){ c['ai_'+k+'_at']=new Date().toISOString(); } c['ai_'+k]=nv; }
+  });
+}
+
 function fillForm(c) {
   var el=document.getElementById('editTitle'); if(el) el.textContent='📝 '+(c.name||'新規カード');
   var bd=document.getElementById('dispBranch');
@@ -6745,13 +6867,7 @@ function fillForm(c) {
   var ag=document.getElementById('f_analog'); if(ag) ag.value=c.analog_memo||'';
   var agAt=document.getElementById('analog_at'); if(agAt) agAt.textContent=c.analog_memo_at?('📌 '+_fmtStamp(c.analog_memo_at)):'';
   // テーマ別分析結果を読み込み
-  ['general','next_visit','motivation','personality','objection','hearing','training'].forEach(function(k){
-    var el=document.getElementById('f_ai_'+k);
-    if(el) el.value=c['ai_'+k]||'';
-    var at=document.getElementById('at_ai_'+k); if(at) at.textContent=c['ai_'+k+'_at']?('📌 '+_fmtStamp(c['ai_'+k+'_at'])):'';
-    var ac=document.getElementById('ac_'+k);
-    if(ac) ac.style.display='none';
-  });
+  _fillAiThemes(c);
   // 最優先事項・備考
   var sm=document.getElementById('f_ai_summary'); if(sm) sm.value=c.ai_summary||'';
   var memo=document.getElementById('f_ai_memo'); if(memo) memo.value=c.ai_memo||'';
@@ -6805,9 +6921,7 @@ function collectForm() {
   _deriveDoukou(c);
   _rusuReset(c);
   // テーマ別分析結果を保存（変更時に貼り付け日時を記録）
-  ['general','next_visit','motivation','personality','objection','hearing','training'].forEach(function(k){
-    var el=document.getElementById('f_ai_'+k); if(el){ var nv=el.value; if(!nv.trim()){ c['ai_'+k+'_at']=''; } else if(!c['ai_'+k+'_at']){ c['ai_'+k+'_at']=new Date().toISOString(); } c['ai_'+k]=nv; }
-  });
+  _collectAiThemes(c);
   var ag=document.getElementById('f_analog'); if(ag){ var av=ag.value; if(av!==(c.analog_memo||'')){ c.analog_memo_at=av.trim()?new Date().toISOString():''; } c.analog_memo=av; }
   c.updated_at=new Date().toISOString();
   return c;
@@ -12688,8 +12802,18 @@ function clearStrategyField(id){
 }
 function doClearStrategyField(id){
   var el=document.getElementById(id); if(!el) return;
-  el.value=''; toast('クリアしました');
-  if(/^f_ai_/.test(id)&&cur){ var _k=id.slice(5); cur['ai_'+_k+'_at']=''; var _at=document.getElementById('at_ai_'+_k); if(_at) _at.textContent=''; }
+  el.value='';
+  // 第176弾: bubbling inputを1回dispatchし、既存のdirty_guard/scheduleDraftSave/
+  // generalのinline oninput（3検出）へ委譲する。paste時と同じ「値変更後は必ずinputを
+  // 1回発火する」原則。
+  el.dispatchEvent(new Event('input',{bubbles:true}));
+  toast('クリアしました');
+  // 以下のtimestamp消去は、上記inputイベントのリスナ（dirty_guard.js）側でも
+  // 同一処理（空文字→at=''）が行われるため冪等な保険として残す。
+  if(/^f_ai_/.test(id)&&cur){
+    var _k=id.slice(5); cur['ai_'+_k+'_at']=''; var _at=document.getElementById('at_ai_'+_k); if(_at) _at.textContent='';
+    var _ac=document.getElementById('ac_'+_k); if(_ac) _ac.style.display='none';
+  }
 }
 window.clearStrategyField=clearStrategyField; window.doClearStrategyField=doClearStrategyField;
 window.toggleMobMenu=toggleMobMenu; window.closeMobMenu=closeMobMenu; window.showSyncGuide=showSyncGuide; window.closeSyncModal=closeSyncModal; window.syncMailToSelf=syncMailToSelf; window.showRestoreGuide=showRestoreGuide; window.showOneDriveSaveGuide=showOneDriveSaveGuide; window.doMobExport=doMobExport;
@@ -14929,7 +15053,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#553c9a">💭 総合分析 − 貼り付け欄</div>
             <span id="at_ai_general" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_general')" style="font-size:11px;padding:3px 10px;border:1px solid #e2e8f0;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_general" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('general');autoDetectJudge(this.value);autoDetectSummary(this.value);autoDetectJob9(this.value)"></textarea>
+          <textarea id="f_ai_general" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('general');autoDetectJudge(this.value);autoDetectSummary(this.value);autoDetectJob9(this.value)" onpaste="handleAiPaste(event)"></textarea>
           <div id="ac_general" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
         <!-- 最優先事項 -->
@@ -14955,7 +15079,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#2b6cb0">🎯 次回作戦 − 貼り付け欄</div>
             <span id="at_ai_next_visit" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_next_visit')" style="font-size:11px;padding:3px 10px;border:1px solid #bee3f8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_next_visit" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('next_visit')"></textarea>
+          <textarea id="f_ai_next_visit" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('next_visit')" onpaste="handleAiPaste(event)"></textarea>
           <div id="ac_next_visit" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -14965,7 +15089,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#c53030">🔥 動機引揚 − 貼り付け欄</div>
             <span id="at_ai_motivation" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_motivation')" style="font-size:11px;padding:3px 10px;border:1px solid #fed7d7;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_motivation" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('motivation')"></textarea>
+          <textarea id="f_ai_motivation" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('motivation')" onpaste="handleAiPaste(event)"></textarea>
           <div id="ac_motivation" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -14975,7 +15099,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#6b46c1">🧠 性格応対 − 貼り付け欄</div>
             <span id="at_ai_personality" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_personality')" style="font-size:11px;padding:3px 10px;border:1px solid #e9d8fd;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_personality" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('personality')"></textarea>
+          <textarea id="f_ai_personality" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('personality')" onpaste="handleAiPaste(event)"></textarea>
           <div id="ac_personality" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -14985,7 +15109,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#c05621">🛡 反論対応 − 貼り付け欄</div>
             <span id="at_ai_objection" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_objection')" style="font-size:11px;padding:3px 10px;border:1px solid #fbd38d;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_objection" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('objection')"></textarea>
+          <textarea id="f_ai_objection" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('objection')" onpaste="handleAiPaste(event)"></textarea>
           <div id="ac_objection" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -14995,7 +15119,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#276749">👂 聞取補充 − 貼り付け欄</div>
             <span id="at_ai_hearing" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_hearing')" style="font-size:11px;padding:3px 10px;border:1px solid #c6f6d5;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_hearing" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('hearing')"></textarea>
+          <textarea id="f_ai_hearing" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('hearing')" onpaste="handleAiPaste(event)"></textarea>
           <div id="ac_hearing" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -15005,7 +15129,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#2c5282">📝 会話訓練 − 貼り付け欄</div>
             <span id="at_ai_training" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_training')" style="font-size:11px;padding:3px 10px;border:1px solid #bee3f8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_training" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('training')"></textarea>
+          <textarea id="f_ai_training" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('training')" onpaste="handleAiPaste(event)"></textarea>
           <div id="ac_training" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -15015,7 +15139,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#6B46C1">🏛 相続シナリオ − 貼り付け欄</div>
             <span id="at_ai_inheritance" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_inheritance')" style="font-size:11px;padding:3px 10px;border:1px solid #d6bcfa;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_inheritance" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px"></textarea>
+          <textarea id="f_ai_inheritance" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" onpaste="handleAiPaste(event)"></textarea>
         </div>
       </div>
     </div>
