@@ -2550,7 +2550,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.78";
+var APP_VERSION = "v10.79";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -4064,6 +4064,9 @@ function generateAibisComment(key){
       'ロールプレイ、やった？やってない顔してるよ笑 断られパターンこそ練習しないとダメだよ〜😂',
       'いいスクリプトじゃん！これ使いこなせたら絶対上手くなるよ！練習あるのみ💪',
       'ちゃんと訓練しようとしてるじゃん、えらい！課長にも見せてみてよ、きっと褒めてくれるよ😄'
+    ],
+    inheritance:[
+      '相続は、税額だけでなく、誰が・何を・どのように引き継ぐかまで整理できているかが重要です。家族関係、財産構成、ご本人の意向、将来の管理負担を確認し、税務・法務・登記など論点ごとに必要な専門家へつなげましょう。結論を急がず、家族間で未確認の事項や対立の芽がないかも確認してください。'
     ]
   };
   var list=comments[key]||comments.general;
@@ -15267,7 +15270,8 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#6B46C1">🏛 相続シナリオ − 貼り付け欄</div>
             <span id="at_ai_inheritance" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_inheritance')" style="font-size:11px;padding:3px 10px;border:1px solid #d6bcfa;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_inheritance" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_inheritance" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('inheritance')" onpaste="handleAiPaste(event)"></textarea>
+          <div id="ac_inheritance" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
     </div>
