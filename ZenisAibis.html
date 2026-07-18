@@ -2550,7 +2550,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.79";
+var APP_VERSION = "v10.80";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3000,7 +3000,8 @@ function doRestoreBackup(){
     cards=JSON.parse(bk);
     migrateRosenka();
     try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の4つ目）
-    doSaveCards(function(){
+    doSaveCards(function(ok){
+      if(!ok){ toast('⚠ 保存に失敗しました'); return; }
       showList();
       toast('⏪ 1つ前の状態に復元しました');
     });
@@ -3684,7 +3685,7 @@ function doRenameStaff(oldName){
   cards.forEach(function(c){ if((c.manager||'')===oldName){ c.manager=newName; c.updated_at=now; n++; } });
   if(staffFilter===oldName) staffFilter=newName;
   closeAibisAlert();
-  doSaveCards(function(){ renderList(); updateStaffFilter(); toast('「'+oldName+'」→「'+newName+'」に '+n+'件 付け替えました✏'); });
+  doSaveCards(function(ok){ if(!ok){ toast('⚠ 保存に失敗しました'); return; } renderList(); updateStaffFilter(); toast('「'+oldName+'」→「'+newName+'」に '+n+'件 付け替えました✏'); });
 }
 function deleteStaffCards(name){
   var n=staffCardCount(name);
@@ -3707,7 +3708,7 @@ function doDeleteStaffCards(name){
   cards=cards.filter(function(c){ return (c.manager||'')!==name; });
   var removed=before-cards.length;
   if(staffFilter===name) staffFilter='all';
-  doSaveCards(function(){ renderList(); updateStaffFilter(); toast('「'+name+'」の '+removed+'件を削除しました'); });
+  doSaveCards(function(ok){ if(!ok){ toast('⚠ 保存に失敗しました'); return; } renderList(); updateStaffFilter(); toast('「'+name+'」の '+removed+'件を削除しました'); });
 }
 window.renameStaff=renameStaff; window.doRenameStaff=doRenameStaff;
 window.deleteStaffCards=deleteStaffCards; window.deleteStaffCards2=deleteStaffCards2; window.doDeleteStaffCards=doDeleteStaffCards;
@@ -6604,7 +6605,7 @@ function doDelCard(id, name){
   cards = cards.filter(function(c){ if(c.id===id){ _gone=c; return false; } return true; });
   var _delAt=Date.now();
   if(_gone){ window._lastDel={c:_gone,at:_delAt,photos:null}; }
-  doSaveCards(function(){ renderList(); _undoDelToast(name); });
+  doSaveCards(function(ok){ if(!ok){ toast('⚠ 保存に失敗しました'); return; } renderList(); _undoDelToast(name); });
   if(_gone){ _cascadeDelPhotos(id,_delAt); }
 }
 function _cascadeDelPhotos(cardId, delAt){
@@ -6637,7 +6638,7 @@ function undoDelCard(){
     var ld=window._lastDel; if(!ld||!ld.c){ toast('復元できる削除がありません'); return; }
     var _ph=ld.photos; cards.push(ld.c); window._lastDel=null;
     if(_ph&&_ph.length&&typeof mPut==='function'){ var _ch=Promise.resolve(); _ph.forEach(function(r){ _ch=_ch.then(function(){ return mPut(r); }); }); _ch.then(function(){ if(typeof updateInboxBadge==='function')updateInboxBadge(); if(typeof renderCardPhotos==='function'&&curId)renderCardPhotos(curId); if(typeof renderInboxBody==='function')renderInboxBody(); }); }
-    doSaveCards(function(){ renderList(); toast('\u21a9「'+(ld.c.name||'無名')+'」を復元しました'); });
+    doSaveCards(function(ok){ if(!ok){ toast('⚠ 保存に失敗しました'); return; } renderList(); toast('\u21a9「'+(ld.c.name||'無名')+'」を復元しました'); });
   }catch(_e){}
 }
 window.undoDelCard=undoDelCard; window._undoDelToast=_undoDelToast;
@@ -6688,7 +6689,7 @@ function newCard(){
   if(typeof _syncEditBackButton==='function') _syncEditBackButton();
 }
 var _undoSnaps={};
-function undoCardEdit(){ if(!cur||!curId||!_undoSnaps[curId]){ if(typeof aibisToast==='function') aibisToast('戻せる変更がないよ'); return; } aibisConfirm('このカードを<b>開いた時点</b>の状態に戻す？<br><span style="font-size:12px;color:#718096">この編集での変更は取り消されます（全体の1つ前に戻すとは別だよ）。</span>', function(){ try{ var prev=JSON.parse(_undoSnaps[curId]); var idx=cards.findIndex(function(c){return c.id===curId;}); if(idx>=0){ cards[idx]=prev; } cur=JSON.parse(JSON.stringify(prev)); if(typeof setDirty==='function') setDirty(false); if(typeof doSaveCards==='function') doSaveCards(); fillForm(cur); if(typeof renderCards==='function') renderCards(); if(typeof aibisToast==='function') aibisToast('開いた時点に戻したよ↩️'); }catch(e){ if(typeof aibisToast==='function') aibisToast('戻せなかったよ'); } }, '戻す', 'やめる'); }
+function undoCardEdit(){ if(!cur||!curId||!_undoSnaps[curId]){ if(typeof aibisToast==='function') aibisToast('戻せる変更がないよ'); return; } aibisConfirm('このカードを<b>開いた時点</b>の状態に戻す？<br><span style="font-size:12px;color:#718096">この編集での変更は取り消されます（全体の1つ前に戻すとは別だよ）。</span>', function(){ try{ var prev=JSON.parse(_undoSnaps[curId]); var idx=cards.findIndex(function(c){return c.id===curId;}); if(idx>=0){ cards[idx]=prev; } cur=JSON.parse(JSON.stringify(prev)); if(typeof setDirty==='function') setDirty(false); if(typeof doSaveCards==='function'){ doSaveCards(function(ok){ if(!ok){ if(typeof aibisToast==='function') aibisToast('⚠ 保存に失敗しました'); return; } fillForm(cur); if(typeof renderCards==='function') renderCards(); if(typeof aibisToast==='function') aibisToast('開いた時点に戻したよ↩️'); }); } else { fillForm(cur); if(typeof renderCards==='function') renderCards(); if(typeof aibisToast==='function') aibisToast('開いた時点に戻したよ↩️'); } }catch(e){ if(typeof aibisToast==='function') aibisToast('戻せなかったよ'); } }, '戻す', 'やめる'); }
 window.undoCardEdit=undoCardEdit;
 function openCard(id){
   var c=cards.find(function(x){return x.id===id;}); if(!c) return;
@@ -8004,7 +8005,8 @@ async function doMerge(imp){
     cards=cards.concat(imp);
     try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の2つ目・上書き分岐）
     doSaveCards(function(ok){
-      if(ok===true && _fullReplace){ _writeBackupBaseline('json-full-overwrite', cards.length); } // 第177弾: 全データ完全置換の場合だけ
+      if(!ok){ toast('⚠ 保存に失敗しました'); return; }
+      if(_fullReplace){ _writeBackupBaseline('json-full-overwrite', cards.length); } // 第177弾: 全データ完全置換の場合だけ
       renderList();
       try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} // 写真先行・カード後行のpending解決（第146弾）
       toast('✅ 上書き完了：'+names.map(function(x){return nmSan(x);}).join('・')+' '+imp.length+'件');
@@ -8016,7 +8018,8 @@ async function doMerge(imp){
     cards=imp;
     try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の2つ目・マージ空分岐）
     doSaveCards(function(ok){
-      if(ok===true){ _writeBackupBaseline('json-empty-import', cards.length); } // 第177弾: 空端末への全件読込＝データセット確立
+      if(!ok){ toast('⚠ 保存に失敗しました'); return; }
+      _writeBackupBaseline('json-empty-import', cards.length); // 第177弾: 空端末への全件読込＝データセット確立
       renderList(); try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} toast('✅ '+imp.length+'件を読み込みました');
     });
     return;
@@ -8033,7 +8036,8 @@ async function doMerge(imp){
     }
   });
   try{ migrateShotgun(cards); }catch(_e){} // 第161弾: shotgun_ids→card.sg 移行（4流入口の2つ目・マージ通常分岐）
-  doSaveCards(function(){
+  doSaveCards(function(ok){
+    if(!ok){ toast('⚠ 保存に失敗しました'); return; }
     renderList();
     try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){}
     toast('✅ 新規'+newCount+'件追加 / 更新'+updCount+'件 / 計'+cards.length+'件');
@@ -13314,7 +13318,8 @@ function doClearAllCards(){
     _clearBackupBaseline();
     localStorage.removeItem('aibis_backup_nudge_dismissed');
   }catch(_e){}
-  doSaveCards(function(){
+  doSaveCards(function(ok){
+    if(!ok){ toast('⚠ 保存に失敗しました'); return; }
     toast('✅ 全データを削除しました');
     showList();
   });
@@ -13349,9 +13354,12 @@ function doResetSmartphone(){
     _clearBackupBaseline();
     localStorage.removeItem('aibis_backup_nudge_dismissed');
   }catch(_e){}
-  doSaveCards(function(){ renderList(); });
-  var done=function(){ toast('✅ リセット完了。PCから最新データを「添付から読込」してください'); try{ if(typeof updateInboxBadge==='function')updateInboxBadge(); }catch(_e){} try{ if(typeof renderInboxBody==='function')renderInboxBody(); }catch(_e){} };
-  if(typeof mClear==='function'){ mClear().then(done).catch(done); } else { done(); }
+  doSaveCards(function(ok){
+    if(!ok){ toast('⚠ 保存に失敗しました'); return; }
+    renderList();
+    var done=function(){ toast('✅ リセット完了。PCから最新データを「添付から読込」してください'); try{ if(typeof updateInboxBadge==='function')updateInboxBadge(); }catch(_e){} try{ if(typeof renderInboxBody==='function')renderInboxBody(); }catch(_e){} };
+    if(typeof mClear==='function'){ mClear().then(done).catch(done); } else { done(); }
+  });
 }
 window.resetSmartphone=resetSmartphone;
 // 路線価の正規化（1000以上なら1000で割る）
@@ -13755,7 +13763,8 @@ function restorePreRestoreSnapshot(){
   try{
     cards=JSON.parse(snap);
     doSaveCards(function(ok){
-      if(ok===true){ _restoreBaselineSnapshot(); } // 第177弾: カード保存成功時だけbaseline対スナップショットも復元
+      if(!ok){ toast('⚠ 保存に失敗しました'); return; }
+      _restoreBaselineSnapshot(); // 第177弾: カード保存成功時だけbaseline対スナップショットも復元
       showList(); toast("⏪ 復元前（カードのみ）の状態に戻しました");
     });
   }catch(e){ aibisAlert("スナップショットの読込に失敗しました。"); }
@@ -16851,9 +16860,13 @@ function _camNoteToCard(cardId, note){
   if(cur===note||cur.indexOf(note)>=0) return false;
   c.kuushitsu_bikou = cur ? (cur+"\n[AibisCam] "+note) : note;
   try{ if(typeof curId!=="undefined" && curId===cardId){ var el=document.getElementById("f_kuubi"); if(el) el.value=c.kuushitsu_bikou; } }catch(_e){}
-  try{ doSaveCards(function(){}); }catch(_e){ try{ saveAll(); }catch(__e){} }
-  try{ if(typeof renderCards==="function") renderCards(); }catch(_e){}
-  try{ if(typeof toast==="function") toast("📝 計画地備考をカメラから反映"); }catch(_e){}
+  try{
+    doSaveCards(function(ok){
+      if(!ok){ try{ if(typeof toast==="function") toast("⚠ 保存に失敗しました"); }catch(_e2){} return; }
+      try{ if(typeof renderCards==="function") renderCards(); }catch(_e2){}
+      try{ if(typeof toast==="function") toast("📝 計画地備考をカメラから反映"); }catch(_e2){}
+    });
+  }catch(_e){ try{ saveAll(); }catch(__e){} }
   return true;
 }
 /* 写真メタデータ → カード 安全merge（第146弾）
@@ -16887,9 +16900,13 @@ function _mergePhotoMetaToCard(cardId, s, opts){
       var ep=document.getElementById("f_plan"); if(ep) ep.value=c.plan_address||"";
       var ek=document.getElementById("f_kuubi"); if(ek) ek.value=c.kuushitsu_bikou||"";
     } }catch(_e){}
-    try{ doSaveCards(function(){}); }catch(_e){ try{ saveAll(); }catch(__e){} }
-    try{ if(typeof renderCards==="function") renderCards(); }catch(_e){}
-    try{ if(typeof toast==="function") toast("📷 カメラ入力（住所・備考）をカードへ反映しました"); }catch(_e){}
+    try{
+      doSaveCards(function(ok){
+        if(!ok){ try{ if(typeof toast==="function") toast("⚠ 保存に失敗しました"); }catch(_e2){} return; }
+        try{ if(typeof renderCards==="function") renderCards(); }catch(_e2){}
+        try{ if(typeof toast==="function") toast("📷 カメラ入力（住所・備考）をカードへ反映しました"); }catch(_e2){}
+      });
+    }catch(_e){ try{ saveAll(); }catch(__e){} }
   }
   return changed;
 }
@@ -16907,9 +16924,13 @@ function _resolvePendingPhotoLinks(){
       if(_mergePhotoMetaToCard(s.cardId, s, {noSave:true})) n++;
     });
     if(n>0){
-      try{ doSaveCards(function(){}); }catch(_e){}
-      try{ if(typeof renderCards==="function") renderCards(); }catch(_e){}
-      try{ if(typeof toast==="function") toast("📷 写真メタ("+n+"件)をカードへ反映しました"); }catch(_e){}
+      try{
+        doSaveCards(function(ok){
+          if(!ok){ try{ if(typeof toast==="function") toast("⚠ 保存に失敗しました"); }catch(_e2){} return; }
+          try{ if(typeof renderCards==="function") renderCards(); }catch(_e2){}
+          try{ if(typeof toast==="function") toast("📷 写真メタ("+n+"件)をカードへ反映しました"); }catch(_e2){}
+        });
+      }catch(_e){}
     }
     try{ updateInboxBadge(); }catch(_e){}
     return n;
