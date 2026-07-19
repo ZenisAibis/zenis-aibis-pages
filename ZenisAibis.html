@@ -2550,7 +2550,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.80";
+var APP_VERSION = "v10.81";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6689,7 +6689,85 @@ function newCard(){
   if(typeof _syncEditBackButton==='function') _syncEditBackButton();
 }
 var _undoSnaps={};
-function undoCardEdit(){ if(!cur||!curId||!_undoSnaps[curId]){ if(typeof aibisToast==='function') aibisToast('戻せる変更がないよ'); return; } aibisConfirm('このカードを<b>開いた時点</b>の状態に戻す？<br><span style="font-size:12px;color:#718096">この編集での変更は取り消されます（全体の1つ前に戻すとは別だよ）。</span>', function(){ try{ var prev=JSON.parse(_undoSnaps[curId]); var idx=cards.findIndex(function(c){return c.id===curId;}); if(idx>=0){ cards[idx]=prev; } cur=JSON.parse(JSON.stringify(prev)); if(typeof setDirty==='function') setDirty(false); if(typeof doSaveCards==='function'){ doSaveCards(function(ok){ if(!ok){ if(typeof aibisToast==='function') aibisToast('⚠ 保存に失敗しました'); return; } fillForm(cur); if(typeof renderCards==='function') renderCards(); if(typeof aibisToast==='function') aibisToast('開いた時点に戻したよ↩️'); }); } else { fillForm(cur); if(typeof renderCards==='function') renderCards(); if(typeof aibisToast==='function') aibisToast('開いた時点に戻したよ↩️'); } }catch(e){ if(typeof aibisToast==='function') aibisToast('戻せなかったよ'); } }, '戻す', 'やめる'); }
+function undoCardEdit(){
+  // 第180弾（DAN180_DESIGN_RULING_20260719.md 4節・確定状態遷移の実装）
+  // origAtIdxは編集中データではなく対象カードの最終保存状態。cur/dirty/DRAFTKの確定は
+  // 保存成功後・所有権5条件成立時まで遅延させる。doSaveCards/saveLS/writeFileは無変更。
+  if(undoCardEdit._busy){
+    if(typeof aibisToast==='function') aibisToast('処理中だよ、少し待ってね');
+    return;
+  }
+  if(!cur||!curId||!_undoSnaps[curId]){
+    if(typeof aibisToast==='function') aibisToast('戻せる変更がないよ');
+    return;
+  }
+  aibisConfirm('このカードを<b>開いた時点</b>の状態に戻す？<br><span style="font-size:12px;color:#718096">この編集での変更は取り消されます（全体の1つ前に戻すとは別だよ）。</span>', function(){
+    if(undoCardEdit._busy){
+      if(typeof aibisToast==='function') aibisToast('処理中だよ、少し待ってね');
+      return;
+    }
+    undoCardEdit._busy=true;
+    var uid=curId;
+    var tok=(undoCardEdit._seq=(undoCardEdit._seq||0)+1);
+    try{
+      var prev=JSON.parse(_undoSnaps[uid]);
+      var idx=cards.findIndex(function(c){return c.id===uid;});
+      var origAtIdx=(idx>=0)?cards[idx]:undefined;
+      var dirtyAtStart=isDirty;
+      undoCardEdit._tok=tok;
+      if(idx>=0){ cards[idx]=prev; }
+      // saveLSはグローバルcardsをそのままserializeするため、保存対象を確定するにはこの時点でのcards[idx]書換が必須。
+      if(typeof setDirty==='function') setDirty(false);
+      if(typeof doSaveCards==='function'){
+        doSaveCards(function(ok){
+          try{
+            if(!ok){
+              var idxF=cards.findIndex(function(c){return c.id===uid;});
+              var held=(idxF>=0 && cards[idxF]===prev);
+              if(held){
+                cards[idxF]=origAtIdx;
+                try{ if(typeof saveLS==='function') saveLS(); }catch(e2){ /* 回復saveLSも再試行はしない・残留は記録のみ */ }
+              }
+              // dirty復元は「所有権保持」かつ「同一カードを表示中」かつ「保存開始後の再編集がない」場合だけ
+              if(held && curId===uid && isDirty===false){
+                if(typeof setDirty==='function') setDirty(dirtyAtStart);
+              }
+              // 所有権喪失時（held===false）はcards/DOM/cur/dirty/DRAFTKいずれにも触れない（現在の新しい状態を維持）
+              if(typeof aibisToast==='function') aibisToast('⚠ 保存に失敗しました');
+              return;
+            }
+            var idxS=cards.findIndex(function(c){return c.id===uid;});
+            var owned=(undoCardEdit._tok===tok) && (idxS>=0) && (cards[idxS]===prev) && (curId===uid) && (isDirty===false);
+            if(owned){
+              cur=JSON.parse(JSON.stringify(prev));
+              fillForm(cur);
+              if(typeof clearDraft==='function') clearDraft();
+              if(typeof setDirty==='function') setDirty(false);
+              if(typeof renderCards==='function') renderCards();
+              if(typeof aibisToast==='function') aibisToast('開いた時点に戻したよ↩️');
+            } else {
+              // 所有権喪失（別カードへ移動／保存中の再編集／第三者書込み）: cur・DOM・dirty・DRAFTKは変更しない
+              if(typeof renderCards==='function') renderCards();
+              if(typeof aibisToast==='function') aibisToast('保存中に別の変更が入ったため、最新状態を維持しました');
+            }
+          } finally {
+            undoCardEdit._busy=false;
+          }
+        });
+      } else {
+        // 既存の防御的フォールバック（doSaveCards未定義は本アプリでは到達不能。挙動は変更前と同一に維持）
+        cur=JSON.parse(JSON.stringify(prev));
+        fillForm(cur);
+        if(typeof renderCards==='function') renderCards();
+        if(typeof aibisToast==='function') aibisToast('開いた時点に戻したよ↩️');
+        undoCardEdit._busy=false;
+      }
+    }catch(e){
+      if(typeof aibisToast==='function') aibisToast('戻せなかったよ');
+      undoCardEdit._busy=false;
+    }
+  }, '戻す', 'やめる');
+}
 window.undoCardEdit=undoCardEdit;
 function openCard(id){
   var c=cards.find(function(x){return x.id===id;}); if(!c) return;
