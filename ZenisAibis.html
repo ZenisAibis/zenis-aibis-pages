@@ -2550,7 +2550,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.81";
+var APP_VERSION = "v10.82";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -2918,7 +2918,12 @@ function readFile(handle, cb) {
 function writeFile(handle, cb) {
   checkPerm(handle, function(ok){
     if (!ok){ toast('💡 ファイルへのアクセスを許可してください'); return cb && cb(false); }
-    handle.createWritable().then(function(w){
+    // 第182弾: {mode:'exclusive'}を併用（Chrome/Edge 121+）。doSaveCardsの共有キューが
+    // 同一タブ内の同時書込みを既に防ぐため、ここでの競合reject自体は同一タブでは
+    // 通常発生しない。別タブ等キューの外側でcreateWritableが競合した場合の二層目の
+    // 防御として位置づける。未対応環境ではmode指定は無視され既存のsiloed挙動のまま
+    // （後退なし）。競合時はcatchでcb(false)へ落とし、成功Toastは出さない（既存契約どおり）。
+    handle.createWritable({mode:'exclusive'}).then(function(w){
       w.write(JSON.stringify(cards,null,2)).then(function(){
         w.close().then(function(){ cb && cb(true); }).catch(function(){ cb && cb(false); });
       }).catch(function(){ cb && cb(false); });
@@ -3008,14 +3013,47 @@ function doRestoreBackup(){
   }catch(ex){ toast('復元に失敗しました'); }
 }
 window.restoreBackup=restoreBackup; window.doRestoreBackup=doRestoreBackup;
+// 第182弾: doSaveCards共有直列化キュー（合流方式・coalescing）。
+// 目的：別関数間（例：autoCommitEdit×saveCard）のcreateWritable同時呼出しを防ぎ、
+// FSAのsiloedモード（last-close-wins）による保存内容の巻き戻りを構造的に排除する。
+// 契約は不変：cb(ok:boolean)、呼出し元ごとに必ず1回。saveLS→FSAの順序、
+// fHandle/hasFSA分岐、localStorageとファイル保存の責務分離も無変更。
+// 状態はdoSaveCards自身のプロパティ（._busy／._pending）に持たせる自己完結構成
+// （第180弾のundoCardEdit._busyと同じ確立済みパターン）。モジュール直下に別途
+// varを置かないため、関数単体の抽出・移動でも状態初期化漏れが起きない。
 function doSaveCards(cb) {
-  var okLS = saveLS();
-  if (!okLS) { cb && cb(false); return; }
-  if (hasFSA && fHandle) {
-    writeFile(fHandle, function(okFile){ cb && cb(!!okFile); });
-  } else {
-    cb && cb(true);
+  if (doSaveCards._busy) {
+    // 実行中：新規writerを増やさず、保留1件へ合流する。
+    if (!doSaveCards._pending) doSaveCards._pending = [];
+    doSaveCards._pending.push(cb);
+    return;
   }
+  doSaveCards._busy = true;
+  (function flush(fcb) {
+    var okLS = saveLS();
+    function finish(ok) {
+      try { fcb && fcb(ok); } catch (e) { /* callback例外はキュー進行を止めない */ }
+      var pending = doSaveCards._pending;
+      doSaveCards._pending = null;
+      if (pending && pending.length) {
+        // 合流：保留中に来た全要求は、ここから始まる新しい1回のflush結果をまとめて受け取る。
+        // flush開始時点（＝ここ）の最新cardsを保存対象にする。
+        flush(function(ok2) {
+          pending.forEach(function(pcb) {
+            try { pcb && pcb(ok2); } catch (e) { /* 1件の例外で他のcbを止めない */ }
+          });
+        });
+      } else {
+        doSaveCards._busy = false;
+      }
+    }
+    if (!okLS) { finish(false); return; }
+    if (hasFSA && fHandle) {
+      writeFile(fHandle, function(okFile){ finish(!!okFile); });
+    } else {
+      finish(true);
+    }
+  })(cb);
 }
 
 // ===== 初期化 =====
@@ -7856,9 +7894,10 @@ function saveAll(){
     if(!ok){ toast('⚠ 保存に失敗しました'); return; }
     lastSaveSnapshot=snapshot;
     toast(fHandle?'💾 '+fHandle.name+' に保存しました':'💾 端末内に保存しました');
-    // コピー保存先にも書き込む
+    // コピー保存先にも書き込む（第182弾: 成功/失敗を実際に見てからToastを出す。
+    // copyHandle書込み自体の直列化は行わない＝本弾の対象外として残留リスク扱い）
     if(copyHandle){
-      writeFile(copyHandle, function(){ toast('📋 コピー保存完了: '+copyHandle.name); });
+      writeFile(copyHandle, function(okCopy){ if(okCopy){ toast('📋 コピー保存完了: '+copyHandle.name); } else { toast('⚠ コピー保存に失敗しました: '+copyHandle.name); } });
     }
     if(isMob && !hasFSA) showSyncNudge();
   });
