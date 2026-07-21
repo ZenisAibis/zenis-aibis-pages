@@ -2550,7 +2550,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.83";
+var APP_VERSION = "v10.84";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -2924,9 +2924,18 @@ function writeFile(handle, cb) {
     // 防御として位置づける。未対応環境ではmode指定は無視され既存のsiloed挙動のまま
     // （後退なし）。競合時はcatchでcb(false)へ落とし、成功Toastは出さない（既存契約どおり）。
     handle.createWritable({mode:'exclusive'}).then(function(w){
+      // 第184弾: write()/close()失敗後にwriterを閉じずに放置すると、exclusiveモード下で
+      // GCまでロックが残存し得る（第182弾監査の残留観察）。失敗時はabort()でストリームを
+      // 明示的に破棄してからcb(false)を返す。abort自体の成否・所要時間はcb(ok)の値・回数へ
+      // 一切反映しない（既存契約どおりcb(false)は各経路で必ず1回）。createWritable失敗時は
+      // writer未生成のためabort対象がなく、直下のcatchは無変更のまま。
       w.write(JSON.stringify(cards,null,2)).then(function(){
-        w.close().then(function(){ cb && cb(true); }).catch(function(){ cb && cb(false); });
-      }).catch(function(){ cb && cb(false); });
+        w.close().then(function(){ cb && cb(true); }).catch(function(e){
+          w.abort(e).catch(function(){}).then(function(){ cb && cb(false); });
+        });
+      }).catch(function(e){
+        w.abort(e).catch(function(){}).then(function(){ cb && cb(false); });
+      });
     }).catch(function(){ cb && cb(false); });
   });
 }
