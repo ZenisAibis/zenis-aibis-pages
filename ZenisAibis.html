@@ -2550,7 +2550,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.84";
+var APP_VERSION = "v10.85";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -2951,45 +2951,137 @@ function readLS() {
 }
 var BACKUP_KEY='prospect_backup_v1';
 var BACKUP_META='prospect_backup_meta_v1';
-function saveLS() {
+// 第186弾: localStorage容量不足(Quota)時の安全保存フォールバック。
+// 目的：1世代前退避の複製が、カードJSON本体と合わせてlocalStorage実用上限を
+// 押し上げ、保存不能になる構造を解消する。優先順位は「現在データの保存」＞
+// 「PC自動JSON」＞「1世代前退避」。退避は安全機能だが、現在データ保存を妨げない。
+function _isQuotaErr186(e){
+  if(!e) return false;
+  var nm = e.name || '';
+  var code = e.code;
+  if(nm === 'QuotaExceededError') return true;
+  if(nm === 'NS_ERROR_DOM_QUOTA_REACHED') return true;
+  if(code === 22) return true;   // DOMException QUOTA_EXCEEDED_ERR（旧仕様値）
+  if(code === 1014) return true; // 旧Firefox値
+  return false;
+}
+function _writeSK186(){
+  // 唯一の必須書込み。この関数が例外を投げた場合のみsaveLS()はfalseになり得る。
+  var _json=JSON.stringify(cards);
+  localStorage.setItem(SK, _json);
+  return _json;
+}
+function _notifyQuotaFallback186(){
+  if(window._quotaFallbackNotified) return; // 同セッション1回だけ
+  window._quotaFallbackNotified = true;
+  try{ toast('💡 保存容量の都合で今回は自動退避（1世代前バックアップ）を省略しました。現在のデータは保存されています。'); }catch(_e){}
+}
+function saveLS(opts){
+  opts = opts || {};
+  var skipBackup = !!opts.skipBackup;
+  var fellBack = false;
   try {
-    // 保存直前のデータをバックアップに退避（現在保存されている内容＝1つ前の状態）
-    var prev=localStorage.getItem(SK);
-    if(prev && prev!=='[]'){
-      localStorage.setItem(BACKUP_KEY, prev);
-      localStorage.setItem(BACKUP_META, new Date().toISOString());
+    // ---- 1世代前退避（best-effort容量保護つき） ----
+    if(!skipBackup && !window._autoBackupQuotaSuppressed){
+      var prev=null; try{ prev=localStorage.getItem(SK); }catch(_e){ prev=null; }
+      if(prev && prev!=='[]'){
+        var backupWritten186 = false;
+        try{
+          localStorage.setItem(BACKUP_KEY, prev);
+          backupWritten186 = true;
+        } catch(exBK){
+          if(_isQuotaErr186(exBK)){
+            // 退避作成自体がQuota：退避を削除し、現在データの保存を優先する。
+            try{ localStorage.removeItem(BACKUP_KEY); }catch(_e){}
+            try{ localStorage.removeItem(BACKUP_META); }catch(_e){}
+            window._autoBackupQuotaSuppressed = true;
+            fellBack = true;
+          }
+          // Quota以外はbest effort：例外を投げず、既存の退避も破壊しない。
+          // 新しい退避を作れなかっただけとして扱い、そのまま本体保存へ進む。
+        }
+        if(backupWritten186){
+          // 退避日時はbest effort。新規に退避が書けた時だけ更新する
+          // （退避作成に失敗した場合、古い退避へ新しい日時を付けない）。
+          try{ localStorage.setItem(BACKUP_META, new Date().toISOString()); }catch(_e){}
+        }
+      }
     }
-    var _json=JSON.stringify(cards);
-    var _mb=_json.length/1048576;
-    var _lv=_mb>4.0?4:(_mb>3.5?3:(_mb>3.0?2:(_mb>2.0?1:0)));
-    if(_lv>(window._sizeWarnLv||0)){
-      window._sizeWarnLv=_lv;
-      var _wmsg={1:['#b7791f','💛 保存データが約{MB}MBになりました。そろそろJSON書き出し（バックアップ）をおすすめします。'],
-                 2:['#dd6b20','🧡 保存データが約{MB}MB。不要カード（E/X判定済み）の整理とJSON書き出しを推奨します。'],
-                 3:['#c53030','❤ 保存データが約{MB}MB。<b>保存失敗のリスク</b>が出てきます。今すぐJSON書き出しを。'],
-                 4:['#c53030','🚨 保存データが約{MB}MB。<b>必ず今すぐJSON書き出し（バックアップ）を取ってください。</b>E/Xカードの削除もお願いします。']}[_lv];
-      var _bkmb=0; try{ _bkmb=(localStorage.getItem(BACKUP_KEY)||'').length/1048576; }catch(_e){}
-      var _r1=function(x){return String(Math.round(x*10)/10);};
-      aibisAlert('<span style="color:'+_wmsg[0]+';font-weight:700">'+_wmsg[1].replace('{MB}',_r1(_mb))+'</span><br><span style="font-size:11px;color:#718096">内訳：現在データ 約'+_r1(_mb)+'MB ＋ 自動退避（1世代前） 約'+_r1(_bkmb)+'MB ＝ 実質 約'+_r1(_mb+_bkmb)+'MB を使用中。localStorageには実用上の上限があるため、JSONバックアップ（ファイル保存は容量制限なし）をご活用ください。</span>');
+
+    // ---- 本体(SK)書込み：唯一の必須判定 ----
+    var _json;
+    try {
+      _json = _writeSK186();
+    } catch(exMain){
+      if(!_isQuotaErr186(exMain)) throw exMain;
+      // 本体書込みがQuota（退避作成後・退避なし問わず）：退避を削除し、
+      // 現在データ保存を1回だけ再試行する。同じ処理を無制限に繰り返さない。
+      try{ localStorage.removeItem(BACKUP_KEY); }catch(_e){}
+      try{ localStorage.removeItem(BACKUP_META); }catch(_e){}
+      window._autoBackupQuotaSuppressed = true;
+      fellBack = true;
+      _json = _writeSK186(); // 1回だけ再試行。失敗すれば例外は外側catchへ伝播しfalseになる。
     }
-    localStorage.setItem(SK, _json);
-    localStorage.setItem(LSDK, new Date().toISOString());
-    updateSaved();
+
+    // ---- ここから先はすべてbest effort。失敗しても保存自体はtrueのまま ----
+    try{ localStorage.setItem(LSDK, new Date().toISOString()); }catch(_e){}
     try{
-      var _le=localStorage.getItem('aibis_last_export'); var _td=new Date().toISOString().slice(0,10);
-      if((!_le||(Date.now()-new Date(_le).getTime())>7*86400000)&&localStorage.getItem('aibis_bk_remind')!==_td&&cards.length>3){
-        localStorage.setItem('aibis_bk_remind',_td);
-        setTimeout(function(){ try{ toast('💾 週1のJSON書き出し（バックアップ）をおすすめします'); }catch(_e){} },2500);
+      var _mb=_json.length/1048576;
+      var _lv=_mb>4.0?4:(_mb>3.5?3:(_mb>3.0?2:(_mb>2.0?1:0)));
+      if(_lv>(window._sizeWarnLv||0)){
+        window._sizeWarnLv=_lv;
+        var _wmsg={1:['#b7791f','💛 保存データが約{MB}MBになりました。初期設定→フルバックアップ／復元から、そろそろフルバックアップの作成をおすすめします。'],
+                   2:['#dd6b20','🧡 保存データが約{MB}MB。不要カード（E/X判定済み）の整理と、フルバックアップの作成を推奨します。'],
+                   3:['#c53030','❤ 保存データが約{MB}MB。<b>保存失敗のリスク</b>が出てきます。今すぐフルバックアップを作成してください。'],
+                   4:['#c53030','🚨 保存データが約{MB}MB。<b>必ず今すぐフルバックアップを作成してください。</b>E/Xカードの削除もお願いします。']}[_lv];
+        var _bkmb=0; try{ _bkmb=(localStorage.getItem(BACKUP_KEY)||'').length/1048576; }catch(_e){}
+        var _r1=function(x){return String(Math.round(x*10)/10);};
+        aibisAlert('<span style="color:'+_wmsg[0]+';font-weight:700">'+_wmsg[1].replace('{MB}',_r1(_mb))+'</span><br><span style="font-size:11px;color:#718096">内訳：現在データ 約'+_r1(_mb)+'MB ＋ 自動退避（1世代前） 約'+_r1(_bkmb)+'MB ＝ 実質 約'+_r1(_mb+_bkmb)+'MB を使用中。localStorageには実用上の上限があるため、初期設定→フルバックアップ／復元からのフルバックアップ作成（写真を含むため数十MBになるのは正常です。フルバックアップのファイル保存は、カードデータを保存するlocalStorageの上限とは別です）をご活用ください。</span>');
       }
     }catch(_e){}
+    try{ updateSaved(); }catch(_e){}
+    try{
+      // 第186弾是正: 週次催促の経過判定はfullBackupCreate()が実際に更新する
+      // FULL_BACKUP_LAST_KEY(storage_keys.js定義)を用いる。JSON書き出し用の
+      // 別キーはフルバックアップ催促の判定に使わない。
+      var _lastFull186=localStorage.getItem(FULL_BACKUP_LAST_KEY); var _td=new Date().toISOString().slice(0,10);
+      if((!_lastFull186||(Date.now()-new Date(_lastFull186).getTime())>7*86400000)&&localStorage.getItem('aibis_bk_remind')!==_td&&cards.length>3){
+        localStorage.setItem('aibis_bk_remind',_td);
+        setTimeout(function(){ try{ toast('💾 週1のフルバックアップ作成をおすすめします'); }catch(_e){} },2500);
+      }
+    }catch(_e){}
+    if(fellBack){ try{ _notifyQuotaFallback186(); }catch(_e){} }
     return true;
   } catch(ex){
+    // 現在データ(SK)そのものがブラウザ内へ保存できなかった場合のみここに到達。
     var _sz=0; try{ _sz=JSON.stringify(cards).length; }catch(_e2){}
-    aibisAlert('⚠ <b>保存に失敗しました</b>（データ約'+String(Math.round(_sz/1048576*10)/10)+'MB）。<br><br>次の順でお試しください：<br>① ⋮メニューからJSON書き出し（バックアップ）<br>② 不要カード（E/X判定済み）を削除<br>③ 下のボタンで退避バックアップを削除して再保存<br><br><button onclick="closeAibisAlert();_saveRescue()" style="width:100%;padding:10px;background:#c53030;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🗑 退避バックアップを削除して再保存</button>');
+    aibisAlert('⚠ <b>保存に失敗しました</b>（データ約'+String(Math.round(_sz/1048576*10)/10)+'MB）。<br><br>'
+      +'現在の内容そのものをブラウザ内へ保存できませんでした。<br>'
+      +'<b>初期設定 → フルバックアップ／復元 → 📦 フルバックアップを作成</b>から、最新の状態を今すぐ保存してください（写真を含むため数十MBになるのは正常です）。<br>'
+      +'これ以上の編集は行わず、更新版をお待ちください。<br>'
+      +'<span style="font-size:11px;color:#718096">※ PCの自動JSON保存が有効な場合でも、それが最新の内容とは限りません。</span>');
     return false;
   }
 }
-window._saveRescue=function(){ try{ localStorage.removeItem(BACKUP_KEY); localStorage.removeItem(BACKUP_META); }catch(_e){} if(saveLS()){ toast('✅ 再保存に成功しました'); } };
+window._saveRescue=function(){
+  // 互換用API。通常のsaveLS()を無条件で呼んで退避を再作成することはしない。
+  try{ localStorage.removeItem(BACKUP_KEY); }catch(_e){}
+  try{ localStorage.removeItem(BACKUP_META); }catch(_e){}
+  window._autoBackupQuotaSuppressed = true;
+  var okLS = saveLS({skipBackup:true});
+  if(!okLS){
+    try{ aibisAlert('⚠ <b>現在のデータ自体をブラウザ内へ保存できませんでした。</b><br>初期設定→フルバックアップ／復元から最新のフルバックアップを作成し、これ以上編集せず更新版をお待ちください。<br><span style="font-size:11px;color:#718096">※ PC自動JSON保存が有効でも、最新の内容とは限りません。</span>'); }catch(_e){}
+    return;
+  }
+  if(hasFSA && fHandle){
+    writeFile(fHandle, function(okFile){
+      if(okFile){ toast('✅ 再保存に成功しました（PC自動JSONも更新）'); }
+      else { toast('✅ 端末内には再保存できました（PC自動JSONの更新は失敗）'); }
+    });
+  } else {
+    toast('✅ 再保存に成功しました');
+  }
+};
 function restoreBackup(){
   var bk=localStorage.getItem(BACKUP_KEY);
   var meta=localStorage.getItem(BACKUP_META);
