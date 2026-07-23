@@ -2550,7 +2550,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.85";
+var APP_VERSION = "v10.86";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3044,8 +3044,12 @@ function saveLS(opts){
       // 第186弾是正: 週次催促の経過判定はfullBackupCreate()が実際に更新する
       // FULL_BACKUP_LAST_KEY(storage_keys.js定義)を用いる。JSON書き出し用の
       // 別キーはフルバックアップ催促の判定に使わない。
+      // 第188弾是正: rawが不正文字列・未来日時の場合にNaN比較や負の経過差分で
+      // 催促が抑止されないよう、既存backup_baseline.jsの_saneTs()（無改変・再利用のみ）
+      // で安全化してから経過判定する。rawそのものは削除・書換え・正規化書戻しをしない。
       var _lastFull186=localStorage.getItem(FULL_BACKUP_LAST_KEY); var _td=new Date().toISOString().slice(0,10);
-      if((!_lastFull186||(Date.now()-new Date(_lastFull186).getTime())>7*86400000)&&localStorage.getItem('aibis_bk_remind')!==_td&&cards.length>3){
+      var _lastFull188Ts=_saneTs(_lastFull186);
+      if((!_lastFull188Ts||(Date.now()-_lastFull188Ts)>7*86400000)&&localStorage.getItem('aibis_bk_remind')!==_td&&cards.length>3){
         localStorage.setItem('aibis_bk_remind',_td);
         setTimeout(function(){ try{ toast('💾 週1のフルバックアップ作成をおすすめします'); }catch(_e){} },2500);
       }
@@ -13992,12 +13996,16 @@ function updateFullBackupLastDisp(){
   var el=document.getElementById("fullBackupLastDisp"); if(!el) return;
   var nudge=document.getElementById("fullBackupNudge");
   var s=null; try{ s=localStorage.getItem(FULL_BACKUP_LAST_KEY); }catch(e){}
-  if(!s){
+  // 第188弾是正: 不正文字列・未来日時のrawで「NaN/NaN NaN:NaN」表示や未来日時の
+  // 誤った緑表示にならないよう、既存backup_baseline.jsの_saneTs()（無改変・再利用のみ）
+  // で安全化する。ts===0（未設定・不正・未来）は既存の未作成相当分岐へ合流。rawは不変。
+  var ts=_saneTs(s);
+  if(!ts){
     el.textContent="まだフルバックアップを作成していません"; el.style.color="#718096";
     if(nudge){ nudge.textContent="⚠ まだ一度もバックアップを作成していません"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
     return;
   }
-  var d=new Date(s);
+  var d=new Date(ts);
   el.textContent="最終フルバックアップ作成：" + (d.getMonth()+1)+"/"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
   el.style.color="#38a169";
   if(nudge){
