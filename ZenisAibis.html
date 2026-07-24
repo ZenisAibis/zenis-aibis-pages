@@ -1459,6 +1459,14 @@ body.is-mob .mob-menu{display:inline-block}
 #editView input[type="number"],
 #editView input[inputmode="numeric"],
 #editView select{ text-align:center !important; text-align-last:center !important; }
+/* ===== 第189弾: 戦略協議AI回答貼付 参照URL chip表示（ai-paste-url-compact） ===== */
+.ai-url-refs{margin-top:6px;padding:6px 8px;background:#f0f7ff;border:1px solid #bee3f8;border-radius:6px}
+.ai-url-ref-header{font-size:11px;color:#2c5282;font-weight:600;margin-bottom:4px}
+.ai-url-ref-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ai-url-ref-chip{display:inline-flex;align-items:center;font-size:11px;color:#2b6cb0;background:#ffffff;border:1px solid #90cdf4;border-radius:12px;padding:4px 10px;text-decoration:none;cursor:pointer;line-height:1.3;min-height:20px}
+.ai-url-ref-chip:hover{background:#ebf8ff}
+.ai-url-organize-btn{margin-top:6px;font-size:11px;padding:4px 10px;border:1px solid #90cdf4;border-radius:4px;background:white;color:#2b6cb0;cursor:pointer;font-family:inherit}
+
 </style>
 </head>
 <body>
@@ -2550,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.86";
+var APP_VERSION = "v10.87";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -4281,8 +4289,343 @@ function _stripOuterFence(text){
   return inner.join('\n');
 }
 
+// ===== 第189弾: 戦略協議AI回答貼付時の参照URL全文表示修正（ai-paste-url-compact） =====
+// 対象8テーマ: STRATEGY_THEMES（strategy_tabs.js・不可触）。f_ai_summary/f_ai_memoは対象外。
+// 本文とURLを分離するが、保存形式は既存card objectへのfield追加のみ（別実装を追加しない）。
+// window公開はhandleAiPaste/refreshAiUrlRefs/confirmOrganizeLegacyAiUrlsだけに限定する
+// （extractHttpsRefs/rebuildThemeRefs/organizeLegacyAiUrlsはproduction用途で不要なため非公開。
+// pure試験はvmでsourceから直接読み出して検証する）。
+
+var AI_URL_REF_SENTINEL = '\u0000AIURLREF\u0000';
+
+// 私設ヘルパー: 候補URL末尾から区切り文字をloopで除去する（Wikipedia型括弧は保持）。
+function _trimAiUrlTrailing(candidate){
+  var closers = ['\u3001','\u3002','\uFF0C','\uFF0E',')','\uFF09',']','\uFF3D','\u3011','>','"',"'",'\u2026','!','?',',','.',':',';','\uFF1A','\uFF1B'];
+  var u = candidate;
+  while(u.length>0){
+    var last = u.slice(-1);
+    if(last===')'){
+      var without = u.slice(0,-1);
+      var opensBefore=(without.match(/\(/g)||[]).length, closesBefore=(without.match(/\)/g)||[]).length;
+      if(opensBefore>closesBefore) break; // 除去すると開き括弧が孤立する＝このURLの一部として保持(Wikipedia型)
+    }
+    if(closers.indexOf(last)>=0){ u = u.slice(0,-1); continue; }
+    break;
+  }
+  return u;
+}
+
+function _isHttpsUrl(u){
+  try{ return new URL(u).protocol === 'https:'; }catch(_e){ return false; }
+}
+
+// extractHttpsRefs: 純関数。textからHTTPS参照（bare URL / Markdown link / <angle bracket>）を
+// 検出し、［参照N］token（N=startIndex起点、同一URLは同一番号を再利用）へ置換した本文と、
+// 出現順の完全URL配列を返す。非HTTPS（http:/javascript:/data:/file:/intent:等）・不正URLは
+// 削除・変換せず原文のまま残す。行構造・箇条書き記号・非URL本文は不変。
+function extractHttpsRefs(text, startIndex){
+  var safeText = (typeof text==='string') ? text : '';
+  var start = (typeof startIndex==='number' && isFinite(startIndex) && startIndex>=1) ? Math.floor(startIndex) : 1;
+  var urls = [];
+  var urlToNum = {};
+  function assignNum(u){
+    if(Object.prototype.hasOwnProperty.call(urlToNum,u)) return urlToNum[u];
+    urls.push(u);
+    var n = start + urls.length - 1;
+    urlToNum[u] = n;
+    return n;
+  }
+
+  // markdown link / angle bracket / bare URL の順で候補を拾う単一走査（二重処理防止のためalternationは1本）。
+  // bare URL側の文字クラスは空白・山括弧・引用符・全角句読点/括弧ブロック(U+3000-303F, U+FF00-FFEF)・
+  // sentinel制御文字(U+0000-0001)で停止する。
+  var pattern = /\[([^\[\]]*)\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s<>]+)>|(https?:\/\/[^\s<>"'\u0000-\u0001\u3000-\u303f\uff00-\uffef]+)/g;
+  var out = '';
+  var cursor = 0;
+  var mm;
+  // refs: 生成した各tokenの「出力text内での正確な位置」を記録する。paste内に元から
+  // 書かれていた見た目だけの「［参照N］」文字列（本関数が作ったものではない）と、
+  // 本関数が実際に生成したtokenとを、呼出し側が絶対に混同しないようにするための情報。
+  var refs = [];
+  while((mm = pattern.exec(safeText))){
+    var whole = mm[0];
+    var label = mm[1];
+    var mdUrl = mm[2], angleUrl = mm[3], bareUrl = mm[4];
+    var raw = mdUrl || angleUrl || bareUrl;
+    var trimmed = bareUrl ? _trimAiUrlTrailing(raw) : raw; // md/angleは既に境界が明示なのでtrim対象外
+    var trailingExtra = bareUrl ? raw.slice(trimmed.length) : '';
+    if(trimmed && _isHttpsUrl(trimmed)){
+      out += safeText.slice(cursor, mm.index);
+      var n = assignNum(trimmed);
+      var tokStr = '\uFF3B\u53c2\u7167'+n+'\uFF3D';
+      var tokStart = out.length + (mdUrl ? (label||'').length : 0);
+      out += (mdUrl ? (label||'') : '') + tokStr;
+      refs.push({ start: tokStart, end: tokStart+tokStr.length, num: n, url: trimmed });
+      out += trailingExtra;
+      cursor = mm.index + whole.length;
+    }
+    // https以外・不正URLは無視（cursorを進めず次候補へ。原文はslice(cursor,...)でそのまま残る）
+  }
+  out += safeText.slice(cursor);
+  return { text: out, urls: urls, refs: refs };
+}
+
+// 私設ヘルパー: ローカル番号(1..ex.urls.length)で書かれたex.textを、
+// assign(url)が返すグローバル番号へ付け替える（新旧またぎdedupeの実体）。
+function _renumberAiUrlRefs(ex, assign){
+  if(!ex.refs.length) return ex.text;
+  var out = '';
+  var cursor = 0;
+  ex.refs.forEach(function(r){
+    out += ex.text.slice(cursor, r.start);
+    out += '\uFF3B\u53c2\u7167'+assign(r.url)+'\uFF3D';
+    cursor = r.end;
+  });
+  out += ex.text.slice(cursor);
+  return out;
+}
+
+// 私設ヘルパー: sentinelでラップされた区間を最終番号のtokenへ一括置換する。
+// assignは呼出し元が用意する「同一URLは同一番号を返す」採番クロージャ。
+function _substituteAiUrlSentinels(str, assign){
+  var out = '';
+  var cursor = 0;
+  var re = new RegExp(AI_URL_REF_SENTINEL.replace(/[\u0000]/g,'\\u0000')+'\\u0001([\\s\\S]*?)\\u0001','g');
+  var mm;
+  while((mm = re.exec(str))){
+    out += str.slice(cursor, mm.index);
+    out += '\uFF3B\u53c2\u7167'+assign(mm[1])+'\uFF3D';
+    cursor = mm.index + mm[0].length;
+  }
+  out += str.slice(cursor);
+  return out;
+}
+
+// rebuildThemeRefs: 純関数。paste（部分選択含む）後のテーマ本文全体を再解析し、
+// token番号とURL配列を再構築する。事前整合検査に失敗した場合はfail-closed
+// （token化を行わずcleanPastedをそのまま挿入・urls不変）。
+function rebuildThemeRefs(prevText, selStart, selEnd, cleanPasted, prevUrls, opts){
+  opts = opts || {};
+  var FAIL_TOAST = '\u53c2\u7167\u756a\u53f7\u306e\u6574\u5408\u304c\u78ba\u8a8d\u3067\u304d\u306a\u3044\u305f\u3081URL\u6574\u7406\u3092\u30b9\u30ad\u30c3\u30d7\uff08\u672c\u6587\u306f\u305d\u306e\u307e\u307e\u8cbc\u308a\u4ed8\u3051\uff09';
+  var safePrevText = (typeof prevText==='string') ? prevText : '';
+  var safeCleanPasted = (typeof cleanPasted==='string') ? cleanPasted : '';
+  var safePrevUrls = Array.isArray(prevUrls) ? prevUrls.filter(function(u){ return typeof u==='string' && u; }) : [];
+  var s0 = (typeof selStart==='number' && isFinite(selStart) && selStart>=0) ? Math.floor(selStart) : 0;
+  var s1 = (typeof selEnd==='number' && isFinite(selEnd) && selEnd>=s0) ? Math.floor(selEnd) : s0;
+  s0 = Math.min(s0, safePrevText.length);
+  s1 = Math.min(s1, safePrevText.length);
+
+  function failClosed(){
+    return {
+      text: safePrevText.slice(0,s0) + safeCleanPasted + safePrevText.slice(s1),
+      urls: safePrevUrls.slice(),
+      caret: s0 + safeCleanPasted.length,
+      failClosed: true,
+      toast: FAIL_TOAST
+    };
+  }
+
+  if(safePrevText.indexOf(AI_URL_REF_SENTINEL) >= 0 || safeCleanPasted.indexOf(AI_URL_REF_SENTINEL) >= 0){
+    return failClosed(); // 予約sentinelとの衝突（実運用ではまず発生しない）は安全側で何もしない
+  }
+
+  // 7.1 事前整合検査
+  var tokenRe = /\uFF3B\u53c2\u7167(\d+)\uFF3D/g;
+  var m, tokens = [], consistent = true;
+  while((m = tokenRe.exec(safePrevText))){
+    var k = parseInt(m[1],10);
+    if(!(k>=1 && k<=safePrevUrls.length)) consistent = false;
+    tokens.push({ start: m.index, end: m.index+m[0].length, k: k });
+  }
+  if(!consistent) return failClosed();
+
+  // tokenを分断しないよう選択範囲境界を安全側へ拡張
+  var effStart = s0, effEnd = s1, changed = true;
+  while(changed){
+    changed = false;
+    for(var ti=0; ti<tokens.length; ti++){
+      var t = tokens[ti];
+      if(t.start < effEnd && t.end > effStart){
+        if(t.start < effStart){ effStart = t.start; changed = true; }
+        if(t.end > effEnd){ effEnd = t.end; changed = true; }
+      }
+    }
+  }
+
+  var preText = safePrevText.slice(0, effStart);
+  var postText = safePrevText.slice(effEnd);
+  var preTokens = tokens.filter(function(t){ return t.end<=effStart; });
+  var postTokens = tokens.filter(function(t){ return t.start>=effEnd; });
+
+  var extracted = extractHttpsRefs(safeCleanPasted, 1);
+
+  function wrapTokensAsSentinel(str, toks, urlLookup){
+    var out = str;
+    for(var i=toks.length-1;i>=0;i--){
+      var t = toks[i];
+      var u = urlLookup(t.k);
+      out = out.slice(0,t.start) + AI_URL_REF_SENTINEL + '\u0001' + u + '\u0001' + out.slice(t.end);
+    }
+    return out;
+  }
+  var preOut = wrapTokensAsSentinel(preText, preTokens, function(k){ return safePrevUrls[k-1]; });
+  var postTokensRelative = postTokens.map(function(t){ return { start: t.start-effEnd, end: t.end-effEnd, k: t.k }; });
+  var postOut = wrapTokensAsSentinel(postText, postTokensRelative, function(k){ return safePrevUrls[k-1]; });
+
+  var pastedOut = extracted.text;
+  if(extracted.refs.length){
+    var out2 = ''; var cursor2 = 0;
+    extracted.refs.forEach(function(r){
+      out2 += pastedOut.slice(cursor2, r.start);
+      out2 += AI_URL_REF_SENTINEL + '\u0001' + r.url + '\u0001';
+      cursor2 = r.end;
+    });
+    out2 += pastedOut.slice(cursor2);
+    pastedOut = out2;
+  }
+
+  var finalUrls = [];
+  var urlToNum = {};
+  function assign(u){
+    if(Object.prototype.hasOwnProperty.call(urlToNum,u)) return urlToNum[u];
+    finalUrls.push(u);
+    urlToNum[u] = finalUrls.length;
+    return finalUrls.length;
+  }
+
+  var finalPre = _substituteAiUrlSentinels(preOut, assign);
+  var finalPasted = _substituteAiUrlSentinels(pastedOut, assign);
+  var finalPost = _substituteAiUrlSentinels(postOut, assign);
+
+  return {
+    text: finalPre + finalPasted + finalPost,
+    urls: finalUrls,
+    caret: finalPre.length + finalPasted.length,
+    failClosed: false,
+    toast: null
+  };
+}
+
+// refreshAiUrlRefs: 対象テーマの参照chip欄を再描画する。URL由来値はinnerHTMLへ一切挿入しない
+// （生成はDOM APIとtextContent/propertyだけで行う）。0件なら非表示。整理ボタンの表示可否も
+// 同時に更新する（本文にraw HTTPS URLが残っているかを再判定）。
+function refreshAiUrlRefs(theme, urls){
+  if(typeof document==='undefined') return;
+  var container = document.getElementById('f_ai_urls_'+theme);
+  if(container){
+    var safeUrls = Array.isArray(urls) ? urls.filter(function(u){ return typeof u==='string' && u && _isHttpsUrl(u); }) : [];
+    while(container.firstChild) container.removeChild(container.firstChild);
+    if(safeUrls.length===0){
+      container.style.display = 'none';
+    } else {
+      container.style.display = '';
+      var header = document.createElement('div');
+      header.className = 'ai-url-ref-header';
+      header.textContent = '\ud83d\udd17 \u53c2\u7167\u8cc7\u6599 '+safeUrls.length+'\u4ef6';
+      container.appendChild(header);
+      var chipRow = document.createElement('div');
+      chipRow.className = 'ai-url-ref-chips';
+      safeUrls.forEach(function(u,i){
+        var host = ''; try{ host = new URL(u).hostname; }catch(_e){ host=''; }
+        var a = document.createElement('a');
+        a.href = u;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.title = u;
+        a.setAttribute('aria-label', '\u53c2\u7167'+(i+1)+'\uff1a'+u);
+        a.className = 'ai-url-ref-chip';
+        a.textContent = '\u53c2\u7167'+(i+1)+(host?('\uff5c'+host):'');
+        chipRow.appendChild(a);
+      });
+      container.appendChild(chipRow);
+    }
+  }
+  var btn = document.getElementById('f_ai_organize_'+theme);
+  if(btn){
+    var ta = document.getElementById('f_ai_'+theme);
+    var text = (ta && typeof ta.value==='string') ? ta.value : '';
+    var probe = extractHttpsRefs(text, 1);
+    btn.style.display = (probe.urls.length>0) ? '' : 'none';
+  }
+}
+
+// organizeLegacyAiUrls: 既存カードの本文（raw HTTPS URLを含み得る）全体をtoken化する。
+// 明示操作からのみ呼ばれる（hidden migrationではない）。ai_<theme>_atは変更しない。
+function organizeLegacyAiUrls(theme){
+  if(typeof document==='undefined') return;
+  var ta = document.getElementById('f_ai_'+theme);
+  if(!ta || typeof ta.value!=='string') return;
+  var prevText = ta.value;
+  var prevUrls = (typeof cur!=='undefined' && cur && cur.theme_urls && Array.isArray(cur.theme_urls[theme]))
+    ? cur.theme_urls[theme].filter(function(u){ return typeof u==='string' && u; })
+    : [];
+
+  if(prevText.indexOf(AI_URL_REF_SENTINEL)>=0) return; // 予約sentinel衝突時は安全側で何もしない
+
+  var tokenRe = /\uFF3B\u53c2\u7167(\d+)\uFF3D/g, m, tokens=[], consistent=true;
+  while((m = tokenRe.exec(prevText))){
+    var k = parseInt(m[1],10);
+    if(!(k>=1 && k<=prevUrls.length)) consistent=false;
+    tokens.push({ start:m.index, end:m.index+m[0].length, k:k });
+  }
+  if(!consistent){
+    if(typeof toast==='function') toast('\u53c2\u7167\u756a\u53f7\u306e\u6574\u5408\u304c\u78ba\u8a8d\u3067\u304d\u306a\u3044\u305f\u3081URL\u6574\u7406\u3092\u30b9\u30ad\u30c3\u30d7\uff08\u672c\u6587\u306f\u305d\u306e\u307e\u307e\u8cbc\u308a\u4ed8\u3051\uff09');
+    return;
+  }
+
+  var finalUrls = [];
+  var urlToNum = {};
+  function assign(u){
+    if(Object.prototype.hasOwnProperty.call(urlToNum,u)) return urlToNum[u];
+    finalUrls.push(u);
+    urlToNum[u] = finalUrls.length;
+    return finalUrls.length;
+  }
+
+  var resultText = '';
+  var cursor = 0;
+  tokens.forEach(function(t){
+    var plain = prevText.slice(cursor, t.start);
+    var ex = extractHttpsRefs(plain, 1);
+    resultText += _renumberAiUrlRefs(ex, assign);
+    resultText += '\uFF3B\u53c2\u7167'+assign(prevUrls[t.k-1])+'\uFF3D';
+    cursor = t.end;
+  });
+  var tailPlain = prevText.slice(cursor);
+  var exTail = extractHttpsRefs(tailPlain, 1);
+  resultText += _renumberAiUrlRefs(exTail, assign);
+
+  ta.value = resultText;
+  if(typeof cur!=='undefined' && cur){
+    cur.theme_urls = cur.theme_urls || {};
+    cur.theme_urls[theme] = finalUrls;
+  }
+  refreshAiUrlRefs(theme, finalUrls);
+  ta.dispatchEvent(new Event('input',{bubbles:true}));
+}
+
+// confirmOrganizeLegacyAiUrls: 整理ボタンのonclickから呼ばれる確認UI表示だけの薄いwrapper
+// （clearStrategyField/doClearStrategyFieldと同型）。実処理はorganizeLegacyAiUrlsが担う。
+function confirmOrganizeLegacyAiUrls(theme){
+  var msg = '\u672c\u6587\u4e2d\u306eHTTPS URL\u3092\u53c2\u7167\u756a\u53f7\u306b\u6574\u7406\u3057\u307e\u3059\u3002\u3088\u308d\u3057\u3044\u3067\u3059\u304b\uff1f';
+  if(typeof aibisConfirm==='function'){
+    aibisConfirm(msg, function(){ organizeLegacyAiUrls(theme); }, '\u6574\u7406\u3059\u308b', '\u3084\u3081\u308b');
+    return;
+  }
+  if(typeof confirm==='function' && confirm(msg)){
+    organizeLegacyAiUrls(theme);
+  }
+}
+window.refreshAiUrlRefs = refreshAiUrlRefs;
+window.confirmOrganizeLegacyAiUrls = confirmOrganizeLegacyAiUrls;
+
 // handleAiPaste: 8つのAI貼り付けtextareaのonpasteから呼ばれる唯一の公開関数。
-// key引数は持たない（テーマ非依存。timestamp/dirty/検出はすべて既存input経路に委譲）。
+// 対象8テーマ（f_ai_<theme>）はURL分離処理へ、それ以外（f_ai_summary/f_ai_memo等）は
+// 第176弾までの既存動作（normalize＋挿入のみ）を維持する。
+function _aiPasteThemeFromId(id){
+  var m = /^f_ai_(general|next_visit|motivation|personality|objection|hearing|training|inheritance)$/.exec(id||'');
+  return m ? m[1] : null;
+}
 function handleAiPaste(event){
   if(!event) return;
   var target = event.target;
@@ -4296,6 +4639,7 @@ function handleAiPaste(event){
   if(!raw) return; // 空または取得不能ならpreventDefaultせず通常貼り付けへ
 
   var clean = normalizeAiPasteText(raw);
+  var theme = _aiPasteThemeFromId(target.id);
 
   event.preventDefault();
 
@@ -4303,12 +4647,29 @@ function handleAiPaste(event){
   var start = (typeof target.selectionStart==='number') ? target.selectionStart : val.length;
   var end = (typeof target.selectionEnd==='number') ? target.selectionEnd : val.length;
 
-  if(typeof target.setRangeText==='function'){
-    target.setRangeText(clean, start, end, 'end');
-  } else {
-    target.value = val.slice(0,start) + clean + val.slice(end);
-    var caret = start + clean.length;
-    if(typeof target.selectionStart==='number'){ target.selectionStart = caret; target.selectionEnd = caret; }
+  var handledAsThemeUrl = false;
+  if(theme && typeof cur!=='undefined' && cur){
+    var prevUrls = (cur.theme_urls && Array.isArray(cur.theme_urls[theme])) ? cur.theme_urls[theme] : [];
+    var result = rebuildThemeRefs(val, start, end, clean, prevUrls, {});
+    target.value = result.text;
+    if(typeof target.selectionStart==='number'){ target.selectionStart = result.caret; target.selectionEnd = result.caret; }
+    if(!result.failClosed){
+      cur.theme_urls = cur.theme_urls || {};
+      cur.theme_urls[theme] = result.urls;
+    }
+    refreshAiUrlRefs(theme, result.failClosed ? prevUrls : result.urls);
+    if(result.failClosed && result.toast && typeof toast==='function') toast(result.toast);
+    handledAsThemeUrl = true;
+  }
+
+  if(!handledAsThemeUrl){
+    if(typeof target.setRangeText==='function'){
+      target.setRangeText(clean, start, end, 'end');
+    } else {
+      target.value = val.slice(0,start) + clean + val.slice(end);
+      var caret = start + clean.length;
+      if(typeof target.selectionStart==='number'){ target.selectionStart = caret; target.selectionEnd = caret; }
+    }
   }
 
   target.dispatchEvent(new Event('input',{bubbles:true}));
@@ -7110,6 +7471,10 @@ function _fillAiThemes(c){
     var at=document.getElementById('at_ai_'+k); if(at) at.textContent=c['ai_'+k+'_at']?('📌 '+_fmtStamp(c['ai_'+k+'_at'])):'';
     var ac=document.getElementById('ac_'+k);
     if(ac) ac.style.display='none';
+    // 第189弾: theme_urlsがobjectでない・当該theme値がarrayでない場合は安全に空配列扱い
+    // （無断データ修正はしない）。保存collectは追加しない（paste/整理で即時書込済みのため）。
+    var savedUrls = (c && c.theme_urls && Array.isArray(c.theme_urls[k])) ? c.theme_urls[k] : [];
+    if(typeof refreshAiUrlRefs==='function') refreshAiUrlRefs(k, savedUrls);
   });
 }
 // テーマ別分析結果を保存（変更時に貼り付け日時を記録）（旧: 7テーマ固定配列。第176弾で8テーマへ統一）
@@ -9196,9 +9561,20 @@ function buildStrategyHTML(c,opt){
       return;
     }
     hasContent=true;
+    var _urls=(c.theme_urls&&Array.isArray(c.theme_urls[key]))?c.theme_urls[key]:[];
+    var _refHtml='';
+    var _validCount=0;
+    _urls.forEach(function(u){
+      if(typeof u!=='string'||!u) return;
+      var _host='';
+      try{ if(new URL(u).protocol!=='https:') return; _host=new URL(u).hostname; }catch(_e){ return; }
+      _validCount++;
+      _refHtml+='<div>参照'+_validCount+'：'+e(_host)+'</div>';
+    });
     html+='<div class="sec" style="margin-bottom:3mm;page-break-inside:auto;break-inside:auto">'
       +'<div class="stitle">'+THEMES[key]+'</div>'
       +'<div style="font-size:9.5pt;white-space:pre-wrap;line-height:1.7">'+e(val)+'</div>'
+      +(_validCount?'<div style="font-size:8.5pt;color:#666;margin-top:2mm">'+_refHtml+'</div>':'')
       +'</div>';
   });
   if(!hasContent){
@@ -13152,6 +13528,13 @@ function doClearStrategyField(id){
   if(/^f_ai_/.test(id)&&cur){
     var _k=id.slice(5); cur['ai_'+_k+'_at']=''; var _at=document.getElementById('at_ai_'+_k); if(_at) _at.textContent='';
     var _ac=document.getElementById('ac_'+_k); if(_ac) _ac.style.display='none';
+    // 第189弾: 対象8テーマだけURL配列もclearする（f_ai_summary/f_ai_memo・不正keyは対象外、
+    // 他テーマのURLには一切触れない）。_strategyThemeKeys()ガードが必須。
+    if(typeof _strategyThemeKeys==='function' && _strategyThemeKeys().includes(_k)){
+      cur.theme_urls = cur.theme_urls || {};
+      cur.theme_urls[_k] = [];
+      if(typeof refreshAiUrlRefs==='function') refreshAiUrlRefs(_k, []);
+    }
   }
 }
 window.clearStrategyField=clearStrategyField; window.doClearStrategyField=doClearStrategyField;
@@ -15419,7 +15802,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#553c9a">💭 総合分析 − 貼り付け欄</div>
             <span id="at_ai_general" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_general')" style="font-size:11px;padding:3px 10px;border:1px solid #e2e8f0;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_general" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('general');autoDetectJudge(this.value);autoDetectSummary(this.value);autoDetectJob9(this.value)" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_general" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('general');autoDetectJudge(this.value);autoDetectSummary(this.value);autoDetectJob9(this.value)" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_general" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_general" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('general')">🔗 URLを整理</button>
           <div id="ac_general" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
         <!-- 最優先事項 -->
@@ -15445,7 +15828,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#2b6cb0">🎯 次回作戦 − 貼り付け欄</div>
             <span id="at_ai_next_visit" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_next_visit')" style="font-size:11px;padding:3px 10px;border:1px solid #bee3f8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_next_visit" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('next_visit')" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_next_visit" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('next_visit')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_next_visit" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_next_visit" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('next_visit')">🔗 URLを整理</button>
           <div id="ac_next_visit" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -15455,7 +15838,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#c53030">🔥 動機引揚 − 貼り付け欄</div>
             <span id="at_ai_motivation" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_motivation')" style="font-size:11px;padding:3px 10px;border:1px solid #fed7d7;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_motivation" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('motivation')" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_motivation" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('motivation')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_motivation" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_motivation" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('motivation')">🔗 URLを整理</button>
           <div id="ac_motivation" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -15465,7 +15848,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#6b46c1">🧠 性格応対 − 貼り付け欄</div>
             <span id="at_ai_personality" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_personality')" style="font-size:11px;padding:3px 10px;border:1px solid #e9d8fd;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_personality" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('personality')" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_personality" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('personality')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_personality" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_personality" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('personality')">🔗 URLを整理</button>
           <div id="ac_personality" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -15475,7 +15858,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#c05621">🛡 反論対応 − 貼り付け欄</div>
             <span id="at_ai_objection" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_objection')" style="font-size:11px;padding:3px 10px;border:1px solid #fbd38d;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_objection" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('objection')" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_objection" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('objection')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_objection" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_objection" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('objection')">🔗 URLを整理</button>
           <div id="ac_objection" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -15485,7 +15868,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#276749">👂 聞取補充 − 貼り付け欄</div>
             <span id="at_ai_hearing" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_hearing')" style="font-size:11px;padding:3px 10px;border:1px solid #c6f6d5;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_hearing" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('hearing')" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_hearing" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('hearing')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_hearing" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_hearing" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('hearing')">🔗 URLを整理</button>
           <div id="ac_hearing" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -15495,7 +15878,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#2c5282">📝 会話訓練 − 貼り付け欄</div>
             <span id="at_ai_training" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_training')" style="font-size:11px;padding:3px 10px;border:1px solid #bee3f8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_training" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('training')" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_training" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('training')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_training" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_training" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('training')">🔗 URLを整理</button>
           <div id="ac_training" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
@@ -15505,7 +15888,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="font-size:12px;font-weight:700;color:#6B46C1">🏛 相続シナリオ − 貼り付け欄</div>
             <span id="at_ai_inheritance" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_inheritance')" style="font-size:11px;padding:3px 10px;border:1px solid #d6bcfa;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
           </div>
-          <textarea id="f_ai_inheritance" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('inheritance')" onpaste="handleAiPaste(event)"></textarea>
+          <textarea id="f_ai_inheritance" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('inheritance')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_inheritance" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_inheritance" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('inheritance')">🔗 URLを整理</button>
           <div id="ac_inheritance" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
       </div>
