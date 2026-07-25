@@ -442,7 +442,7 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.77";
+const APP_VERSION = "cam-v1.78";
 
 /* === 更新バッジ（第158弾A・第159弾で厳密化）: 本体・カメラ共有実装 ===
  * 起動時にPublic版のversion.json（cache-bust付き）を取得し、自分のAPP_VERSIONと比較する。
@@ -1357,9 +1357,171 @@ function calcScoreParts(c){
 }
 function calcScore(c){ return calcScoreParts(c).total; }
 
+/* ==== 第191弾: 住所ソート基礎関数の共有化（camera-address-sort-unify） ====
+ * 目的：カメラ側住所ソートを本体の第171弾住所ソート契約（source/main/ui/addr_sort.js）へ
+ * 統一するにあたり、その土台であるplanCity()/planAddrNum()を本体・カメラ双方が
+ * 同一定義で使えるようにする。
+ *
+ * 方針（ChatGPT設計裁定確定）：
+ *  - 現行source/main/ui/planner_input.jsのplanCity()/planAddrNum()を、
+ *    出力完全互換のまま本ファイルへ移設する（関数名・正規化ロジックは無改変）。
+ *  - 全角数字→半角変換は本ファイル内部のhelper（_addrKeyHan）で行い、
+ *    外部_han()の存在に依存しない。_han()はsource/main/ui/list_core.jsにのみ存在する
+ *    本体限定関数であり、カメラ側の同梱スクリプト（build時に取り込まれる対象ファイル群）には
+ *    含まれないため、
+ *    もし外部_han()に依存したままカメラへ流用すると、カメラ実行時だけ全角数字が
+ *    半角変換されずに残る（番地ソートが壊れる）事故が起きる。
+ *  - localStorage・cards・DOMへは一切触れない（純粋な文字列/配列変換のみ）。
+ *  - planAddrTail()はplanner_input.jsに残る（本ファイルへは移さない）。
+ */
+'use strict';
+
+/* 全角数字(０-９)→半角(0-9)変換だけを行う内部限定helper。
+ * list_core.jsの_han()と同一の変換規則（文字コード -0xFEE0）を、外部関数への
+ * 依存なしに本ファイル内で完結させる。 */
+function _addrKeyHan(s) {
+  return s ? String(s).replace(/[０-９]/g, function (d) { return String.fromCharCode(d.charCodeAt(0) - 0xFEE0); }) : s;
+}
+
+/* 住所文字列から市区町村＋町名ブロブ（都道府県prefix・数字・丁目除去済み）を取り出す。
+ * 出力はplanner_input.js移設前のplanCity()と完全互換。 */
+function planCity(c) {
+  if (!c || !c.address) return '';
+  var a = _addrKeyHan(String(c.address));
+  a = a.replace(/\s+/g, '');
+  a = a.replace(/^(北海道|東京都|京都府|大阪府|.{2,3}県)/, '');
+  a = a.replace(/[0-9].*$/, '');
+  a = a.replace(/[一二三四五六七八九十百千]+丁目.*$/, '');
+  a = a.replace(/丁目.*$/, '');
+  return a;
+}
+
+/* 住所文字列中の数字列を配列化する（番地ソート用）。
+ * 出力はplanner_input.js移設前のplanAddrNum()と完全互換。 */
+function planAddrNum(c) {
+  if (!c || !c.address) return [];
+  var a = _addrKeyHan(String(c.address));
+  var m = a.match(/\d+/g);
+  return m ? m.map(Number) : [];
+}
+
+/* ==== 第171弾: 住所ソート共通補正（addr-sort-key）====
+ * 目的：本体一覧の住所ソートと出陣ボード「エリアで回る」で、同じ住所グルーピング思想を使う。
+ * 方針（高田様・Fable5確定）：
+ *  - 既存のplanCity()/planAddrNum()を内部で呼ぶ合成関数のみ。両関数本体は無改変・正規化の再実装はしない。
+ *  - 距離計算・GPS・地図API・辞書型住所DBは使わない。
+ *  - 保存データ・表示住所は一切変えない。ソート・グルーピング時にだけ使う一時キー。
+ *  - fold対応表はソート/候補生成の呼び出し都度メモリ内で構築する（キャッシュ・永続化はしない）。
+ *
+ * city/town分割の罠（Fable5指摘）：
+ *  素朴に [市区町村郡] で非貪欲に切ると、裸の「金町」は末尾の「町」に反応してcity扱いに
+ *  誤判定され、町名foldの土俵に乗らない。そのため本ファイルでは [市区郡] のみで区切り、
+ *  「町」「村」は裸文字列のcity終端として扱わない。郡付き住所は「郡」で切れるため実用上
+ *  問題ない。町村単独自治体（例：埼玉県毛呂山町など）は担当エリア外の既知の制約として
+ *  ここに明記する（誤ってcity扱いされず、bareな町名として扱われる＝fold対象になり得る）。
+ *
+ * foldルール：
+ *  - 町名foldは完全一致のみ（部分一致・前方一致・あいまい一致は禁止）。
+ *  - 裸町名は、手持ちデータ内で同じ町名キーが単一の市区町村にしか現れない場合だけ、
+ *    その市区町村へ寄せる（＝fold）。複数市区町村に同名町名が現れる場合は曖昧扱いとし、
+ *    無理に寄せない。
+ */
+'use strict';
+
+var ADDR_AMBIGUOUS = '__ADDR_AMBIGUOUS__'; /* foldMap内部専用の番人値 */
+
+/* 住所文字列（planCity()適用済みのブロブ＝都道府県prefix・数字・丁目は既に除去済み）を
+ * 市区町村部分と町名部分に分割する。plainCity()自体は改変せず、その出力をさらに割るだけ。
+ * 戻り値：{cityKey, townKey, missingFlag} */
+function extractAddressParts(c) {
+  var blob = planCity(c); // 既存関数を流用（合成のみ・再実装しない）
+  if (!blob) return { cityKey: '', townKey: '', missingFlag: true };
+  var m = blob.match(/^(.+?[市区郡])(.*)$/); // 「町」「村」はcity終端としない（金町問題対策）
+  if (m) return { cityKey: m[1], townKey: m[2], missingFlag: false };
+  return { cityKey: '', townKey: blob, missingFlag: false }; // 裸町名（市区町村部分なし）
+}
+
+/* 町名foldマップ構築：市区町村+町名が両方揃っているカードから townKey→cityKey を集計する。
+ * 1つのcityKeyにしか対応しなければfold可、2つ以上ならAMBIGUOUS。
+ * 呼び出し都度メモリ内で構築（キャッシュ・永続化はしない）。
+ * 第191弾: 任意のcard配列を受け取れるようにした（カメラが検索前の全カードを渡すため）。
+ * 引数省略時は従来どおり本体globalのcardsを使う（本体の既存呼出しは変更不要）。 */
+function buildTownFoldMap(cardList) {
+  var map = {};
+  var src = Array.isArray(cardList) ? cardList : (typeof cards !== 'undefined' && Array.isArray(cards) ? cards : []);
+  src.forEach(function (c) {
+    var p = extractAddressParts(c);
+    if (p.cityKey && p.townKey) {
+      if (!(p.townKey in map)) map[p.townKey] = p.cityKey;
+      else if (map[p.townKey] !== p.cityKey) map[p.townKey] = ADDR_AMBIGUOUS;
+    }
+  });
+  return map;
+}
+
+/* 住所ソートキー生成（本体一覧・出陣ボード共通）。
+ * sourceLevel: 0=市区町村+町名あり（裸町名からのfold成功を含む） / 1=市区町村のみ（町名なし）
+ *              / 2=曖昧・未fold裸町名 / 3=判定不能（住所なし・番地/建物名のみ等）
+ * foldMapは呼び出し側でbuildTownFoldMap()により毎回新規生成したものを渡す（永続化しない）。 */
+function makeAddressSortKey(c, foldMap) {
+  var p = extractAddressParts(c);
+  if (p.missingFlag) {
+    return { sourceLevel: 3, cityKey: '', townKey: '', numKey: planAddrNum(c), ambiguousFlag: false, missingFlag: true };
+  }
+  if (p.cityKey && p.townKey) {
+    return { sourceLevel: 0, cityKey: p.cityKey, townKey: p.townKey, numKey: planAddrNum(c), ambiguousFlag: false, missingFlag: false };
+  }
+  if (p.cityKey && !p.townKey) {
+    return { sourceLevel: 1, cityKey: p.cityKey, townKey: '', numKey: planAddrNum(c), ambiguousFlag: false, missingFlag: false };
+  }
+  // 裸町名（市区町村部分が取れない住所）
+  var fold = foldMap ? foldMap[p.townKey] : undefined;
+  if (fold && fold !== ADDR_AMBIGUOUS) {
+    return { sourceLevel: 0, cityKey: fold, townKey: p.townKey, numKey: planAddrNum(c), ambiguousFlag: false, missingFlag: false };
+  }
+  return { sourceLevel: 2, cityKey: '', townKey: p.townKey, numKey: planAddrNum(c), ambiguousFlag: true, missingFlag: false };
+}
+
+/* 本体一覧・出陣ボード共通の比較関数。
+ * 市区町村のみ住所（sourceLevel:1）は、同じ市区町村ブロックの末尾に置く（＝cityKeyが同じ
+ * グループ内で町名ありの後ろ）。曖昧・判定不能は全体の末尾（曖昧→判定不能の順）に置く。 */
+function compareAddressSortKey(ka, kb, dir) {
+  dir = dir || 1;
+  var ga = ka.sourceLevel <= 1 ? 0 : ka.sourceLevel; // 0/1は同じ「市区町村配下」グループとして扱う
+  var gb = kb.sourceLevel <= 1 ? 0 : kb.sourceLevel;
+  if (ga !== gb) return dir * (ga - gb);
+  if (ga === 0) {
+    var c1 = dir * ka.cityKey.localeCompare(kb.cityKey, 'ja'); if (c1) return c1;
+    var ta = ka.sourceLevel === 1 ? 1 : 0, tb = kb.sourceLevel === 1 ? 1 : 0; // 町名ありが先、市区町村のみは同city内末尾
+    if (ta !== tb) return dir * (ta - tb);
+    var c2 = dir * ka.townKey.localeCompare(kb.townKey, 'ja'); if (c2) return c2;
+    var La = ka.numKey.length, Lb = kb.numKey.length, L = Math.max(La, Lb);
+    for (var i = 0; i < L; i++) { var x = ka.numKey[i] || 0, y = kb.numKey[i] || 0; if (x !== y) return dir * (x - y); }
+    return 0;
+  }
+  if (ga === 2) { return dir * ka.townKey.localeCompare(kb.townKey, 'ja'); }
+  return 0; // sourceLevel===3同士は元の順（安定ソート）のまま
+}
+
+/* 出陣ボード「エリアで回る」専用：候補一覧・候補プールの両方が参照する単一の実効エリアキー。
+ * 市区町村+町名あり／市区町村のみ → planCity(c)と同じ文字列（従来どおり・不変）。
+ * 裸町名でfold成功 → 統合先（市区町村+町名）の文字列と一致させ、既存の全体候補へ合流させる。
+ * 裸町名でfold不成立（曖昧・未fold） → 裸町名そのまま＝独立候補として残す。 */
+function _sortieEffectiveAreaKey(c, foldMap) {
+  var p = extractAddressParts(c);
+  if (p.missingFlag) return '';
+  if (p.cityKey) return p.cityKey + p.townKey;
+  if (!p.townKey) return '';
+  var fold = foldMap[p.townKey];
+  if (fold && fold !== ADDR_AMBIGUOUS) return fold + p.townKey;
+  return p.townKey;
+}
+
 const REVISIT_PHASE={span:14,times:3,interval:5};
 function getLastVD(c){ var d=[]; (c.pursuits||[]).forEach(v=>{if(v.date)d.push(v.date);}); (c.revisits||[]).forEach(v=>{if(v.date)d.push(v.date);}); if(c.discovery_date)d.push(c.discovery_date); return d.length?d.sort((a,b)=>b.localeCompare(a))[0]:""; }
-function getArea(addr){ if(!addr)return""; var m=addr.match(/^(.+?[都道府県])(.+?[市区町村郡])/); return m?m[1]+m[2]:addr.substring(0,10); }
+/* 第191弾: 旧getArea()（都道府県+市区町村までの単純比較。町名を見ない・全角番地混入の恐れ）は
+ * 廃止し、本体と同一のaddr_sort.js契約（buildTownFoldMap/makeAddressSortKey/compareAddressSortKey）
+ * へ統一した。住所ソートは下記getSortedCards()のsortKey==="ad"分岐を参照。 */
 function _isRevisitPhase(c){ if(!c||!c.discovery_date)return false; var pv=(c.pursuits||[]).filter(v=>v&&v.date).length; var rv=(c.revisits||[]).filter(v=>v&&v.date).length; return pv===0&&rv<REVISIT_PHASE.times; }
 function _judgeMissing(c){ return !c.pursuit_judge && !_isRevisitPhase(c); }
 function _revisitCount(c){ return ((c&&c.revisits)||[]).filter(v=>v&&(String(v.content||"").trim()||String(v.rec||"").trim())).length; }
@@ -1377,11 +1539,11 @@ var KAIWA_ORDER=["ピンポン","立ち話","玄関内","連れ出し","上り�
 function _kaiwaMax(c){ var arr=Array.isArray(c.kaiwa)?c.kaiwa:(c.kaiwa?[c.kaiwa]:[]); var max=-1; arr.forEach(function(v){ var idx=KAIWA_ORDER.indexOf(v); if(idx>max)max=idx; }); return max; }
 function _rvEligible(c){ if(!c)return false; return String(c.initial_content||"").trim()!==""||_revisitCount(c)>0; }
 function _jwReady(c){ return !!(c && _revisitCount(c)>=REVISIT_PHASE.times && String(c.revisit_4eyes||"").trim()===""); }
-function getSortedCards(src){
+function getSortedCards(src,foldMap){
   var arr=src.slice(); var dir=sortDir[sortKey]==="desc"?-1:1;
   if(sortKey==="lv"){ arr.sort(function(a,b){ var d=dir*getLastVD(b).localeCompare(getLastVD(a)); return d!==0?d:(_cTs(b)-_cTs(a)); }); }
   else if(sortKey==="cust"){ arr=arr.filter(function(c){return c&&c.cust_type==="顧客";}); arr.sort(function(a,b){ return _cTs(b)-_cTs(a); }); }
-  else if(sortKey==="ad"){ var ad=sortDir["ad"]==="desc"?-1:1; arr.sort(function(a,b){ return ad*getArea(a.address||"").localeCompare(getArea(b.address||""),"ja"); }); }
+  else if(sortKey==="ad"){ var ad=sortDir["ad"]==="desc"?-1:1; var fm=foldMap||buildTownFoldMap(src); arr.sort(function(a,b){ return compareAddressSortKey(makeAddressSortKey(a,fm),makeAddressSortKey(b,fm),ad); }); }
   else if(sortKey==="st"){ arr.sort(function(a,b){ var sa=(a.stage!==""&&a.stage!=null)?+a.stage:(dir>0?-1:99); var sb=(b.stage!==""&&b.stage!=null)?+b.stage:(dir>0?-1:99); return dir*(sb-sa); }); }
   else if(sortKey==="sc"){ arr.sort(function(a,b){ return dir*(calcScore(b)-calcScore(a)); }); }
   else if(sortKey==="pj"){ var o={S:0,A:1,B:2,C:3,D:4,E:5,X:6}; arr.sort(function(a,b){ var pa=o[a.pursuit_judge]!==undefined?o[a.pursuit_judge]:99; var pb=o[b.pursuit_judge]!==undefined?o[b.pursuit_judge]:99; return dir*(pa-pb); }); }
@@ -1406,17 +1568,38 @@ function toggleSort(key){
   if(sortKey===key){ sortDir[key]=sortDir[key]==="desc"?"asc":"desc"; } else { sortKey=key; }
   renderSortBar(); renderPicker($("pickSearch").value);
 }
+/* 第191弾: 住所ソート時だけ使う町名見出しラベル生成。makeAddressSortKey()の結果だけから
+ * 決定する（addressを本体契約の判定元とし、plan_addressは行表示のfallbackにしか使わない）。 */
+function _pickerAddressGroupLabel(c,foldMap){
+  var k=makeAddressSortKey(c,foldMap);
+  if(k.sourceLevel===0) return k.cityKey+k.townKey;
+  if(k.sourceLevel===1) return k.cityKey+"（町名なし）";
+  if(k.sourceLevel===2) return k.townKey+"（市区不明）";
+  return "住所未設定";
+}
 function renderPicker(filter){
   const idx=readIndex();
-  let arr=getSortedCards(loadCards());
+  const allCards=loadCards();
+  const foldMap=buildTownFoldMap(allCards);
+  let arr=getSortedCards(allCards,foldMap);
   const q=(filter||"").trim(), kw=q?q.split(/[\s　]+/).filter(Boolean):[];
   if(kw.length){ arr=arr.filter(c=>{ const hay=[c.name,c.address,c.plan_address,c.manager,c.branch,c.section].filter(Boolean).join(" "); return kw.some(k=>hay.indexOf(k)>=0); }); }
   const host=$("pickList");
-  if(!loadCards().length){ host.innerHTML='<div class="emptyst">アイビスのカードが見つかりません。<br>同じ端末・同じサイトでアイビスを一度開いてカードを作成してから、もう一度開いてください。</div>'; return; }
+  if(!allCards.length){ host.innerHTML='<div class="emptyst">アイビスのカードが見つかりません。<br>同じ端末・同じサイトでアイビスを一度開いてカードを作成してから、もう一度開いてください。</div>'; return; }
   if(!arr.length){ host.innerHTML='<div class="emptyst">該当するカードがありません。</div>'; return; }
-  host.innerHTML=arr.slice(0,300).map(c=>{
+  const shown=arr.slice(0,300);
+  const showHeading=(sortKey==="ad");
+  const groupCounts={};
+  if(showHeading){ shown.forEach(c=>{ const lb=_pickerAddressGroupLabel(c,foldMap); groupCounts[lb]=(groupCounts[lb]||0)+1; }); }
+  let lastLabel=null;
+  host.innerHTML=shown.map(c=>{
     const n=(idx[c.id]||{}).n||0, meta=[c.manager,c.address||c.plan_address].filter(Boolean).join("・");
-    return '<div class="crow" data-id="'+esc(c.id)+'"><div class="grow" style="min-width:0"><div class="nm">'+esc(c.name||"無名")+'様</div><div class="mt">'+esc(meta||"—")+'</div></div><div class="pc"><b>'+n+'</b><s>件</s></div></div>';
+    let headHtml="";
+    if(showHeading){
+      const lb=_pickerAddressGroupLabel(c,foldMap);
+      if(lb!==lastLabel){ headHtml='<div class="crow-heading" style="padding:6px 4px 4px;font-size:12px;font-weight:700;color:#4a5568">📍 '+esc(lb)+'\u3000'+groupCounts[lb]+'件</div>'; lastLabel=lb; }
+    }
+    return headHtml+'<div class="crow" data-id="'+esc(c.id)+'"><div class="grow" style="min-width:0"><div class="nm">'+esc(c.name||"無名")+'様</div><div class="mt">'+esc(meta||"—")+'</div></div><div class="pc"><b>'+n+'</b><s>件</s></div></div>';
   }).join("");
   host.querySelectorAll(".crow").forEach(el=>el.addEventListener("click",()=>onPickCard(el.dataset.id)));
 }

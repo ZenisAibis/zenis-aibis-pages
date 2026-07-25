@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.87";
+var APP_VERSION = "v10.88";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6273,6 +6273,54 @@ function renderSelfDash(tid, targetManager){
  if(!isMob && !tid) loadSelfMemo();
 }
 window.toggleSelfDash=toggleSelfDash; window.openSelfDash=openSelfDash; window.closeSelfDash=closeSelfDash; window.renderSelfDash=renderSelfDash;
+/* ==== 第191弾: 住所ソート基礎関数の共有化（camera-address-sort-unify） ====
+ * 目的：カメラ側住所ソートを本体の第171弾住所ソート契約（source/main/ui/addr_sort.js）へ
+ * 統一するにあたり、その土台であるplanCity()/planAddrNum()を本体・カメラ双方が
+ * 同一定義で使えるようにする。
+ *
+ * 方針（ChatGPT設計裁定確定）：
+ *  - 現行source/main/ui/planner_input.jsのplanCity()/planAddrNum()を、
+ *    出力完全互換のまま本ファイルへ移設する（関数名・正規化ロジックは無改変）。
+ *  - 全角数字→半角変換は本ファイル内部のhelper（_addrKeyHan）で行い、
+ *    外部_han()の存在に依存しない。_han()はsource/main/ui/list_core.jsにのみ存在する
+ *    本体限定関数であり、カメラ側の同梱スクリプト（build時に取り込まれる対象ファイル群）には
+ *    含まれないため、
+ *    もし外部_han()に依存したままカメラへ流用すると、カメラ実行時だけ全角数字が
+ *    半角変換されずに残る（番地ソートが壊れる）事故が起きる。
+ *  - localStorage・cards・DOMへは一切触れない（純粋な文字列/配列変換のみ）。
+ *  - planAddrTail()はplanner_input.jsに残る（本ファイルへは移さない）。
+ */
+'use strict';
+
+/* 全角数字(０-９)→半角(0-9)変換だけを行う内部限定helper。
+ * list_core.jsの_han()と同一の変換規則（文字コード -0xFEE0）を、外部関数への
+ * 依存なしに本ファイル内で完結させる。 */
+function _addrKeyHan(s) {
+  return s ? String(s).replace(/[０-９]/g, function (d) { return String.fromCharCode(d.charCodeAt(0) - 0xFEE0); }) : s;
+}
+
+/* 住所文字列から市区町村＋町名ブロブ（都道府県prefix・数字・丁目除去済み）を取り出す。
+ * 出力はplanner_input.js移設前のplanCity()と完全互換。 */
+function planCity(c) {
+  if (!c || !c.address) return '';
+  var a = _addrKeyHan(String(c.address));
+  a = a.replace(/\s+/g, '');
+  a = a.replace(/^(北海道|東京都|京都府|大阪府|.{2,3}県)/, '');
+  a = a.replace(/[0-9].*$/, '');
+  a = a.replace(/[一二三四五六七八九十百千]+丁目.*$/, '');
+  a = a.replace(/丁目.*$/, '');
+  return a;
+}
+
+/* 住所文字列中の数字列を配列化する（番地ソート用）。
+ * 出力はplanner_input.js移設前のplanAddrNum()と完全互換。 */
+function planAddrNum(c) {
+  if (!c || !c.address) return [];
+  var a = _addrKeyHan(String(c.address));
+  var m = a.match(/\d+/g);
+  return m ? m.map(Number) : [];
+}
+
 /* ==== 第171弾: 住所ソート共通補正（addr-sort-key）====
  * 目的：本体一覧の住所ソートと出陣ボード「エリアで回る」で、同じ住所グルーピング思想を使う。
  * 方針（高田様・Fable5確定）：
@@ -6311,10 +6359,13 @@ function extractAddressParts(c) {
 
 /* 町名foldマップ構築：市区町村+町名が両方揃っているカードから townKey→cityKey を集計する。
  * 1つのcityKeyにしか対応しなければfold可、2つ以上ならAMBIGUOUS。
- * 呼び出し都度メモリ内で構築（キャッシュ・永続化はしない）。 */
-function buildTownFoldMap() {
+ * 呼び出し都度メモリ内で構築（キャッシュ・永続化はしない）。
+ * 第191弾: 任意のcard配列を受け取れるようにした（カメラが検索前の全カードを渡すため）。
+ * 引数省略時は従来どおり本体globalのcardsを使う（本体の既存呼出しは変更不要）。 */
+function buildTownFoldMap(cardList) {
   var map = {};
-  cards.forEach(function (c) {
+  var src = Array.isArray(cardList) ? cardList : (typeof cards !== 'undefined' && Array.isArray(cards) ? cards : []);
+  src.forEach(function (c) {
     var p = extractAddressParts(c);
     if (p.cityKey && p.townKey) {
       if (!(p.townKey in map)) map[p.townKey] = p.cityKey;
@@ -12115,9 +12166,7 @@ function plannerTab(t){
   document.querySelectorAll('.pl-tab').forEach(function(b){ b.classList.toggle('pl-on', b.getAttribute('data-t')===t); });
   if(t==='input') renderPlanner(); else renderPlannerSheet();
 }
-function planCity(c){ if(!c||!c.address) return ''; var a=(typeof _han==='function')?_han(String(c.address)):String(c.address); a=a.replace(/\s+/g,''); a=a.replace(/^(北海道|東京都|京都府|大阪府|.{2,3}県)/,''); a=a.replace(/[0-9].*$/,''); a=a.replace(/[一二三四五六七八九十百千]+丁目.*$/,''); a=a.replace(/丁目.*$/,''); return a; }
 function planAddrTail(c){ if(!c||!c.address) return ''; var a=(typeof _han==='function')?_han(String(c.address)):String(c.address); a=a.replace(/\s+/g,''); return a.replace(/^(北海道|東京都|京都府|大阪府|.{2,3}県)/,''); }
-function planAddrNum(c){ if(!c||!c.address) return []; var a=(typeof _han==='function')?_han(String(c.address)):String(c.address); var m=a.match(/\d+/g); return m?m.map(Number):[]; }
 /* 第170弾: 戻る二層原則（修正B）。「一覧に戻る」はワークスペース離脱ボタンのため、
  * history.back()（=ひとつ前の画面へ）には頼らず、editGoList()と同じ流儀で必ず一覧へ
  * 明示遷移する。これにより、出陣ボード等の履歴残骸が下に埋もれていても「一覧に戻る」を
