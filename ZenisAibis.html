@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.88";
+var APP_VERSION = "v10.89";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -11885,6 +11885,36 @@ function sggPickSetSort(mode){
   var s=document.getElementById('sggPickSearch');
   sggPickFilter(s?s.value:'');
 }
+/* 第192弾: ピッカー専用の局所ランク表示formatter。sortie_board.jsの_sortieRankTagは
+ * 第172弾裁定により出陣ボード内限定の表記のため、直接流用せず本ファイル内に独立定義する
+ * （書式はバイト一致させ表記は統一するが、依存は作らない）。 */
+function _sggRankTag(c){ return '4Eye-'+(c.pursuit_judge||'未')+' / AI-'+(c.pursuit_judge_ai||'未'); }
+/* 第192弾: 推奨候補判定。フォーアイズ判定(pursuit_judge)がS/A、またはAIランク(pursuit_judge_ai)が
+ * Aのいずれかを満たせば推奨（OR条件・狭めすぎ防止）。非該当は除外せず「その他」へ回すだけ。 */
+function _sggPickIsRecommend(o){
+  var pj=String(o.pursuit_judge||'').toUpperCase();
+  if(pj==='S'||pj==='A') return true;
+  return String(o.pursuit_judge_ai||'').toUpperCase()==='A';
+}
+/* 第192弾: 既存の氏名順／エリア順sortを配列に適用する共通処理。推奨群・その他群の
+ * 両方に同一ロジックを適用するために切り出す（sort規則自体は無変更）。 */
+function _sggPickSortHit(hit){
+  if(_sggPickSort==='area'){
+    hit.sort(function(a,b){
+      var pa=(typeof planCity==='function')?planCity(a):(a.address||''); var pb=(typeof planCity==='function')?planCity(b):(b.address||'');
+      if(pa!==pb) return pa<pb?-1:1;
+      return (a.name||'')<(b.name||'')?-1:((a.name||'')>(b.name||'')?1:0);
+    });
+  } else {
+    hit.sort(function(a,b){ return (a.name||'')<(b.name||'')?-1:((a.name||'')>(b.name||'')?1:0); });
+  }
+  return hit;
+}
+/* 第192弾: 候補1行分のHTML。既存の氏名・住所表示に、ランク表示行を追加する。 */
+function _sggPickRowHTML(o){
+  var addr=o.address?String(o.address).slice(0,18):(o.plan_address?('📍計画地 '+String(o.plan_address).slice(0,14)):''); /* 第162弾-5: 自宅住所が無ければ計画地住所をフォールバック表示 */
+  return '<div onclick="sggPickChoose(\''+o.id+'\')" style="padding:8px 6px;border-bottom:1px dashed #edf2f7;cursor:pointer"><span style="font-size:13px;font-weight:700;color:#1a202c">'+e(o.name||'(無名)')+'様</span>'+(addr?(' <span style="font-size:11px;color:#a0aec0">'+e(addr)+'</span>'):'')+'<div style="font-size:11px;color:#4a5568;margin-top:2px">'+e(_sggRankTag(o))+'</div></div>';
+}
 function sggPickFilter(q){
   var host=document.getElementById('sggPickList'); if(!host) return;
   var sortRow=document.getElementById('sggPickSortRow'); if(sortRow) sortRow.innerHTML=_sggPickSortRowHTML();
@@ -11897,20 +11927,23 @@ function sggPickFilter(q){
     var hay=(o.name||'')+' '+(o.address||'')+' '+(o.plan_address||'');
     return hay.indexOf(q)>=0;
   });
-  if(_sggPickSort==='area'){
-    hit.sort(function(a,b){
-      var pa=(typeof planCity==='function')?planCity(a):(a.address||''); var pb=(typeof planCity==='function')?planCity(b):(b.address||'');
-      if(pa!==pb) return pa<pb?-1:1;
-      return (a.name||'')<(b.name||'')?-1:((a.name||'')>(b.name||'')?1:0);
-    });
-  } else {
-    hit.sort(function(a,b){ return (a.name||'')<(b.name||'')?-1:((a.name||'')>(b.name||'')?1:0); });
+  /* 第192弾: 検索後・sort/件数制限前に推奨／その他へ分類する（分類前の全体slice(0,30)は行わない）。 */
+  var rec=[], oth=[];
+  hit.forEach(function(o){ (_sggPickIsRecommend(o)?rec:oth).push(o); });
+  rec=_sggPickSortHit(rec).slice(0,30);
+  oth=_sggPickSortHit(oth).slice(0,30);
+  if(!rec.length && !oth.length){
+    host.innerHTML='<div style="text-align:center;color:#a0aec0;font-size:12px;padding:14px">該当するカードがありません</div>';
+    return;
   }
-  hit=hit.slice(0,30);
-  host.innerHTML=hit.length?hit.map(function(o){
-    var addr=o.address?String(o.address).slice(0,18):(o.plan_address?('📍計画地 '+String(o.plan_address).slice(0,14)):''); /* 第162弾-5: 自宅住所が無ければ計画地住所をフォールバック表示 */
-    return '<div onclick="sggPickChoose(\''+o.id+'\')" style="padding:8px 6px;border-bottom:1px dashed #edf2f7;cursor:pointer"><span style="font-size:13px;font-weight:700;color:#1a202c">'+e(o.name||'(無名)')+'様</span>'+(addr?(' <span style="font-size:11px;color:#a0aec0">'+e(addr)+'</span>'):'')+'</div>';
-  }).join(''):'<div style="text-align:center;color:#a0aec0;font-size:12px;padding:14px">該当するカードがありません</div>';
+  var html='';
+  if(rec.length){
+    html+='<div style="font-size:11px;font-weight:800;color:#2c5282;margin:4px 0 2px 2px">推奨候補</div>'+rec.map(_sggPickRowHTML).join('');
+  }
+  if(oth.length){
+    html+='<div style="font-size:11px;font-weight:800;color:#718096;margin:8px 0 2px 2px">その他の候補</div>'+oth.map(_sggPickRowHTML).join('');
+  }
+  host.innerHTML=html;
 }
 function sggPickChoose(cardId){
   if(_sggPickGid){ sggAddMember(_sggPickGid, cardId); } else { sggCreate(cardId); }
