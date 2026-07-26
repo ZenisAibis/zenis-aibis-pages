@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.89";
+var APP_VERSION = "v10.90";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -4133,6 +4133,18 @@ function playRankDown(){
   }catch(e){}
 }
 window.playRankUp=playRankUp; window.playRankDown=playRankDown;
+// ---- 12名達成の補助演出音（第193弾・sortie_board.jsの1日1回flagに連動。音は補助であり視覚演出を代替しない） ----
+function playSortie12(){
+  try{
+    var ac=getAC();
+    var sq='square', tri='triangle';
+    playNote(523,0.00,0.50,0.07,tri,ac);
+    playNote(784,0.00,0.13,0.17,sq,ac);
+    playNote(1047,0.13,0.13,0.17,sq,ac);
+    playNote(1319,0.26,0.24,0.18,sq,ac);
+  }catch(e){}
+}
+window.playSortie12=playSortie12;
 
 function autoDetectSummary(text){
   if(!cur||!text||!text.trim()) return;
@@ -13061,10 +13073,11 @@ function _sortieMeterHTML(){
     +'<div style="height:8px;border-radius:5px;background:#edf2f7;overflow:hidden">'
     +'<div style="height:100%;width:'+pct+'%;background:'+color+';transition:width .3s"></div></div></div>';
 }
-/* ---- 12名達成演出（日付付きフラグで1日1回のみ。12→11→12の往復でも再発火しない。達成音なし） ---- */
+/* ---- 12名達成演出（日付付きフラグで1日1回のみ。12→11→12の往復でも再発火しない。達成音はfanfare.jsのplaySortie12＝Web Audio合成で、既存1日1回フラグに連動する補助演出であり、視覚演出を代替しない。第193弾） ---- */
 function _sortieCheckAchievement(){
   if(_sortieVisitCount()>=12 && !localStorage.getItem(_sortieDoneKey())){
     try{ localStorage.setItem(_sortieDoneKey(),'1'); }catch(e){}
+    if(window.playSortie12) playSortie12();
     setTimeout(function(){
       var ov=document.createElement('div');
       ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9999;display:flex;align-items:center;justify-content:center;animation:sortieFadeIn .25s ease';
