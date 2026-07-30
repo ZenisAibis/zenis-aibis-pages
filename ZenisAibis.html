@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.90";
+var APP_VERSION = "v10.91";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3168,6 +3168,219 @@ function doSaveCards(cb) {
     }
   })(cb);
 }
+
+// ===== 第194弾: 営業知識OS 弾1（消失停止・追記基盤・knowledge-log-capture）=====
+// 目的：戦略協議8テーマへ貼り付けられた無加工原文を、UI入力欄からの削除・置換後も
+// 追記専用記録層へ残す。ZENIS_AIBIS_KNOWLEDGE_OS_V4_1_20260730.md を正本とする。
+//
+// 不変原則（V4.1）：
+//  - 主役は知識、主権は事実（十則1）。再生成不能情報（貼付原文）を同格の最優先で保全（十則2）
+//  - 自然文を正本とし、構造化は派生（十則3）。追記主義・来歴主義（十則4）
+//  - captured固定。UI欄からの削除をhuman_confirmed／却下／tombstoneと自動解釈しない（十則5・6, V4.1§6,§19）
+//  - 貼付処理が正常完了した直後にfire-and-forgetで捕捉する。カード保存契約(saveLS/doSaveCards)
+//    には一切介入しない（V4.1 §16改定・§21成功条件）
+//  - 記録層のあらゆる失敗が既存の貼付・カード保存を妨げない（十則10, §16）
+//  - realm=world（貼付原文が指す現実の出来事）（V4.1 §13）
+//
+// window公開は klogCapturePaste の1点のみ（家法160）。
+// classic scriptとしてincludeされるため、トップレベルのvar/functionは暗黙にwindow公開
+// されてしまう（第194弾ChatGPT第1品質ゲートBLOCKER 1で指摘・実測17件の漏洩を確認済み）。
+// これを構造的に防ぐため、私設定数・状態・helperはすべて本IIFE内へ閉じ込め、
+// IIFEの最後で明示的に klogCapturePaste だけを window へ代入する。
+// 依存追加なし。既存環境で安定する軽量ハッシュのみを使用する。
+(function(){
+  'use strict';
+
+  var KLOG_SCHEMA_VER = 1;
+  var KLOG_MAX_CHARS = 100000;          // 1貼付あたりの上限。超過時は切詰めず捕捉断念（無加工原則優先）
+  var KLOG_WARN_CUSTOMER_CHARS = 150000; // 顧客別警告閾値（提案値。実装報告で根拠明示）
+  var KLOG_WARN_TOTAL_CHARS = 1000000;   // 総量警告閾値（提案値）
+  var KLOG_DEDUPE_WINDOW_MS = 1500;      // 同theme×同rawハッシュの二重捕捉防止窓
+  var KLOG_KEY_PREFIX = 'aibis_klog_v1_';
+
+  var _klogQuotaSuppressed = false;   // セッション内Quota抑止（無制限retry禁止・第186弾家法と同型）
+  var _klogWarnedCustomer = {};       // 顧客別容量警告は1セッション1回
+  var _klogWarnedTotal = false;       // 総量警告は1セッション1回
+  var _klogLastByThemeCustomer = {};  // dedupe用直近記録: key=customerId+'|'+theme -> {hash, ts}
+
+  // 私設ヘルパー: 顧客別記録キー名を返す。
+  function _klogKey(customerId){
+    return KLOG_KEY_PREFIX + String(customerId);
+  }
+
+  // 私設ヘルパー: 依存を追加しない軽量非暗号ハッシュ。監査可能な固定長16桁16進文字列を返す。
+  // 衝突耐性より「同一貼付の再検出」用途に十分な安定性を優先する（dedupeキーであり保存キーではない）。
+  function _klogHash(str){
+    var s = String(str || '');
+    var h1 = 5381;
+    for(var i=0;i<s.length;i++){
+      h1 = ((h1 * 33) ^ s.charCodeAt(i)) >>> 0;
+    }
+    var h2 = 0;
+    var tailStart = s.length>2000 ? s.length-2000 : 0;
+    for(var j=s.length-1;j>=tailStart;j--){
+      h2 = ((h2 * 33) ^ s.charCodeAt(j)) >>> 0;
+    }
+    var lenPart = (s.length >>> 0).toString(16);
+    while(lenPart.length < 4) lenPart = '0' + lenPart;
+    var hexA = h1.toString(16); while(hexA.length < 8) hexA = '0' + hexA;
+    var hexB = h2.toString(16); while(hexB.length < 4) hexB = '0' + hexB;
+    return (hexA + hexB + lenPart).slice(0, 16);
+  }
+
+  // 私設ヘルパー: entry id生成（mkBlankのcard id生成と同型パターン）。
+  function _klogGenId(){
+    return 'kl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  }
+
+  // 私設ヘルパー: 顧客別記録配列を読み出す。
+  // 戻り値: 配列（正常・空とも含む） / null（既存キーが破損＝非破壊のため上書きしない合図）。
+  function _klogReadArray(customerId){
+    var raw;
+    try{ raw = localStorage.getItem(_klogKey(customerId)); }catch(_e){ return null; }
+    if(!raw) return [];
+    try{
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : null;
+    }catch(_e2){
+      return null; // 破損JSON: この顧客への追記を今回は断念する（上書き・修復はしない）
+    }
+  }
+
+  // 私設ヘルパー: 配列内のrawText合計文字数（顧客別容量の近似指標）。
+  function _klogCharTotal(arr){
+    var total = 0;
+    for(var i=0;i<arr.length;i++){
+      var t = arr[i] && arr[i].rawText;
+      if(typeof t === 'string') total += t.length;
+    }
+    return total;
+  }
+
+  // 私設ヘルパー: 全顧客の記録層合計文字数（総量警告用）。個別キーの破損は計測から除外し継続する。
+  function _klogTotalCharsAcrossAll(){
+    var total = 0;
+    try{
+      var n = localStorage.length;
+      for(var i=0;i<n;i++){
+        var k;
+        try{ k = localStorage.key(i); }catch(_eKey){ continue; }
+        if(k && k.indexOf(KLOG_KEY_PREFIX) === 0){
+          try{
+            var arr = JSON.parse(localStorage.getItem(k) || '[]');
+            if(Array.isArray(arr)) total += _klogCharTotal(arr);
+          }catch(_eInner){ /* 個別キー破損は総量計測から除外して継続 */ }
+        }
+      }
+    }catch(_eOuter){ return total; }
+    return total;
+  }
+
+  // 私設ヘルパー: setItem失敗がQuota系エラーかどうかだけを安全に判定する
+  // （第194弾ChatGPT第1品質ゲートBLOCKER 2是正: 従来は全例外をQuota扱いしていたため、
+  //  一時的・実装的な非Quota例外1回でセッション全体の捕捉が恒久停止する不具合があった）。
+  // 既知のQuota系エラーの型（name／code）に一致する場合のみtrueを返し、
+  // それ以外（TypeError等の非Quota例外）は当該呼出しの断念のみに留め、抑止フラグを立てない。
+  function _klogIsQuotaError(e){
+    if(!e) return false;
+    try{
+      if(e.name === 'QuotaExceededError') return true;
+      if(e.name === 'NS_ERROR_DOM_QUOTA_REACHED') return true;
+      if(typeof e.code === 'number' && (e.code === 22 || e.code === 1014)) return true;
+    }catch(_eCheck){ return false; }
+    return false;
+  }
+
+  // klogCapturePaste: 唯一のwindow公開関数。
+  // 戦略協議8テーマへの貼付処理が正常完了した直後、呼出側からfire-and-forgetで呼ばれる。
+  // 例外は一切呼出元へ伝播しない（戻り値なし・void。V4.1 十則10）。
+  function klogCapturePaste(theme, raw, cur, sessionId){
+    try{
+      if(typeof raw !== 'string' || raw.length === 0) return; // 空文字は保存しない
+      if(!theme) return; // 8テーマ以外は対象外（呼出元で絞込み済みだが二重防御）
+      if(typeof STRATEGY_THEMES !== 'undefined' && Array.isArray(STRATEGY_THEMES) && STRATEGY_THEMES.indexOf(theme) === -1) return;
+      if(!cur || !cur.id) return; // 顧客ID欠落時は安全に捕捉断念
+      if(raw.length > KLOG_MAX_CHARS) return; // 巨大貼付は切詰めず捕捉断念（無加工原則優先）
+      if(_klogQuotaSuppressed) return; // 同一セッションでQuota既発生時は再試行しない
+
+      var customerId = cur.id;
+      var dedupeKey;
+      try{
+        dedupeKey = _klogHash(theme + '\u0001' + raw);
+      }catch(_eHash){
+        return; // 内部ハッシュ処理で例外が起きても呼出元へ伝播せず、この回だけ断念する
+      }
+      var dedupeMapKey = customerId + '|' + theme;
+      var nowMs = Date.now();
+      var last = _klogLastByThemeCustomer[dedupeMapKey];
+      if(last && last.hash === dedupeKey && (nowMs - last.ts) < KLOG_DEDUPE_WINDOW_MS){
+        return; // 同一貼付イベントに起因する二重呼出しとみなし追記しない
+      }
+
+      var arr = _klogReadArray(customerId);
+      if(arr === null) return; // 既存キー破損: 非破壊のためこの顧客への追記を今回断念
+
+      var nowIso = new Date().toISOString();
+      var entry = {
+        id: _klogGenId(),
+        sessionId: (typeof sessionId === 'string' && sessionId) ? sessionId : null,
+        occurredAt: nowIso,
+        recordedAt: nowIso,
+        author: 'self',
+        customerId: customerId,
+        theme: theme,
+        origin: 'external_ai_paste',
+        realm: 'world',
+        kind: 'paste_capture',
+        status: 'captured',
+        rawText: raw,
+        schemaVer: KLOG_SCHEMA_VER,
+        dedupeKey: dedupeKey
+      };
+      arr.push(entry);
+
+      var serialized;
+      try{ serialized = JSON.stringify(arr); }catch(_eSer){ return; }
+
+      try{
+        localStorage.setItem(_klogKey(customerId), serialized);
+      }catch(_eSetItem){
+        // Quota系エラーの場合だけ、以後このセッション内の追記を抑止する。
+        // 非Quota例外（一時的・実装的エラー）は今回の追記だけを断念し、次回は正常に試行する。
+        if(_klogIsQuotaError(_eSetItem)){
+          _klogQuotaSuppressed = true;
+        }
+        return;
+      }
+
+      // dedupe記録の更新はsetItem成功後（保存できなかった貼付をdedupe対象にしないため）
+      _klogLastByThemeCustomer[dedupeMapKey] = { hash: dedupeKey, ts: nowMs };
+
+      // 容量警告（原文・顧客個人情報はconsoleへ出さない。toast文言も件数のみ）
+      try{
+        var custTotal = _klogCharTotal(arr);
+        if(custTotal >= KLOG_WARN_CUSTOMER_CHARS && !_klogWarnedCustomer[customerId]){
+          _klogWarnedCustomer[customerId] = true;
+          if(typeof toast === 'function') toast('営業知識ログの容量が増えています（この顧客の貼付記録が目安を超えました）');
+        }
+        if(!_klogWarnedTotal){
+          var totalAll = _klogTotalCharsAcrossAll();
+          if(totalAll >= KLOG_WARN_TOTAL_CHARS){
+            _klogWarnedTotal = true;
+            if(typeof toast === 'function') toast('営業知識ログの総容量が増えています');
+          }
+        }
+      }catch(_eWarn){ /* 警告処理自体の失敗は無視する（本体機能ではない） */ }
+
+    }catch(_eAll){
+      // 記録層のいかなる失敗も呼出元(handleAiPaste)へ伝播しない（V4.1 十則10）
+      return;
+    }
+  }
+
+  window.klogCapturePaste = klogCapturePaste;
+})();
+
 
 // ===== 初期化 =====
 function init() {
@@ -4650,6 +4863,10 @@ function handleAiPaste(event){
   try{ raw = cd.getData('text/plain'); }catch(_e){ return; }
   if(!raw) return; // 空または取得不能ならpreventDefaultせず通常貼り付けへ
 
+  // 第194弾: 営業知識OS 弾1 — Paste Session ID。raw取得成功直後にのみ発行する
+  // （V4.1追補：貼付という出来事の恒久識別子。将来の派生entryはlinks.derivedFromで接続）。
+  var _klogSessionId = 'ps_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+
   var clean = normalizeAiPasteText(raw);
   var theme = _aiPasteThemeFromId(target.id);
 
@@ -4685,6 +4902,14 @@ function handleAiPaste(event){
   }
 
   target.dispatchEvent(new Event('input',{bubbles:true}));
+
+  // 第194弾: 営業知識OS 弾1 — 消失停止フック。
+  // 貼付処理（戦略協議8テーマのみ）が正常完了した直後にfire-and-forgetで捕捉する。
+  // saveLS/doSaveCards/collectFormへは一切介入しない（V4.1 §16改定）。
+  // klogCapturePaste内部は全体try/catch済みだが、呼出site自体も二重に保護する。
+  if(handledAsThemeUrl && window.klogCapturePaste){
+    try{ window.klogCapturePaste(theme, raw, (typeof cur!=='undefined')?cur:null, _klogSessionId); }catch(_eKlog){}
+  }
 }
 window.handleAiPaste = handleAiPaste;
 
