@@ -2558,12 +2558,12 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.91";
+var APP_VERSION = "v10.92";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
 var LEGACY_SCHEMA_VERSION = 0;         // schemaVersion未記録の既存データはこの世代として扱う（読込には支障なし）
-var CURRENT_BACKUP_FORMAT_VERSION = 1; // 第151弾で実装予定のバックアップ形式の識別子（今回は受け皿のみ・未使用）
+var CURRENT_BACKUP_FORMAT_VERSION = 2; // 第151弾で受け皿導入。第195弾でv2（knowledgeLogs加算・営業知識ログのバックアップ往復統合）へbump
 var MIN_BACKUP_FORMAT_VERSION = 1;     // 第155弾：フルバックアップ封筒の形式番号としてこれまで実在した最小値。
                                         // カードのschemaVersion(LEGACY_SCHEMA_VERSION=0)とは無関係の別概念のため分離。
 try{window.IS_DEV=/_dev(\b|\.|_)/i.test((location.pathname||"")+(location.search||""));if(window.IS_DEV){document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("is-dev");});}}catch(_e){window.IS_DEV=false;}
@@ -3377,6 +3377,224 @@ function doSaveCards(cb) {
       return;
     }
   }
+
+  // ===== 第195弾: knowledge-log-backup-roundtrip =====
+  // 目的：端末内のみに存在する営業知識ログ(aibis_klog_v1_*)を、既存フルバックアップ封筒(v2)へ
+  // 加算的に収録し、往復（export→復元→replace）できるようにする。ZENIS_AIBIS_KNOWLEDGE_OS_V4_1
+  // §17の弾2に該当。新規windowグローバルは0件。既存window.klogCapturePaste（第194弾契約）だけを
+  // 維持し、本弾の3APIは同関数オブジェクトへ非列挙propertyとして付与する（呼出元grep可能性・
+  // 4b不変式維持のため）。呼出元はfull_backup.jsのみ（ai_paste.js側の第194弾捕捉契約は不可触）。
+  var _klogLastReplaceEvac = null; // 直近成功backupReplaceV1の退避（1段階のみ。backupRollbackLastV1で消費・クリア）
+
+  // 私設ヘルパー: aibis_klog_v1_前方一致キーを列挙する（第195弾ChatGPT第1品質ゲートB1是正）。
+  // 旧実装は個別localStorage.key(i)例外をcontinueで黙殺しており、列挙が実際には不完全なのに
+  // 呼出元へその事実が一切伝わらず、export側は「complete=true」、replace/rollback側は
+  // 「全削除完了」を誤って主張できてしまっていた（B1-A/B1-B/B1-C）。本ヘルパーは
+  // lengthOk（localStorage.length自体の取得可否）とfailedCount（key(i)個別失敗の総数）を
+  // 必ず呼出元へ返し、「見つかったキーだけで安全側判断ができる」構造にする。
+  function _klogListKeys(){
+    var keys = [];
+    var failedCount = 0;
+    var lengthOk = true;
+    var n = 0;
+    try{ n = localStorage.length; }catch(_eLen){ lengthOk = false; }
+    if(lengthOk){
+      for(var i=0;i<n;i++){
+        var k;
+        try{ k = localStorage.key(i); }catch(_eKey){ failedCount++; continue; }
+        if(k && k.indexOf(KLOG_KEY_PREFIX) === 0) keys.push(k);
+      }
+    }
+    return { ok: lengthOk && failedCount === 0, keys: keys, failedCount: failedCount, lengthOk: lengthOk };
+  }
+
+  // 私設ヘルパー: 現在のaibis_klog_v1_全キーを削除し、evacObj(key->raw文字列)の内容で再書込する。
+  // backupReplaceV1内自動rollbackとbackupRollbackLastV1の2箇所だけが呼ぶ共通処理。
+  // 第195弾ChatGPT第1品質ゲートB1-C是正: 削除対象列挙が不完全（_klogListKeys().ok===false）の
+  // 場合、見つかった範囲のremoveItemは試みるが、deleteOkはfalseから開始し「全削除を証明できない」
+  // 状態のまま維持する（呼出元でrolledBack=trueへ読み替えられないようにするため）。
+  function _klogRestoreFromEvac(evacObj){
+    var listed = _klogListKeys();
+    var deleteOk = listed.ok;
+    for(var d=0;d<listed.keys.length;d++){
+      try{ localStorage.removeItem(listed.keys[d]); }catch(_eDel){ deleteOk = false; }
+    }
+
+    var restoredCount = 0;
+    var writeOk = true;
+    var evacKeys = Object.keys(evacObj || {});
+    for(var j=0;j<evacKeys.length;j++){
+      var ek = evacKeys[j];
+      var ev = evacObj[ek];
+      if(ev === null || ev === undefined) continue; // 退避時点で読めなかった値は書き戻しようがない
+      try{
+        localStorage.setItem(ek, ev);
+        restoredCount++;
+      }catch(_eSet){ writeOk = false; }
+    }
+    return { ok: deleteOk && writeOk, restoredCount: restoredCount };
+  }
+
+  // backupExportV1(): 同期・読取専用。throwしない。aibis_klog_v1_前方一致キーを列挙し、
+  // parse成功かつ配列のものだけ無加工収録する（entry単位のfilter・修復・切詰めはしない）。
+  // getItem例外・parse失敗・非配列はキー単位でskipし、customerId昇順で決定的にソートする。
+  function backupExportV1(){
+    try{
+      var listed = _klogListKeys();
+      var keys = listed.keys;
+      var enumFailed = !listed.lengthOk; // localStorage.length自体が取れない場合だけ総崩れ扱い
+
+      var groups = [];
+      // 第195弾ChatGPT第1品質ゲートB1-A是正: key()個別失敗の件数を、最初からskippedへ計上する。
+      // 旧実装は失敗したキーの存在自体を握り潰しており、他が全部成功すればcomplete=trueに
+      // なってしまっていた（対象キーを1件でも見失った時点でcomplete=falseにする契約の違反）。
+      var skippedCount = listed.failedCount;
+      var entryCount = 0;
+      var charCount = 0;
+      for(var j=0;j<keys.length;j++){
+        var key = keys[j];
+        var raw;
+        try{ raw = localStorage.getItem(key); }catch(_eGet){ skippedCount++; continue; }
+        var arr;
+        try{ arr = JSON.parse(raw); }catch(_eParse){ skippedCount++; continue; }
+        if(!Array.isArray(arr)){ skippedCount++; continue; }
+        var customerId = key.slice(KLOG_KEY_PREFIX.length);
+        groups.push({ customerId: customerId, entries: arr });
+        entryCount += arr.length;
+        charCount += _klogCharTotal(arr);
+      }
+
+      groups.sort(function(a, b){
+        if(a.customerId < b.customerId) return -1;
+        if(a.customerId > b.customerId) return 1;
+        return 0;
+      });
+
+      return {
+        knowledgeLogs: groups,
+        counts: { customers: groups.length, entries: entryCount, chars: charCount, skipped: skippedCount },
+        complete: (skippedCount === 0) && !enumFailed
+      };
+    }catch(_eAll){
+      return { knowledgeLogs: [], counts: { customers: 0, entries: 0, chars: 0, skipped: 0 }, complete: false };
+    }
+  }
+
+  // backupReplaceV1(knowledgeLogs): 全置換。throwしない。incomingは破壊操作の前に全件検証する
+  // （各要素の形状・customerId非空文字列・entries配列・customerId重複なし・全顧客分のJSON.stringify
+  // 成功）。検証後、既存全キーをraw文字列のままメモリ退避してから削除し、顧客別に書込む。
+  // 途中失敗時は自動で1回だけrollback（前方一致キー全削除→退避raw再書込）する。無制限retryはしない。
+  function backupReplaceV1(knowledgeLogs){
+    try{
+      if(!Array.isArray(knowledgeLogs)){
+        return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'invalid_input' };
+      }
+
+      // 第195弾ChatGPT第1品質ゲートB2是正: 通常オブジェクト{}はcustomerId==='__proto__'の場合、
+      // 代入がプロトタイプ設定として特別扱いされ、値が正しく保持されない
+      // （検証済み：raw書込内容が"[object Object]"になりJSON.parseが失敗する）。
+      // customerIdは正式契約上「非空string」であり__proto__も有効値のため、プロトタイプを
+      // 持たないObject.create(null)を使い、通常オブジェクトの特殊プロパティ名の影響を構造的に排除する。
+      var seen = Object.create(null);
+      var serializedByCustomer = Object.create(null);
+      var order = [];
+      for(var i=0;i<knowledgeLogs.length;i++){
+        var item = knowledgeLogs[i];
+        if(!item || typeof item !== 'object' || Array.isArray(item)){
+          return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'invalid_entry_shape' };
+        }
+        var cid = item.customerId;
+        if(typeof cid !== 'string' || cid.length === 0){
+          return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'invalid_customer_id' };
+        }
+        if(!Array.isArray(item.entries)){
+          return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'invalid_entries' };
+        }
+        if(Object.prototype.hasOwnProperty.call(seen, cid)){
+          return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'duplicate_customer_id' };
+        }
+        seen[cid] = true;
+        var serialized;
+        try{ serialized = JSON.stringify(item.entries); }
+        catch(_eSer){ return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'serialize_failed' }; }
+        serializedByCustomer[cid] = serialized;
+        order.push(cid);
+      }
+
+      // 第195弾ChatGPT第1品質ゲートB1-B是正: 既存キー列挙が不完全（_klogListKeys().ok===false）
+      // な場合、削除前にenumerate_failedで即座に失敗させる。旧実装は個別key()失敗をcontinueで
+      // 黙殺し、列挙から漏れた既存キーが「全置換」後も削除されずに残存する契約違反があった。
+      var listed = _klogListKeys();
+      if(!listed.ok){
+        return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'enumerate_failed' };
+      }
+      var existingKeys = listed.keys;
+      var backupRaw = {};
+      for(var e=0;e<existingKeys.length;e++){
+        try{ backupRaw[existingKeys[e]] = localStorage.getItem(existingKeys[e]); }
+        catch(_eGetB){ return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'backup_read_failed' }; }
+      }
+
+      var deleteFailed = false;
+      for(var d=0;d<existingKeys.length;d++){
+        try{ localStorage.removeItem(existingKeys[d]); }catch(_eDel){ deleteFailed = true; }
+      }
+
+      var wrote = 0;
+      var writeFailed = false;
+      if(!deleteFailed){
+        for(var w=0;w<order.length;w++){
+          try{
+            localStorage.setItem(_klogKey(order[w]), serializedByCustomer[order[w]]);
+            wrote++;
+          }catch(_eWrite){ writeFailed = true; break; }
+        }
+      }
+
+      if(!deleteFailed && !writeFailed){
+        _klogLastByThemeCustomer = {}; // 置換後のストレージ実態と乖離した旧hash参照を残さない
+        _klogLastReplaceEvac = backupRaw;
+        return { ok:true, wroteCustomers:wrote, rolledBack:false, rollbackFailed:false };
+      }
+
+      // rollback順序: (a)前方一致キー全削除（部分書込済みincoming含む）→(b)退避raw全再書込。自動1回のみ。
+      var rb = _klogRestoreFromEvac(backupRaw);
+      var failReason = deleteFailed ? 'delete_failed' : 'write_failed';
+      if(rb.ok){
+        return { ok:false, wroteCustomers:0, rolledBack:true, rollbackFailed:false, reason:failReason };
+      }
+      return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:true, reason:failReason };
+    }catch(_eAll){
+      return { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'unexpected_error' };
+    }
+  }
+
+  // backupRollbackLastV1(): 直前に成功したbackupReplaceV1について、メモリ内退避が存在するときだけ
+  // 有効。throwしない。全削除→退避raw再書込。実行後は成否に関わらず退避をクリアする
+  // （無制限retry禁止・ページ再読込を跨ぐ永続rollbackは本弾で導入しない）。退避不在時は安全に失敗を返す。
+  function backupRollbackLastV1(){
+    try{
+      if(!_klogLastReplaceEvac){
+        return { ok:false, restoredCustomers:0 };
+      }
+      var evac = _klogLastReplaceEvac;
+      _klogLastReplaceEvac = null;
+      var rb = _klogRestoreFromEvac(evac);
+      return { ok: rb.ok, restoredCustomers: rb.restoredCount };
+    }catch(_eAll){
+      return { ok:false, restoredCustomers:0 };
+    }
+  }
+
+  Object.defineProperty(klogCapturePaste, 'backupExportV1', {
+    value: backupExportV1, enumerable:false, writable:false, configurable:false
+  });
+  Object.defineProperty(klogCapturePaste, 'backupReplaceV1', {
+    value: backupReplaceV1, enumerable:false, writable:false, configurable:false
+  });
+  Object.defineProperty(klogCapturePaste, 'backupRollbackLastV1', {
+    value: backupRollbackLastV1, enumerable:false, writable:false, configurable:false
+  });
 
   window.klogCapturePaste = klogCapturePaste;
 })();
@@ -14363,7 +14581,7 @@ function getBackupFormatVersion(data){
   }
   return LEGACY_SCHEMA_VERSION; // バックアップ形式番号が無い＝現行のカード配列直出し等（第151弾より前の形式）
 }
-function isSupportedBackupFormatVersion(version){ return version===LEGACY_SCHEMA_VERSION || version===CURRENT_BACKUP_FORMAT_VERSION; }
+function isSupportedBackupFormatVersion(version){ return version===LEGACY_SCHEMA_VERSION || (version>=MIN_BACKUP_FORMAT_VERSION && version<=CURRENT_BACKUP_FORMAT_VERSION); } // 第195弾C2是正: 厳密等価だとbump後にv1がfalseになる潜在矛盾を解消（呼出元0件・テーマ中核述語の意味整合として是正）
 function isFutureBackupFormatVersion(version){ return typeof version==='number' && isFinite(version) && version>CURRENT_BACKUP_FORMAT_VERSION; }
 
 // 読込直後に軽く点検するだけ（何も書き換えない）。未来のschemaVersionを持つカードがあっても、
@@ -14471,6 +14689,75 @@ function _countFutureSchemaCards(cardsArr){
   var n=0; (cardsArr||[]).forEach(function(c){ if(c && isFutureSchemaVersion(c.schemaVersion)) n++; }); return n;
 }
 
+/* ---- 第195弾: v2封筒knowledgeLogsの形状事前検証（読取専用・副作用なし） ----
+ * 有効条件（§9.4）: Array.isArray、各要素が{customerId:非空string, entries:Array}、
+ * customerId重複なし、全顧客分のJSON.stringify(entries)が例外なく成功。
+ * entry内容そのものの深い検証・修復・型変換・切詰めはしない（無加工原則）。
+ */
+function _klogValidateShapeV2(knowledgeLogs){
+  if(!Array.isArray(knowledgeLogs)) return { ok:false, reason:'missing_or_non_array', customerCount:0, entryCount:0 };
+  // 第195弾ChatGPT第2品質ゲートM4是正: 通常オブジェクト{}はcustomerId==="__proto__"の場合、
+  // 代入がプロトタイプ設定として特別扱いされown propertyが作られず、重複していてもhasOwnProperty
+  // がfalseのままになる（検証済み：重複"__proto__"がok=trueとして素通りしていた）。
+  // Object.create(null)を使い、通常オブジェクトの特殊プロパティ名の影響を構造的に排除する。
+  var seen=Object.create(null);
+  var customerCount=0, entryCount=0;
+  for(var i=0;i<knowledgeLogs.length;i++){
+    var item=knowledgeLogs[i];
+    if(!item || typeof item!=="object" || Array.isArray(item)) return { ok:false, reason:'invalid_shape', customerCount:0, entryCount:0 };
+    if(typeof item.customerId!=="string" || item.customerId.length===0) return { ok:false, reason:'invalid_shape', customerCount:0, entryCount:0 };
+    if(!Array.isArray(item.entries)) return { ok:false, reason:'invalid_shape', customerCount:0, entryCount:0 };
+    if(Object.prototype.hasOwnProperty.call(seen, item.customerId)) return { ok:false, reason:'duplicate_customer_id', customerCount:0, entryCount:0 };
+    seen[item.customerId]=true;
+    try{ JSON.stringify(item.entries); }catch(_eEntStr){ return { ok:false, reason:'serialize_failed', customerCount:0, entryCount:0 }; }
+    customerCount++;
+    entryCount+=item.entries.length;
+  }
+  return { ok:true, reason:null, customerCount:customerCount, entryCount:entryCount };
+}
+
+/* ---- 第195弾: knowledge結果を1行の案内文へ変換（顧客ID・原文は含めない） ---- */
+function _klogPreviewLine(data, kv){
+  if(!kv || !kv.isV2){
+    return "旧形式には営業知識ログが含まれず、端末内の営業知識ログは変更しません。";
+  }
+  if(!kv.valid){
+    var why = (kv.reason==='digest_mismatch') ? "整合性チェックに失敗（digest不一致）" : "形式が不正";
+    return "⚠ 営業知識ログは"+why+"のため復元されません（カード・写真の復元には影響しません）。";
+  }
+  var line = "営業知識ログ：顧客"+kv.customerCount+"件・記録"+kv.entryCount+"件を復元します。";
+  if(data && data.manifest && data.manifest.knowledgeLogComplete===false){
+    line += "<br><span style=\"color:#b7791f\">⚠ 作成元の端末で一部の営業知識ログを収録できていません（バックアップ作成時点でpartial）。</span>";
+  }
+  return line;
+}
+/* ---- 第195弾ChatGPT第1品質ゲートM1是正: cards/media成功確定後の状態機械 ----
+ * 旧実装は`saveOk`だけを根拠に見出しで「復元が完了しました」を先に断定し、knowledge状態は
+ * 末尾へ追記するだけだった（digest不一致時でも画面先頭・toastの両方が全体完了を主張していた）。
+ * 本関数はcards/media成功が既に確定した後（_showRestoreResult側でsaveOk/mismatchを先に分岐
+ * 済みという前提）、knowledgeの4サブ状態（v1／digest不一致・形式不備／置換失敗rollback成功／
+ * rollback失敗）ごとに見出し・詳細・フル完了toast可否を個別に確定する。
+ */
+function _klogRestoreState(kv, klogResult){
+  if(!kv || !kv.isV2){
+    return { headline:"✅ カード・写真の復元が完了しました", detail:"営業知識ログは変更していません（旧形式のバックアップ）。", fullCompleteToast:false };
+  }
+  if(!kv.valid){
+    var why = (kv.reason==='digest_mismatch') ? "digest不一致" : "形式不備";
+    return { headline:"⚠ カード・写真は復元しましたが、営業知識ログは未復元です", detail:"理由："+why+"。端末内の営業知識ログは変更していません。", fullCompleteToast:false };
+  }
+  if(klogResult && klogResult.ok){
+    return { headline:"✅ 復元が完了しました", detail:"営業知識ログ：復元済み（"+kv.customerCount+"顧客）", fullCompleteToast:true };
+  }
+  if(klogResult && klogResult.rolledBack){
+    return { headline:"⚠ カード・写真は復元しました。営業知識ログは未復元です", detail:"置換に失敗したため、営業知識ログは元の状態へ復旧済みです。", fullCompleteToast:false };
+  }
+  if(klogResult && klogResult.rollbackFailed){
+    return { headline:"✅ カード・写真の復元は成功しました", detail:"❗ 営業知識ログの復旧に失敗しました（重大）。端末内データをご確認のうえ、必要ならフルバックアップから再度復元してください。", fullCompleteToast:false };
+  }
+  return { headline:"⚠ カード・写真は復元しましたが、営業知識ログは未復元です", detail:"端末内の営業知識ログは変更していません。", fullCompleteToast:false };
+}
+
 /* ---- バックアップ対象データの収集（IndexedDB→JSON化可能な形へ） ---- */
 function _collectMediaForBackup(){
   return mAll().then(function(recs){
@@ -14503,14 +14790,34 @@ function fullBackupCreate(){
     var manifest=_buildBackupManifest(cards, media);
     var cardsJson=JSON.stringify(cards||[]);
     var mediaJson=JSON.stringify(media||[]);
+
+    // 第195弾: 営業知識ログのexport（同期・読取専用API）。API不在・例外時もcards/mediaバックアップは継続する。
+    var _klogExport;
+    try{
+      _klogExport = (window.klogCapturePaste && typeof window.klogCapturePaste.backupExportV1==='function')
+        ? window.klogCapturePaste.backupExportV1() : null;
+    }catch(_eKlogExport){ _klogExport = null; }
+    var knowledgeLogs = (_klogExport && Array.isArray(_klogExport.knowledgeLogs)) ? _klogExport.knowledgeLogs : [];
+    var klogCounts = (_klogExport && _klogExport.counts) ? _klogExport.counts : { customers:0, entries:0, chars:0, skipped:0 };
+    var klogComplete = !!(_klogExport && _klogExport.complete===true);
+    var knowledgeLogsJson;
+    try{ knowledgeLogsJson = JSON.stringify(knowledgeLogs); }catch(_eKlogJson){ knowledgeLogsJson = "[]"; }
+
     Promise.all([
       _sha256Hex(cardIds.join(",")),
       _sha256Hex(mediaIds.join(",")),
-      _sha256Hex(cardsJson+"|"+mediaJson)
+      _sha256Hex(cardsJson+"|"+mediaJson),
+      _sha256Hex(knowledgeLogsJson)
     ]).then(function(digests){
       manifest.cardIdDigest=digests[0]||"";
       manifest.mediaIdDigest=digests[1]||"";
       manifest.payloadDigest=digests[2]||"";
+      manifest.knowledgeCustomerCount=klogCounts.customers||0;
+      manifest.knowledgeEntryCount=klogCounts.entries||0;
+      manifest.knowledgeCharCount=klogCounts.chars||0;
+      manifest.knowledgeLogDigest=digests[3]||"";
+      manifest.knowledgeLogComplete=klogComplete;
+      manifest.knowledgeLogSkippedCount=klogCounts.skipped||0;
       var envelope={
         backupFormatVersion:CURRENT_BACKUP_FORMAT_VERSION,
         schemaVersion:CURRENT_SCHEMA_VERSION,
@@ -14520,7 +14827,8 @@ function fullBackupCreate(){
         mode:"full",
         manifest:manifest,
         cards:cards||[],
-        media:media
+        media:media,
+        knowledgeLogs:knowledgeLogs
       };
       var json=JSON.stringify(envelope);
       var blob=new Blob([json],{type:"application/json"});
@@ -14536,7 +14844,11 @@ function fullBackupCreate(){
       // 第177弾: フルバックアップ作成＝カード＋写真の真の外部控えのため、aibis_last_backupも同時刻で更新
       try{ localStorage.setItem('aibis_last_backup', _nowIso177); }catch(e){}
       updateFullBackupLastDisp();
-      toast("✅ フルバックアップを作成しました（カード"+manifest.cardCount+"件・写真"+manifest.mediaCount+"枚）");
+      var klogMsg = "・知識ログ"+manifest.knowledgeCustomerCount+"顧客";
+      toast("✅ フルバックアップを作成しました（カード"+manifest.cardCount+"件・写真"+manifest.mediaCount+"枚"+klogMsg+"）");
+      if(!klogComplete){
+        toast("⚠ 一部の営業知識ログを収録できませんでした（"+manifest.knowledgeLogSkippedCount+"件skip）");
+      }
     }).catch(function(){ aibisAlert("⚠ フルバックアップの作成中にエラーが発生しました。もう一度お試しください。"); });
   }).catch(function(){ aibisAlert("⚠ 写真データの読み込みに失敗したため、フルバックアップを作成できませんでした。"); });
 }
@@ -14585,10 +14897,21 @@ function _handleFullBackupFileText(text){
   var mediaJson=JSON.stringify(data.media);
   var cardIds=data.cards.map(function(c){ return c&&c.id?c.id:""; }).filter(Boolean).sort();
   var mediaIds=data.media.map(function(m){ return m&&m.id?m.id:""; }).filter(Boolean).sort();
+
+  // 第195弾: v2封筒のknowledgeLogsを事前検証する（cards/mediaのpayloadDigest検証とは独立の判定系）。
+  // v1（bfv!==2）はknowledge工程スキップ確定。isV2=falseのまま以降で「端末内不変」を案内する。
+  var _klogIsV2 = (bfv===2);
+  var _klogShape = _klogIsV2 ? _klogValidateShapeV2(data.knowledgeLogs) : { ok:false, reason:'not_v2', customerCount:0, entryCount:0 };
+  var _klogDigestSrc = null;
+  if(_klogIsV2 && _klogShape.ok){
+    try{ _klogDigestSrc = JSON.stringify(data.knowledgeLogs); }catch(_eKlogStr){ _klogDigestSrc = null; }
+  }
+
   Promise.all([
     _sha256Hex(cardIds.join(",")),
     _sha256Hex(mediaIds.join(",")),
-    _sha256Hex(cardsJson+"|"+mediaJson)
+    _sha256Hex(cardsJson+"|"+mediaJson),
+    (_klogDigestSrc!==null) ? _sha256Hex(_klogDigestSrc) : Promise.resolve("")
   ]).then(function(digests){
     var storedManifest=data.manifest||{};
     var haveStoredDigest = !!(storedManifest.payloadDigest);
@@ -14597,9 +14920,25 @@ function _handleFullBackupFileText(text){
       aibisAlert("⚠ バックアップファイルの整合性チェックに失敗しました。<br>データが壊れているか、改ざんされている可能性があります。<br><br>復元を中止しました。データは変更していません。");
       return;
     }
+
+    // knowledge独立判定: cards/mediaのpayloadDigest可否とは無関係に成否を決める（不一致でも全体拒否しない）。
+    var knowledgeValidation;
+    if(!_klogIsV2){
+      knowledgeValidation = { valid:false, isV2:false, reason:'not_v2', customerCount:0, entryCount:0 };
+    }else if(!_klogShape.ok){
+      knowledgeValidation = { valid:false, isV2:true, reason:_klogShape.reason, customerCount:0, entryCount:0 };
+    }else{
+      var storedKlogDigest = storedManifest.knowledgeLogDigest || "";
+      var haveStoredKlogDigest = !!storedKlogDigest;
+      var klogDigestOk = !haveStoredKlogDigest || (storedKlogDigest===digests[3]);
+      knowledgeValidation = klogDigestOk
+        ? { valid:true, isV2:true, reason:null, customerCount:_klogShape.customerCount, entryCount:_klogShape.entryCount }
+        : { valid:false, isV2:true, reason:'digest_mismatch', customerCount:_klogShape.customerCount, entryCount:_klogShape.entryCount };
+    }
+
     var freshManifest=_buildBackupManifest(data.cards, data.media);
     var futureCards=_countFutureSchemaCards(data.cards);
-    _showFullRestorePreview(data, freshManifest, futureCards, digestOk, haveStoredDigest);
+    _showFullRestorePreview(data, freshManifest, futureCards, digestOk, haveStoredDigest, knowledgeValidation);
   });
 }
 function _fmtDist(dist){
@@ -14610,7 +14949,7 @@ function _fmtDist(dist){
   if(others.length) s+="・"+others.join("・");
   return s;
 }
-function _showFullRestorePreview(data, manifest, futureCards, digestOk, haveStoredDigest){
+function _showFullRestorePreview(data, manifest, futureCards, digestOk, haveStoredDigest, knowledgeValidation){
   var msg="🔎 復元前プレビュー<br><br>"
     +"カード："+manifest.cardCount+"件<br>"
     +"写真：計"+manifest.mediaCount+"枚（紐付け済み"+manifest.linkedMediaCount+"・未紐付け"+manifest.unlinkedMediaCount+"）<br>"
@@ -14618,15 +14957,35 @@ function _showFullRestorePreview(data, manifest, futureCards, digestOk, haveStor
     +(manifest.orphanMediaCount>0 ? "<span style=\"color:#c53030\">⚠ 参照先カード不明の写真："+manifest.orphanMediaCount+"件</span><br>" : "")
     +(futureCards>0 ? "<span style=\"color:#b7791f\">⚠ このアプリより新しい世代のカードが"+futureCards+"件あります（復元は継続できます）</span><br>" : "")
     +(haveStoredDigest ? "整合性チェック："+(digestOk?"OK":"NG") : "整合性チェック：（このファイルにはdigest記録がありません）")
+    +"<br>"+_klogPreviewLine(data, knowledgeValidation)
     +"<br><br>作成日時："+e(data.createdAt||"不明")+"　作成時バージョン："+e(data.appVersion||"不明")
     +"<br><br><b style=\"color:#c53030\">この操作は現在のカード・写真データをすべて置き換えます（マージではありません）。</b>"
     +"<br>復元前に、現在のデータを既存の「読込」画面のエクスポート機能で保存しておくことをお勧めします。";
-  aibisConfirm(msg, function(){ _executeFullRestore(data); }, "復元を実行", "キャンセル");
+  aibisConfirm(msg, function(){ _executeFullRestore(data, knowledgeValidation); }, "復元を実行", "キャンセル");
 }
 
 /* ---- フルバックアップ復元：実行 ---- */
 var PRE_RESTORE_SNAPSHOT_KEY="prospect_pre_restore_snapshot_v1";
-function _executeFullRestore(data){
+// 第195弾ChatGPT第2品質ゲートB3是正: 「現在の復元操作でknowledge置換が実際に成功したか」を
+// 操作単位で追跡する内部状態（window非公開・localStorage非使用）。
+// 旧実装はknowledge_log.js側の_klogLastReplaceEvac（直近の成功backupReplaceV1の退避）が
+// 存在しさえすれば、無関係な後続操作のrestorePreRestoreSnapshot()からもbackupRollbackLastV1()
+// を呼んでしまい、現在の操作とは無関係な過去の成功置換を誤って巻き戻せた（B3再現済み：
+// A→B成功後、無関係な後続失敗を挟んでrollbackを呼ぶとBではなくAに戻ってしまう）。
+// 本フラグは_executeFullRestore()開始時に必ずfalseへ初期化し、そのAPI呼出し自身のknowledge
+// 置換がok===trueを返した場合だけtrueにする。restorePreRestoreSnapshot()はarmed===trueの
+// 場合だけbackupRollbackLastV1()を呼び、呼出し後は成否に関わらず必ずfalseへ戻す。
+//
+// 第195弾ChatGPT第3品質ゲートB4是正: 本フラグを当初トップレベルvarとして実装していたが、
+// classic scriptのトップレベルvarはwindow propertyになる（ChatGPT独立実測で
+// window._klogRollbackArmedがwritable:true/enumerable:true/configurable:trueとして検出され、
+// 外部からの読書き・列挙・再設定が可能な状態だった）。「新規windowグローバル0」契約に反し、
+// 外部からの値変更でstale退避誤適用（B3で対策した問題）を再発させ得るため、既存の
+// window公開関数restorePreRestoreSnapshotの関数オブジェクトへ、Object.definePropertyで
+// enumerable:false・configurable:falseな内部propertyとして保持する方式へ是正した
+// （knowledge_log.jsの3内部APIと同型の、実測済みで安全なパターン）。
+function _executeFullRestore(data, knowledgeValidation){
+  restorePreRestoreSnapshot._klogRollbackArmedV1 = false; // 要件1: 本操作開始時に必ず初期化する
   toast("⏳ 復元を実行しています…");
   try{
     localStorage.setItem(PRE_RESTORE_SNAPSHOT_KEY, JSON.stringify(cards||[]));
@@ -14663,24 +15022,52 @@ function _executeFullRestore(data){
       var afterManifest=_buildBackupManifest(cards, afterMedia);
       var expected=_buildBackupManifest(newCards, newMedia);
       var mismatch = (afterManifest.cardCount!==expected.cardCount) || (afterManifest.mediaCount!==expected.mediaCount);
-      if(saveOk && !mismatch){ _writeBackupBaseline('full-restore', cards.length); } // 第177弾: 保存成功かつ件数一致の場合だけ
-      _showRestoreResult(saveOk, afterManifest, mismatch);
+      var klogResult = null;
+      if(saveOk && !mismatch){
+        _writeBackupBaseline('full-restore', cards.length); // 第177弾: 保存成功かつ件数一致の場合だけ（knowledge結果でゲートしない）
+        // 第195弾: knowledgeValidの場合だけ、baseline書込の直後にbackupReplaceV1を同期実行する。
+        // 例外はここでtry/catchし、cards/mediaの成功結果・件数照合・baseline書込へは一切波及させない。
+        if(knowledgeValidation && knowledgeValidation.valid && data && Array.isArray(data.knowledgeLogs)){
+          try{
+            klogResult = (window.klogCapturePaste && typeof window.klogCapturePaste.backupReplaceV1==='function')
+              ? window.klogCapturePaste.backupReplaceV1(data.knowledgeLogs)
+              : { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'module_unavailable' };
+            if(klogResult && klogResult.ok===true){ restorePreRestoreSnapshot._klogRollbackArmedV1 = true; } // 要件2: 成功時だけarm
+          }catch(_eKlogReplace){
+            klogResult = { ok:false, wroteCustomers:0, rolledBack:false, rollbackFailed:false, reason:'unexpected_error' };
+          }
+        }
+      }
+      _showRestoreResult(saveOk, afterManifest, mismatch, knowledgeValidation, klogResult);
     });
   }).catch(function(err){
     aibisAlert("⚠ 復元中にエラーが発生しました：<br><span style=\"color:#c53030;font-size:11px\">"+e(String((err&&err.message)||err))+"</span><br><br>状態が不完全な可能性があります。念のため元のバックアップファイルで再度復元をお試しください。");
   });
 }
-function _showRestoreResult(saveOk, afterManifest, mismatch){
+function _showRestoreResult(saveOk, afterManifest, mismatch, knowledgeValidation, klogResult){
   try{ showList(); }catch(e){}
-  var msg = saveOk
-    ? "✅ 復元が完了しました<br><br>カード："+afterManifest.cardCount+"件<br>写真：計"+afterManifest.mediaCount+"枚（紐付け済み"+afterManifest.linkedMediaCount+"・未紐付け"+afterManifest.unlinkedMediaCount+"）<br>世代分布："+_fmtDist(afterManifest.schemaVersionDistribution)
-    : "⚠ カードデータの保存に失敗しました。写真の復元は完了している可能性があります。";
-  if(mismatch){
-    msg+="<br><br><span style=\"color:#c53030\">⚠ 復元後の件数がバックアップ内容と一致しませんでした。内容をご確認ください。</span>"
-       +"<br><button class=\"zfa-ok\" style=\"background:#718096\" onclick=\"closeAibisAlert();restorePreRestoreSnapshot()\">⏪ 復元前の状態に戻す（カードのみ）</button>";
+  var msg, toastMsg;
+
+  if(!saveOk){
+    msg = "⚠ カードデータの保存に失敗しました。写真の復元は完了している可能性があります。<br>（営業知識ログには触れていません）";
+    toastMsg = "⚠ 復元に一部失敗しました";
+  }else if(mismatch){
+    msg = "<span style=\"color:#c53030\">⚠ 復元後の件数がバックアップ内容と一致しませんでした。内容をご確認ください。</span>"
+       + "<br>（営業知識ログには触れていません）"
+       + "<br><button class=\"zfa-ok\" style=\"background:#718096\" onclick=\"closeAibisAlert();restorePreRestoreSnapshot()\">⏪ 復元前の状態に戻す（カードのみ）</button>";
+    toastMsg = "⚠ 復元後の件数が一致しませんでした";
+  }else{
+    // saveOk===true && mismatch===false: cards/mediaは成功確定。knowledgeサブ状態だけで見出しを分岐する。
+    var state = _klogRestoreState(knowledgeValidation, klogResult);
+    msg = state.headline+"<br><br>カード："+afterManifest.cardCount+"件<br>写真：計"+afterManifest.mediaCount+"枚（紐付け済み"+afterManifest.linkedMediaCount+"・未紐付け"+afterManifest.unlinkedMediaCount+"）<br>世代分布："+_fmtDist(afterManifest.schemaVersionDistribution)
+        + "<br><br>"+state.detail;
+    // 第195弾ChatGPT第1品質ゲートM1是正: 全体（cards+media+knowledge）成功時だけ
+    // フルバックアップ完了toastを出す。knowledge未復元時は「カード・写真」限定の文言にする。
+    toastMsg = state.fullCompleteToast ? "✅ フルバックアップの復元が完了しました" : "✅ カード・写真の復元が完了しました";
   }
+
   aibisAlert(msg);
-  try{ toast(saveOk?"✅ フルバックアップの復元が完了しました":"⚠ 復元に一部失敗しました"); }catch(e){}
+  try{ toast(toastMsg); }catch(e){}
 }
 function restorePreRestoreSnapshot(){
   var snap=null; try{ snap=localStorage.getItem(PRE_RESTORE_SNAPSHOT_KEY); }catch(e){}
@@ -14690,7 +15077,33 @@ function restorePreRestoreSnapshot(){
     doSaveCards(function(ok){
       if(!ok){ toast('⚠ 保存に失敗しました'); return; }
       _restoreBaselineSnapshot(); // 第177弾: カード保存成功時だけbaseline対スナップショットも復元
-      showList(); toast("⏪ 復元前（カードのみ）の状態に戻しました");
+      // 第195弾ChatGPT第2品質ゲートB3/M5是正: 本操作がarmed===trueの場合だけ
+      // backupRollbackLastV1を呼ぶ（armed===falseなら過去退避を絶対に消費しない＝要件6）。
+      // 呼出し後は成否に関わらず必ずarmed=falseへ戻す（要件5・無制限retry防止と二重消費防止）。
+      var wasArmed = restorePreRestoreSnapshot._klogRollbackArmedV1;
+      var klogBack = null;
+      if(wasArmed){
+        try{
+          if(window.klogCapturePaste && typeof window.klogCapturePaste.backupRollbackLastV1==='function'){
+            klogBack = window.klogCapturePaste.backupRollbackLastV1();
+          }
+        }catch(_eKlogBack){ klogBack = null; }
+        restorePreRestoreSnapshot._klogRollbackArmedV1 = false;
+      }
+      showList();
+      if(!wasArmed){
+        // armed=false: 本操作はknowledgeへ一切触れていない（v1・digest不一致・形式不備・
+        // module unavailable・save失敗・mismatch・replace失敗等）。過去退避は消費しない。
+        toast("⏪ 復元前（カードのみ）の状態に戻しました");
+      }else if(klogBack && klogBack.ok===true){
+        toast("⏪ 復元前の状態に戻しました（カード・営業知識ログ）");
+      }else{
+        // armed=trueだったがrollback失敗（またはAPI不在等）：カード復旧成功とknowledge復旧失敗を
+        // 分離表示する。「カードのみへ正常に戻った」への読み替えはしない（重大警告として明示）。
+        // 顧客ID・rawTextは表示しない。
+        toast("⏪ カードは復元前の状態に戻しました");
+        aibisAlert("✅ カードは復元前の状態に戻しました。<br><br>❗ 営業知識ログの復旧に失敗しました（重大）。端末内データをご確認のうえ、必要ならフルバックアップから再度復元してください。");
+      }
     });
   }catch(e){ aibisAlert("スナップショットの読込に失敗しました。"); }
 }
@@ -14716,6 +15129,14 @@ function updateFullBackupLastDisp(){
     if(days>=FULL_BACKUP_WARN_DAYS){ nudge.textContent="⚠ 最終バックアップから"+days+"日経過"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
     else { nudge.style.display="none"; }
   }
+}
+// 第195弾ChatGPT第3品質ゲートB4是正: armed状態をrestorePreRestoreSnapshot関数オブジェクトへ
+// 非列挙・非再構成の内部propertyとして定義する。スクリプト再評価時にconfigurable:falseな
+// propertyの再定義でTypeErrorにならないよう、未定義時だけdefineする防御を入れる。
+if(!Object.prototype.hasOwnProperty.call(restorePreRestoreSnapshot, "_klogRollbackArmedV1")){
+  Object.defineProperty(restorePreRestoreSnapshot, "_klogRollbackArmedV1", {
+    value: false, writable: true, enumerable: false, configurable: false
+  });
 }
 window.updateFullBackupLastDisp=updateFullBackupLastDisp;
 window.fullBackupCreate=fullBackupCreate;
