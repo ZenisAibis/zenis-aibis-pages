@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.92";
+var APP_VERSION = "v10.93";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3199,7 +3199,11 @@ function doSaveCards(cb) {
   var KLOG_KEY_PREFIX = 'aibis_klog_v1_';
 
   var _klogQuotaSuppressed = false;   // セッション内Quota抑止（無制限retry禁止・第186弾家法と同型）
-  var _klogWarnedCustomer = {};       // 顧客別容量警告は1セッション1回
+  // 第196弾§13是正: 通常オブジェクト{}はcustomerId==='__proto__'の場合、代入がプロトタイプ設定
+  // として特別扱いされ、値が正しく保持されない（第195弾backupReplaceV1のseen/serializedByCustomer・
+  // full_backup.js _klogValidateShapeV2のseenと同型の既知不具合）。customerIdは任意文字列を
+  // 直接property keyに使うため、プロトタイプを持たないObject.create(null)へ是正する。
+  var _klogWarnedCustomer = Object.create(null); // 顧客別容量警告は1セッション1回
   var _klogWarnedTotal = false;       // 総量警告は1セッション1回
   var _klogLastByThemeCustomer = {};  // dedupe用直近記録: key=customerId+'|'+theme -> {hash, ts}
 
@@ -3586,6 +3590,382 @@ function doSaveCards(cb) {
     }
   }
 
+  // ===== 第196弾: knowledge-log-data-hygiene =====
+  // 目的：重複・内容誤り・別顧客への誤貼付を、既存entryの削除・上書きなしに、tombstone・
+  // 移送entryの追記だけで是正する。ZENIS_AIBIS_KNOWLEDGE_OS_V4_1 §17弾3に該当。新規window
+  // グローバルは0件。既存window.klogCapturePaste（第194弾契約）だけを維持し、本弾の2API
+  // (hygieneListV1/hygieneApplyV1)は同関数オブジェクトへ非列挙propertyとして付与する。
+  // 呼出元はknowledge_log_hygiene.jsのみ（ai_paste.js側の第194弾捕捉契約・full_backup.js側の
+  // 第195弾3APIはいずれも不可触・無変更）。
+
+  // 私設ヘルパー: hygiene専用の詳細化read。既存_klogReadArray（呼出元klogCapturePasteの契約を
+  // 無改変維持するため触れない）とは別に、getItem失敗(storage_read_failed)とparse失敗／非配列
+  // (invalid_store)を区別し、rawそのもの・キー存在有無（move rollback用）も返す新設ヘルパー。
+  function _klogReadArrayDetailed(customerId){
+    var raw;
+    try{ raw = localStorage.getItem(_klogKey(customerId)); }
+    catch(_eGet){ return { ok:false, arr:null, reason:'storage_read_failed', raw:null, existed:false }; }
+    var existed = (raw !== null);
+    if(!raw) return { ok:true, arr:[], reason:null, raw:raw, existed:existed };
+    var arr;
+    try{ arr = JSON.parse(raw); }
+    catch(_eParse){ return { ok:false, arr:null, reason:'invalid_store', raw:raw, existed:existed }; }
+    if(!Array.isArray(arr)) return { ok:false, arr:null, reason:'invalid_store', raw:raw, existed:existed };
+    return { ok:true, arr:arr, reason:null, raw:raw, existed:existed };
+  }
+
+  // 私設ヘルパー: plain object判定（配列・nullを除外）。
+  function _klogIsPlainObject(v){
+    return !!v && typeof v === 'object' && !Array.isArray(v);
+  }
+  // 私設ヘルパー: 非空文字列判定。
+  function _klogNonEmptyString(v){
+    return typeof v === 'string' && v.length > 0;
+  }
+
+  // 私設ヘルパー: hygiene専用のknown-schema検証（ChatGPT実装監査MAJOR-1是正）。
+  // 全kind共通の必須fieldに加え、既知kind（paste_capture／tombstone）はschemaを厳密検査する。
+  // 将来kind（hygieneの対象外）は共通field＋links形状だけを検査し、自動修復・上書きはしない。
+  // storageCustomerIdは呼出元のlocalStorageキーが指す顧客IDであり、entry.customerIdと
+  // 一致しない場合はfail-closedする（storage keyとentry内容の乖離を検出するため）。
+  function _klogValidateHygieneEntry(entry, storageCustomerId){
+    if(!_klogIsPlainObject(entry)) return false;
+    if(!_klogNonEmptyString(entry.id)) return false;
+    if(!_klogNonEmptyString(entry.occurredAt)) return false;
+    if(!_klogNonEmptyString(entry.recordedAt)) return false;
+    if(!_klogNonEmptyString(entry.customerId)) return false;
+    if(entry.customerId !== storageCustomerId) return false;
+    if(!_klogNonEmptyString(entry.kind)) return false;
+    if(!_klogNonEmptyString(entry.status)) return false;
+    if(entry.schemaVer !== 1) return false;
+
+    if(entry.kind === 'paste_capture'){
+      if(!_klogNonEmptyString(entry.theme)) return false;
+      if(typeof STRATEGY_THEMES !== 'undefined' && Array.isArray(STRATEGY_THEMES) && STRATEGY_THEMES.length > 0 && STRATEGY_THEMES.indexOf(entry.theme) === -1) return false;
+      if(typeof entry.rawText !== 'string') return false;
+      if(!_klogNonEmptyString(entry.origin)) return false;
+      if(!_klogNonEmptyString(entry.realm)) return false;
+      if(Object.prototype.hasOwnProperty.call(entry, 'links')){
+        if(!_klogIsPlainObject(entry.links)) return false;
+        if(Object.prototype.hasOwnProperty.call(entry.links, 'derivedFrom') && !_klogNonEmptyString(entry.links.derivedFrom)) return false;
+        if(Object.prototype.hasOwnProperty.call(entry.links, 'corrects') && !_klogNonEmptyString(entry.links.corrects)) return false;
+        if(Object.prototype.hasOwnProperty.call(entry.links, 'relocatedFrom') && !_klogNonEmptyString(entry.links.relocatedFrom)) return false;
+      }
+      return true;
+    }
+
+    if(entry.kind === 'tombstone'){
+      if(entry.status !== 'tombstone') return false;
+      if(entry.reason !== 'duplicate' && entry.reason !== 'content_error' && entry.reason !== 'wrong_customer') return false;
+      if(!_klogIsPlainObject(entry.links)) return false;
+      if(!Array.isArray(entry.links.tombstones)) return false;
+      if(entry.links.tombstones.length !== 1) return false;
+      if(!_klogNonEmptyString(entry.links.tombstones[0])) return false;
+      return true;
+    }
+
+    // 将来kind: hygieneの直接対象外だが、最低限の共通契約（linksがあればplain object・
+    // derivedFromがあれば非空文字列）は満たす必要がある。ここを満たせない場合はfail-closed。
+    if(Object.prototype.hasOwnProperty.call(entry, 'links')){
+      if(!_klogIsPlainObject(entry.links)) return false;
+      if(Object.prototype.hasOwnProperty.call(entry.links, 'derivedFrom') && !_klogNonEmptyString(entry.links.derivedFrom)) return false;
+    }
+    return true;
+  }
+
+  // 私設ヘルパー: 同一顧客配列内のactive判定。tombstoneのlinks.tombstonesによる直接無効化と、
+  // links.derivedFrom（将来のAI派生entry用。本弾自身は生成しない）による連鎖無効化をread-time・
+  // 非破壊で行う。循環は無限再帰させずderived_cycleとしてfail-closedする。corrects／
+  // relocatedFromは連鎖無効化の対象にしない（移送先の正コピーが移送元tombstoneで無効化される
+  // ことを構造的に防ぐ・V4.1整合）。shape不正・id重複はcaller側へ理由付きで返し、破損entryを
+  // 自動修復しない。第196弾ChatGPT実装監査MAJOR-1是正：entry単位の形状検査を
+  // _klogValidateHygieneEntry（known-schema厳密検査・storage customerId一致検査）へ委譲する。
+  function _klogComputeActive(arr, storageCustomerId){
+    var idIndex = Object.create(null);
+    for(var i=0;i<arr.length;i++){
+      var e = arr[i];
+      if(!_klogValidateHygieneEntry(e, storageCustomerId)) return { ok:false, reason:'invalid_store' };
+      var id = e.id;
+      if(Object.prototype.hasOwnProperty.call(idIndex, id)) return { ok:false, reason:'duplicate_entry_id' };
+      idIndex[id] = e;
+    }
+
+    var invalid = Object.create(null);
+    for(var i2=0;i2<arr.length;i2++){
+      var e2 = arr[i2];
+      if(e2.kind === 'tombstone' && e2.status === 'tombstone' && e2.links && Array.isArray(e2.links.tombstones)){
+        for(var t=0;t<e2.links.tombstones.length;t++){
+          var tid = e2.links.tombstones[t];
+          if(typeof tid === 'string' && tid.length > 0) invalid[tid] = true;
+        }
+      }
+    }
+
+    var resolved = Object.create(null); // id -> true(invalid)/false(valid) 確定値
+    var visiting = Object.create(null); // 現在の再帰スタック上のid（循環検出用）
+    var cycleDetected = false;
+
+    function resolveInvalid(id){
+      if(cycleDetected) return true;
+      if(Object.prototype.hasOwnProperty.call(resolved, id)) return resolved[id];
+      if(visiting[id]){ cycleDetected = true; return true; }
+      if(invalid[id]){ resolved[id] = true; return true; }
+      var e = idIndex[id];
+      var df = e && e.links && e.links.derivedFrom;
+      if(typeof df !== 'string' || df.length === 0 || !idIndex[df]){
+        resolved[id] = false;
+        return false;
+      }
+      visiting[id] = true;
+      var parentInvalid = resolveInvalid(df);
+      visiting[id] = false;
+      if(cycleDetected) return true;
+      resolved[id] = parentInvalid;
+      return parentInvalid;
+    }
+
+    for(var idKey in idIndex){
+      resolveInvalid(idKey);
+      if(cycleDetected) break;
+    }
+    if(cycleDetected) return { ok:false, reason:'derived_cycle' };
+
+    var activeIds = Object.create(null);
+    for(var idKey2 in idIndex){
+      if(!resolved[idKey2]) activeIds[idKey2] = true;
+    }
+    return { ok:true, activeIds:activeIds, idIndex:idIndex };
+  }
+
+  // hygieneListV1(customerId, theme): 同期・throwしない。現在顧客・現在themeのactiveな
+  // paste_captureだけを、recordedAt優先（同値は配列後方＝より新しい追加を優先）の新しい順で
+  // 最大20件返す。失敗時はitems:[]でstorageを変更しない。rawTextはUI表示用途に無加工で返すが、
+  // 呼出元（knowledge_log_hygiene.js）はconsole／toast等のログへ出してはならない。
+  function hygieneListV1(customerId, theme){
+    try{
+      if(typeof customerId !== 'string' || customerId.length === 0) return { ok:false, code:'invalid_argument', items:[] };
+      if(typeof theme !== 'string' || theme.length === 0) return { ok:false, code:'invalid_argument', items:[] };
+
+      var read = _klogReadArrayDetailed(customerId);
+      if(!read.ok) return { ok:false, code:read.reason, items:[] };
+
+      var comp = _klogComputeActive(read.arr, customerId);
+      if(!comp.ok) return { ok:false, code:comp.reason, items:[] };
+
+      var candidates = [];
+      for(var i=0;i<read.arr.length;i++){
+        var e = read.arr[i];
+        if(comp.activeIds[e.id] && e.kind === 'paste_capture' && e.theme === theme){
+          candidates.push({ e:e, idx:i });
+        }
+      }
+      candidates.sort(function(a, b){
+        if(a.e.recordedAt > b.e.recordedAt) return -1;
+        if(a.e.recordedAt < b.e.recordedAt) return 1;
+        return b.idx - a.idx;
+      });
+
+      var totalActive = candidates.length;
+      var truncated = totalActive > 20;
+      var top = candidates.slice(0, 20);
+      var items = [];
+      for(var k=0;k<top.length;k++){
+        var ee = top[k].e;
+        items.push({ id:ee.id, occurredAt:ee.occurredAt, recordedAt:ee.recordedAt, theme:ee.theme, rawText:ee.rawText, status:ee.status });
+      }
+      return { ok:true, code:'ok', items:items, totalActive:totalActive, truncated:truncated };
+    }catch(_eAll){
+      return { ok:false, code:'invalid_store', items:[] };
+    }
+  }
+
+  // 私設ヘルパー: hygieneApplyV1のtombstone action実装。既存entryを削除・書換せず、tombstone
+  // entryを1件だけ末尾へ追記する。setItemは1回のみ。失敗時は既存rawを一切変更しない
+  // （書込み未着手のため、rollback処理自体が不要＝安全に「rollback_ok」相当として扱う）。
+  function _klogHygieneTombstone(sourceCustomerId, targetEntryId, reason){
+    var read = _klogReadArrayDetailed(sourceCustomerId);
+    if(!read.ok) return { ok:false, code: (read.reason==='storage_read_failed') ? 'source_read_failed' : 'source_invalid_store' };
+
+    var comp = _klogComputeActive(read.arr, sourceCustomerId);
+    if(!comp.ok){
+      if(comp.reason === 'duplicate_entry_id') return { ok:false, code:'target_duplicate_id' };
+      return { ok:false, code:'source_invalid_store' };
+    }
+
+    var target = comp.idIndex[targetEntryId];
+    if(!target || target.kind !== 'paste_capture') return { ok:false, code:'target_not_found' };
+    if(!comp.activeIds[targetEntryId]) return { ok:false, code:'target_inactive' };
+
+    var nowIso = new Date().toISOString();
+    var tomb = {
+      id: _klogGenId(),
+      occurredAt: nowIso,
+      recordedAt: nowIso,
+      author: 'self',
+      customerId: sourceCustomerId,
+      origin: 'data_hygiene',
+      realm: 'app',
+      kind: 'tombstone',
+      status: 'tombstone',
+      reason: reason,
+      links: { tombstones: [targetEntryId] },
+      schemaVer: KLOG_SCHEMA_VER
+    };
+
+    var serialized;
+    try{ serialized = JSON.stringify(read.arr.concat([tomb])); }catch(_eSer){ return { ok:false, code:'serialize_failed' }; }
+
+    try{
+      localStorage.setItem(_klogKey(sourceCustomerId), serialized);
+    }catch(_eSet){
+      return { ok:false, code:'source_write_failed_rollback_ok' };
+    }
+    return { ok:true, code:'tombstoned' };
+  }
+
+  // 私設ヘルパー: hygieneApplyV1のmove action実装。destination実在カード検証→source/destination
+  // 読取検証→destination entry・source tombstone生成→両方serialize→destinationへ先にsetItem→
+  // sourceへsetItem→source書込失敗時だけdestinationを1回rollback、の順序を固定する
+  // （§12: destination先行の理由は、途中失敗時に原文消失より一時的重複を優先するため）。
+  // retryは一切行わない。moved entryにはderivedFromを付けない（corrects/relocatedFromのみ）。
+  function _klogHygieneMove(sourceCustomerId, targetEntryId, destinationCustomerId, reason){
+    // destination実在カード検証: cards配列に同一idの実在カードがちょうど1件であることが必須。
+    // 削除済み・不存在・UI検索を迂回した不正idへの移送はdestination_not_foundでfail-closed。
+    var cardMatches = 0;
+    if(typeof cards !== 'undefined' && Array.isArray(cards)){
+      for(var ci=0; ci<cards.length; ci++){
+        if(cards[ci] && cards[ci].id === destinationCustomerId) cardMatches++;
+      }
+    }
+    if(cardMatches !== 1) return { ok:false, code:'destination_not_found' };
+
+    // 手順1: sourceの元raw・存在状態を取得（同時に配列検証用の読取も兼ねる）
+    var srcRead = _klogReadArrayDetailed(sourceCustomerId);
+    if(!srcRead.ok) return { ok:false, code: (srcRead.reason==='storage_read_failed') ? 'source_read_failed' : 'source_invalid_store' };
+
+    // 手順2: destinationの元raw・存在状態を取得
+    var dstRead = _klogReadArrayDetailed(destinationCustomerId);
+    if(!dstRead.ok) return { ok:false, code: (dstRead.reason==='storage_read_failed') ? 'destination_read_failed' : 'destination_invalid_store' };
+
+    // 手順3: 両配列を検証。第196弾ChatGPT実装監査MAJOR-2是正：destinationもsourceと全く同じ
+    // _klogComputeActive（known-schema厳密検査・id重複・derivedFrom循環・storage customerId
+    // 一致を一括検証）を通す。destination側のshape不正／重複／循環／customerId不一致は
+    // すべてdestination_invalid_storeへ集約する（sourceのような細分化コードは持たない）。
+    // 破壊操作(setItem)より前に検証するため、失敗時はsource／destinationともraw不変のまま。
+    var dstComp = _klogComputeActive(dstRead.arr, destinationCustomerId);
+    if(!dstComp.ok) return { ok:false, code:'destination_invalid_store' };
+
+    var srcComp = _klogComputeActive(srcRead.arr, sourceCustomerId);
+    if(!srcComp.ok){
+      if(srcComp.reason === 'duplicate_entry_id') return { ok:false, code:'target_duplicate_id' };
+      return { ok:false, code:'source_invalid_store' };
+    }
+    var target = srcComp.idIndex[targetEntryId];
+    if(!target || target.kind !== 'paste_capture') return { ok:false, code:'target_not_found' };
+    if(!srcComp.activeIds[targetEntryId]) return { ok:false, code:'target_inactive' };
+
+    var nowIso = new Date().toISOString();
+
+    // 手順4: destination entryを生成（原文rawTextは無加工。derivedFromは付けない）
+    var destEntry = {
+      id: _klogGenId(),
+      sessionId: target.sessionId,
+      occurredAt: target.occurredAt,
+      recordedAt: nowIso,
+      author: 'self',
+      customerId: destinationCustomerId,
+      theme: target.theme,
+      origin: 'data_hygiene_move',
+      realm: 'world',
+      kind: 'paste_capture',
+      status: 'human_edited',
+      rawText: target.rawText,
+      schemaVer: KLOG_SCHEMA_VER,
+      dedupeKey: target.dedupeKey,
+      links: { corrects: target.id, relocatedFrom: target.id }
+    };
+
+    // 手順5: source tombstoneを生成
+    var sourceTomb = {
+      id: _klogGenId(),
+      occurredAt: nowIso,
+      recordedAt: nowIso,
+      author: 'self',
+      customerId: sourceCustomerId,
+      origin: 'data_hygiene',
+      realm: 'app',
+      kind: 'tombstone',
+      status: 'tombstone',
+      reason: reason,
+      links: { tombstones: [targetEntryId] },
+      schemaVer: KLOG_SCHEMA_VER
+    };
+
+    // 手順6: destination新配列をserialize
+    var serializedDest;
+    try{ serializedDest = JSON.stringify(dstRead.arr.concat([destEntry])); }catch(_eSerD){ return { ok:false, code:'serialize_failed' }; }
+
+    // 手順7: source新配列をserialize（両方のserializeを破壊操作(setItem)より前に完了する）
+    var serializedSrc;
+    try{ serializedSrc = JSON.stringify(srcRead.arr.concat([sourceTomb])); }catch(_eSerS){ return { ok:false, code:'serialize_failed' }; }
+
+    var destKey = _klogKey(destinationCustomerId);
+
+    // 手順8: destinationへ先にsetItem
+    try{
+      localStorage.setItem(destKey, serializedDest);
+    }catch(_eSetDest){
+      return { ok:false, code:'destination_write_failed' }; // source未着手のため原文はsourceに残存
+    }
+
+    // 手順9: sourceへsetItem
+    try{
+      localStorage.setItem(_klogKey(sourceCustomerId), serializedSrc);
+    }catch(_eSetSrc){
+      // 手順10: source書込失敗時だけdestinationを1回rollback。手順11: retryは行わない。
+      try{
+        if(dstRead.existed){ localStorage.setItem(destKey, dstRead.raw); }
+        else{ localStorage.removeItem(destKey); }
+        return { ok:false, code:'source_write_failed_rollback_ok' }; // 原文はsourceに残存
+      }catch(_eRb){
+        return { ok:false, code:'source_write_failed_rollback_failed' }; // 両顧客に原文が残っている可能性
+      }
+    }
+
+    return { ok:true, code:'moved' };
+  }
+
+  // hygieneApplyV1(command): 同期・throwしない。action/reasonの共通検証後、tombstone/move
+  // それぞれの実装helperへ委譲する。UI側（knowledge_log_hygiene.js）はこのAPI経由でのみ
+  // storageへ介入し、localStorageを直接操作しない。
+  function hygieneApplyV1(command){
+    try{
+      if(!command || typeof command !== 'object' || Array.isArray(command)) return { ok:false, code:'invalid_argument' };
+      var action = command.action;
+      var reason = command.reason;
+      var sourceCustomerId = command.sourceCustomerId;
+      var targetEntryId = command.targetEntryId;
+      var destinationCustomerId = command.destinationCustomerId;
+
+      if(action !== 'tombstone' && action !== 'move') return { ok:false, code:'invalid_argument' };
+      if(typeof sourceCustomerId !== 'string' || sourceCustomerId.length === 0) return { ok:false, code:'invalid_argument' };
+      if(typeof targetEntryId !== 'string' || targetEntryId.length === 0) return { ok:false, code:'invalid_argument' };
+
+      if(action === 'tombstone'){
+        if(reason !== 'duplicate' && reason !== 'content_error') return { ok:false, code:'invalid_argument' };
+        return _klogHygieneTombstone(sourceCustomerId, targetEntryId, reason);
+      }
+
+      // action === 'move'
+      if(reason !== 'wrong_customer') return { ok:false, code:'invalid_argument' };
+      if(typeof destinationCustomerId !== 'string' || destinationCustomerId.length === 0) return { ok:false, code:'invalid_argument' };
+      if(destinationCustomerId === sourceCustomerId) return { ok:false, code:'invalid_argument' };
+      return _klogHygieneMove(sourceCustomerId, targetEntryId, destinationCustomerId, reason);
+    }catch(_eAll){
+      return { ok:false, code:'invalid_argument' };
+    }
+  }
+
   Object.defineProperty(klogCapturePaste, 'backupExportV1', {
     value: backupExportV1, enumerable:false, writable:false, configurable:false
   });
@@ -3594,6 +3974,12 @@ function doSaveCards(cb) {
   });
   Object.defineProperty(klogCapturePaste, 'backupRollbackLastV1', {
     value: backupRollbackLastV1, enumerable:false, writable:false, configurable:false
+  });
+  Object.defineProperty(klogCapturePaste, 'hygieneListV1', {
+    value: hygieneListV1, enumerable:false, writable:false, configurable:false
+  });
+  Object.defineProperty(klogCapturePaste, 'hygieneApplyV1', {
+    value: hygieneApplyV1, enumerable:false, writable:false, configurable:false
   });
 
   window.klogCapturePaste = klogCapturePaste;
@@ -5130,6 +5516,328 @@ function handleAiPaste(event){
   }
 }
 window.handleAiPaste = handleAiPaste;
+
+// ===== 第196弾: 営業知識OS 弾3（knowledge-log-data-hygiene） =====
+// 目的：戦略協議8テーマへ捕捉済みの営業知識ログについて、重複・内容誤り・別顧客への誤貼付を
+// 利用者が安全に訂正できるようにする。本ファイルはUI専任であり、次だけを担当する。
+//   current customer取得・current theme取得・list API呼出し・一覧描画・2段階確認・
+//   destination検索/選択・apply API呼出し・結果表示・成功後再読込
+// storageへの介入は一切行わない（localStorage直接操作は0件）。private helperの複製もしない。
+// すべてsource/main/core/knowledge_log.jsの window.klogCapturePaste.hygieneListV1 /
+// window.klogCapturePaste.hygieneApplyV1 経由で行う（第194/195弾契約の延長）。
+// rawText・顧客名等の利用者由来文字列は常にDOM textContent/createTextNodeで描画し、
+// innerHTMLへは一切挿入しない（XSS防止）。console・toastへrawText/customerIdを出さない。
+// 新規windowグローバルは0件（本IIFE内はすべて非公開）。
+(function () {
+  'use strict';
+
+  var HYGIENE_BTN_ID = 'klogHygieneOpenBtn';
+  var _klogHygieneBound = false;
+  var _klogHygieneOverlay = null;
+
+  var REASON_LABEL = {
+    duplicate: '重複',
+    content_error: '内容誤り',
+    wrong_customer: '別のお客様へ移す'
+  };
+
+  // ---- 安全なDOM構築ヘルパー（innerHTMLは一切使わない） ----
+  function _khEl(tag, opts) {
+    var el = document.createElement(tag);
+    opts = opts || {};
+    if (opts.className) el.className = opts.className;
+    if (opts.text !== undefined) el.textContent = opts.text;
+    if (opts.style) {
+      for (var k in opts.style) { if (Object.prototype.hasOwnProperty.call(opts.style, k)) el.style[k] = opts.style[k]; }
+    }
+    if (opts.attrs) {
+      for (var a in opts.attrs) { if (Object.prototype.hasOwnProperty.call(opts.attrs, a)) el.setAttribute(a, opts.attrs[a]); }
+    }
+    if (opts.onclick) el.addEventListener('click', opts.onclick);
+    return el;
+  }
+
+  function _khCloseOverlay() {
+    if (_klogHygieneOverlay && _klogHygieneOverlay.parentNode) {
+      _klogHygieneOverlay.parentNode.removeChild(_klogHygieneOverlay);
+    }
+    _klogHygieneOverlay = null;
+  }
+
+  // ---- 文脈取得（現在顧客・現在テーマ・顧客名解決） ----
+  function _khCurrentCustomerId() {
+    try { return (typeof cur !== 'undefined' && cur && cur.id) ? cur.id : null; } catch (_e) { return null; }
+  }
+  function _khCurrentTheme() {
+    try {
+      var sel = document.getElementById('promptPreset');
+      return (sel && typeof sel.value === 'string' && sel.value) ? sel.value : null;
+    } catch (_e) { return null; }
+  }
+  function _khCustomerName(id) {
+    try {
+      if (typeof cards === 'undefined' || !Array.isArray(cards)) return '';
+      for (var i = 0; i < cards.length; i++) {
+        if (cards[i] && cards[i].id === id) return (typeof cards[i].name === 'string') ? cards[i].name : '';
+      }
+    } catch (_e) { /* noop */ }
+    return '';
+  }
+  function _khPreview(rawText) {
+    var s = (typeof rawText === 'string') ? rawText : '';
+    var firstLine = s.split('\n')[0];
+    return firstLine.length > 40 ? (firstLine.slice(0, 40) + '\u2026') : firstLine;
+  }
+
+  // ---- モーダル枠（毎回作り直し・閉じたら完全破棄。stale状態を持ち越さない） ----
+  function _khBuildShell(title) {
+    _khCloseOverlay();
+    var overlay = _khEl('div', {
+      attrs: { id: 'klogHygieneOverlay' },
+      style: { position: 'fixed', left: '0', top: '0', right: '0', bottom: '0', background: 'rgba(0,0,0,0.45)', zIndex: '9999', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }
+    });
+    var card = _khEl('div', { style: { background: 'white', borderRadius: '10px', maxWidth: '480px', width: '100%', maxHeight: '85vh', overflowY: 'auto', padding: '14px', boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontFamily: 'inherit' } });
+    var head = _khEl('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } });
+    head.appendChild(_khEl('div', { text: title, style: { fontSize: '15px', fontWeight: '700', color: '#2d3748' } }));
+    head.appendChild(_khEl('button', { text: '\u2715', attrs: { type: 'button', 'aria-label': '閉じる' }, style: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#718096' }, onclick: _khCloseOverlay }));
+    card.appendChild(head);
+    var body = _khEl('div', {});
+    card.appendChild(body);
+    overlay.appendChild(card);
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) _khCloseOverlay(); });
+    document.body.appendChild(overlay);
+    _klogHygieneOverlay = overlay;
+    return body;
+  }
+
+  // ---- 画面1: 一覧 ----
+  function _khRenderList() {
+    var customerId = _khCurrentCustomerId();
+    var theme = _khCurrentTheme();
+    var body = _khBuildShell('\ud83e\uddf9 貼付履歴を訂正');
+
+    if (!customerId || !theme) {
+      body.appendChild(_khEl('div', { text: '顧客カードを開き、テーマを選択してからご利用ください。', style: { padding: '10px 2px', fontSize: '13px', color: '#718096' } }));
+      return;
+    }
+
+    var callResult;
+    try {
+      callResult = (window.klogCapturePaste && typeof window.klogCapturePaste.hygieneListV1 === 'function')
+        ? window.klogCapturePaste.hygieneListV1(customerId, theme)
+        : { ok: false, code: 'module_unavailable', items: [] };
+    } catch (_eList) { callResult = { ok: false, code: 'module_unavailable', items: [] }; }
+
+    if (!callResult || callResult.ok !== true) {
+      body.appendChild(_khEl('div', { text: '一覧を取得できませんでした。時間をおいて再度お試しください。', style: { padding: '10px 2px', fontSize: '13px', color: '#c53030' } }));
+      return;
+    }
+
+    if (!callResult.items || callResult.items.length === 0) {
+      body.appendChild(_khEl('div', { text: 'このテーマには訂正対象の貼付記録がありません。', style: { padding: '10px 2px', fontSize: '13px', color: '#718096' } }));
+      return;
+    }
+
+    var list = _khEl('div', { style: { maxHeight: '52vh', overflowY: 'auto' } });
+    callResult.items.forEach(function (item) {
+      var row = _khEl('div', { style: { border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px', marginBottom: '8px' } });
+      var meta = _khEl('div', { style: { fontSize: '11px', color: '#718096', marginBottom: '4px' } });
+      var stamp = (typeof _fmtStamp === 'function') ? _fmtStamp(item.occurredAt) : '';
+      meta.textContent = stamp + (stamp ? '\u3000' : '') + (item.status || '');
+      row.appendChild(meta);
+      var preview = _khEl('div', { style: { fontSize: '13px', color: '#2d3748', marginBottom: '6px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } });
+      preview.textContent = _khPreview(item.rawText);
+      row.appendChild(preview);
+
+      var btnRow = _khEl('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } });
+      var btnStyle = { fontSize: '11px', padding: '5px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' };
+      btnRow.appendChild(_khEl('button', {
+        text: '重複', attrs: { type: 'button' }, style: btnStyle,
+        onclick: function () { _khRenderConfirmTombstone(customerId, item, 'duplicate'); }
+      }));
+      btnRow.appendChild(_khEl('button', {
+        text: '内容誤り', attrs: { type: 'button' }, style: btnStyle,
+        onclick: function () { _khRenderConfirmTombstone(customerId, item, 'content_error'); }
+      }));
+      btnRow.appendChild(_khEl('button', {
+        text: '別のお客様へ移す', attrs: { type: 'button' }, style: btnStyle,
+        onclick: function () { _khRenderDestinationSearch(customerId, item); }
+      }));
+      row.appendChild(btnRow);
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+
+    if (callResult.truncated) {
+      body.appendChild(_khEl('div', { text: '\u203b 直近20件のみ表示しています。', style: { fontSize: '11px', color: '#a0aec0', marginTop: '6px' } }));
+    }
+  }
+
+  // ---- 画面2a: tombstone（重複・内容誤り）の最終確認 ----
+  function _khRenderConfirmTombstone(customerId, item, reason) {
+    var label = REASON_LABEL[reason] || '';
+    var actionText = (reason === 'duplicate') ? 'この重複記録を無効化' : 'この記録を内容誤りとして無効化';
+    var body = _khBuildShell(label + 'として無効化しますか？');
+    body.appendChild(_khEl('div', { text: 'この貼付記録を' + label + 'として無効化します。元の記録は削除されず、履歴として残ります。', style: { fontSize: '13px', color: '#4a5568', marginBottom: '10px' } }));
+    var preview = _khEl('div', { style: { fontSize: '12px', color: '#718096', background: '#f7fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px', marginBottom: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } });
+    preview.textContent = _khPreview(item.rawText);
+    body.appendChild(preview);
+
+    var btnRow = _khEl('div', { style: { display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' } });
+    btnRow.appendChild(_khEl('button', { text: 'やめる', attrs: { type: 'button' }, style: { padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' }, onclick: function () { _khRenderList(); } }));
+    btnRow.appendChild(_khEl('button', {
+      text: actionText, attrs: { type: 'button' }, style: { padding: '8px 14px', border: 'none', borderRadius: '6px', background: '#e53e3e', color: 'white', cursor: 'pointer', fontFamily: 'inherit' },
+      onclick: function () { _khExecuteApply({ action: 'tombstone', reason: reason, sourceCustomerId: customerId, targetEntryId: item.id }); }
+    }));
+    body.appendChild(btnRow);
+  }
+
+  // ---- 画面2b: 別顧客移送 - destination検索 ----
+  function _khRenderDestinationSearch(customerId, item) {
+    var body = _khBuildShell('移送先を検索');
+    body.appendChild(_khEl('div', { text: '移送先のお客様を選んでください（現在のお客様は候補から除外されます）。', style: { fontSize: '12px', color: '#718096', marginBottom: '8px' } }));
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'お客様名で検索';
+    input.style.width = '100%';
+    input.style.boxSizing = 'border-box';
+    input.style.fontSize = '13px';
+    input.style.padding = '8px';
+    input.style.border = '1px solid #e2e8f0';
+    input.style.borderRadius = '6px';
+    input.style.marginBottom = '8px';
+    input.style.fontFamily = 'inherit';
+    body.appendChild(input);
+
+    var resultsBox = _khEl('div', { style: { maxHeight: '38vh', overflowY: 'auto' } });
+    body.appendChild(resultsBox);
+
+    function renderResults() {
+      while (resultsBox.firstChild) resultsBox.removeChild(resultsBox.firstChild);
+      var q = (input.value || '').trim();
+      var found = [];
+      try {
+        if (typeof cards !== 'undefined' && Array.isArray(cards)) {
+          for (var i = 0; i < cards.length; i++) {
+            var c = cards[i];
+            if (!c || !c.id || c.id === customerId) continue;
+            var name = (typeof c.name === 'string') ? c.name : '';
+            if (q && name.indexOf(q) === -1) continue;
+            found.push(c);
+            if (found.length >= 20) break;
+          }
+        }
+      } catch (_eSearch) { /* noop */ }
+
+      if (found.length === 0) {
+        resultsBox.appendChild(_khEl('div', { text: '該当するお客様が見つかりません。', style: { fontSize: '12px', color: '#a0aec0', padding: '8px 2px' } }));
+        return;
+      }
+      found.forEach(function (c) {
+        var row = _khEl('button', {
+          attrs: { type: 'button' },
+          style: { display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'left', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', background: 'white', cursor: 'pointer', marginBottom: '6px', fontFamily: 'inherit' },
+          onclick: function () { _khRenderConfirmMove(customerId, item, c); }
+        });
+        row.textContent = (typeof c.name === 'string' && c.name) ? c.name : '(名称未設定)';
+        resultsBox.appendChild(row);
+      });
+    }
+    input.addEventListener('input', renderResults);
+    renderResults();
+
+    var backRow = _khEl('div', { style: { marginTop: '10px' } });
+    backRow.appendChild(_khEl('button', { text: '一覧に戻る', attrs: { type: 'button' }, style: { padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' }, onclick: function () { _khRenderList(); } }));
+    body.appendChild(backRow);
+  }
+
+  // ---- 画面2c: 別顧客移送 - 最終確認（移送元・移送先を明示） ----
+  function _khRenderConfirmMove(customerId, item, destCard) {
+    var body = _khBuildShell('移送内容の確認');
+    body.appendChild(_khEl('div', { text: 'この貼付記録を次のお客様へ移します。移送元の記録は削除されず、tombstoneとして履歴に残ります。', style: { fontSize: '13px', color: '#4a5568', marginBottom: '10px' } }));
+
+    var fromRow = _khEl('div', { style: { fontSize: '13px', marginBottom: '4px' } });
+    fromRow.appendChild(_khEl('span', { text: '移送元：', style: { color: '#718096' } }));
+    fromRow.appendChild(_khEl('span', { text: _khCustomerName(customerId) || '(名称未設定)', style: { fontWeight: '700', color: '#2d3748' } }));
+    body.appendChild(fromRow);
+
+    var toRow = _khEl('div', { style: { fontSize: '13px', marginBottom: '10px' } });
+    toRow.appendChild(_khEl('span', { text: '移送先：', style: { color: '#718096' } }));
+    toRow.appendChild(_khEl('span', { text: (typeof destCard.name === 'string' && destCard.name) ? destCard.name : '(名称未設定)', style: { fontWeight: '700', color: '#2d3748' } }));
+    body.appendChild(toRow);
+
+    var preview = _khEl('div', { style: { fontSize: '12px', color: '#718096', background: '#f7fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px', marginBottom: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } });
+    preview.textContent = _khPreview(item.rawText);
+    body.appendChild(preview);
+
+    var btnRow = _khEl('div', { style: { display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' } });
+    btnRow.appendChild(_khEl('button', { text: 'やめる', attrs: { type: 'button' }, style: { padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' }, onclick: function () { _khRenderList(); } }));
+    btnRow.appendChild(_khEl('button', {
+      text: '移送する', attrs: { type: 'button' }, style: { padding: '8px 14px', border: 'none', borderRadius: '6px', background: '#553c9a', color: 'white', cursor: 'pointer', fontFamily: 'inherit' },
+      onclick: function () { _khExecuteApply({ action: 'move', reason: 'wrong_customer', sourceCustomerId: customerId, targetEntryId: item.id, destinationCustomerId: destCard.id }); }
+    }));
+    body.appendChild(btnRow);
+  }
+
+  // ---- apply実行・結果表示 ----
+  var RESULT_MESSAGE = {
+    tombstoned: { ok: true, text: '無効化しました。' },
+    moved: { ok: true, text: '移送が完了しました。' },
+    invalid_argument: { ok: false, text: '入力内容を確認できませんでした。' },
+    destination_not_found: { ok: false, text: '移送先のお客様が見つかりませんでした（削除済みの可能性があります）。' },
+    source_read_failed: { ok: false, text: '記録の読込に失敗しました。' },
+    destination_read_failed: { ok: false, text: '移送先の記録の読込に失敗しました。' },
+    source_invalid_store: { ok: false, text: '記録の形式を確認できませんでした。' },
+    destination_invalid_store: { ok: false, text: '移送先の記録の形式を確認できませんでした。' },
+    target_not_found: { ok: false, text: '対象の記録が見つかりませんでした。' },
+    target_duplicate_id: { ok: false, text: '記録の識別に問題があり処理できませんでした。' },
+    target_inactive: { ok: false, text: '対象の記録はすでに無効化されています。' },
+    serialize_failed: { ok: false, text: '保存データの作成に失敗しました。' },
+    destination_write_failed: { ok: false, text: '保存に失敗しました。元の記録は変更されていません。' },
+    source_write_failed_rollback_ok: { ok: false, text: '保存に失敗しました。元の状態のままです。' },
+    source_write_failed_rollback_failed: { ok: false, text: '\u26a0 保存に失敗し、復旧にも失敗しました。両方のお客様の記録をご確認のうえ、必要ならフルバックアップから復元してください。' },
+    module_unavailable: { ok: false, text: '機能を読み込めませんでした。' }
+  };
+
+  function _khExecuteApply(command) {
+    var result;
+    try {
+      result = (window.klogCapturePaste && typeof window.klogCapturePaste.hygieneApplyV1 === 'function')
+        ? window.klogCapturePaste.hygieneApplyV1(command)
+        : { ok: false, code: 'module_unavailable' };
+    } catch (_eApply) { result = { ok: false, code: 'module_unavailable' }; }
+    _khRenderResult(result);
+  }
+
+  function _khRenderResult(result) {
+    var code = (result && result.code) ? result.code : 'invalid_argument';
+    var msg = RESULT_MESSAGE[code] || { ok: false, text: '処理できませんでした。' };
+    var body = _khBuildShell(msg.ok ? '完了しました' : '完了できませんでした');
+    body.appendChild(_khEl('div', { text: msg.text, style: { fontSize: '13px', color: msg.ok ? '#2d3748' : '#c53030', marginBottom: '14px' } }));
+    var btnRow = _khEl('div', { style: { display: 'flex', justifyContent: 'flex-end' } });
+    btnRow.appendChild(_khEl('button', { text: '一覧へ戻る', attrs: { type: 'button' }, style: { padding: '8px 14px', border: 'none', borderRadius: '6px', background: '#553c9a', color: 'white', cursor: 'pointer', fontFamily: 'inherit' }, onclick: function () { _khRenderList(); } }));
+    body.appendChild(btnRow);
+    if (msg.ok && typeof toast === 'function') {
+      try { toast('\u2705 ' + msg.text); } catch (_eToast) { /* noop */ }
+    }
+  }
+
+  // ---- 入口ボタンの配線（DOMContentLoaded安全・inline onclick不使用・bindは1回） ----
+  function _khOnButtonClick() { _khRenderList(); }
+  function _khBindButton() {
+    if (_klogHygieneBound) return;
+    var btn = document.getElementById(HYGIENE_BTN_ID);
+    if (!btn) return; // button不在時は安全に終了（DOMがまだ無い/構成が変わった場合の防御）
+    btn.addEventListener('click', _khOnButtonClick);
+    _klogHygieneBound = true;
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _khBindButton);
+  } else {
+    _khBindButton();
+  }
+})();
 
 // マニュアルのdetails開閉をJS制御（Android対応）
 document.querySelectorAll('.help-details').forEach(function(d){
@@ -16530,6 +17238,9 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         </div>
         <div id="aiPaceDisp" style="font-size:10px;font-weight:700;margin-top:6px;padding:3px 8px;border-radius:10px;display:none"></div>
       </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <button type="button" id="klogHygieneOpenBtn" style="padding:8px 12px;font-size:12px;background:#718096;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">🧹 貼付履歴を訂正</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
       <button type="button" style="padding:11px;font-size:13px;background:#2d3748;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="copyPromptAnon()">🤖 分析用に抽出</button>
