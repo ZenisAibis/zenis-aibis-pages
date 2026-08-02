@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.93";
+var APP_VERSION = "v10.94";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3664,6 +3664,22 @@ function doSaveCards(cb) {
       return true;
     }
 
+    // 第197弾: app_event（realm=appのカード重要状態変化）。field/eventType対応・許可値・
+    // before!==after・stageReasonPresentの型と対象fieldはproducer側と同一の
+    // _klogValidateAppEventCandidateShape（本ファイル末尾・第197弾節で定義）を共有する。
+    if(entry.kind === 'app_event'){
+      if(entry.origin !== 'ui_card_save') return false;
+      if(entry.realm !== 'app') return false;
+      if(entry.status !== 'captured') return false;
+      if(entry.author !== 'self') return false; // 第1品質ゲート是正: authorを固定検証
+      if(!_klogValidateAppEventCandidateShape(entry)) return false;
+      if(Object.prototype.hasOwnProperty.call(entry, 'links')){
+        if(!_klogIsPlainObject(entry.links)) return false;
+        if(Object.prototype.hasOwnProperty.call(entry.links, 'derivedFrom') && !_klogNonEmptyString(entry.links.derivedFrom)) return false;
+      }
+      return true;
+    }
+
     // 将来kind: hygieneの直接対象外だが、最低限の共通契約（linksがあればplain object・
     // derivedFromがあれば非空文字列）は満たす必要がある。ここを満たせない場合はfail-closed。
     if(Object.prototype.hasOwnProperty.call(entry, 'links')){
@@ -3793,7 +3809,10 @@ function doSaveCards(cb) {
     }
 
     var target = comp.idIndex[targetEntryId];
-    if(!target || target.kind !== 'paste_capture') return { ok:false, code:'target_not_found' };
+    // 第197弾: tombstone対象kindをpaste_captureまたはapp_eventへ拡張する1条件だけの変更。
+    // _klogHygieneMove側のkind許可（'paste_capture'のみ）は不変のため、app_eventのmoveは
+    // 引き続きtarget_not_foundとして構造的に拒否される。
+    if(!target || (target.kind !== 'paste_capture' && target.kind !== 'app_event')) return { ok:false, code:'target_not_found' };
     if(!comp.activeIds[targetEntryId]) return { ok:false, code:'target_inactive' };
 
     var nowIso = new Date().toISOString();
@@ -3966,6 +3985,263 @@ function doSaveCards(cb) {
     }
   }
 
+  // ===== 第197弾: knowledge-log-app-events =====
+  // 目的：既存カードの重要状態4フィールド（stage／revisit_judge／pursuit_judge_sel／proposal_req）が
+  // 保存成功によっていつ変化したかを、既存aibis_klog_v1_<customerId>へrealm=appの短いapp_eventとして
+  // 追記する。ZENIS_AIBIS_KNOWLEDGE_OS_V4_2_20260802.md §18・DAN197_CHATGPT_FINAL_IMPLEMENTATION_RULING
+  // を正本とする。新UI・進捗表示・確認ピン・AI・管理職横断・汎用diffは本弾で作らない。
+  //
+  // 【最重要】beforeの取得元はin-memory cards[idx]ではなく、保存呼出直前のlocalStorage SK
+  // （prospect_cards_v1）に永続化済みの直前カードとする。openCard後の初回保存でcards[idx]=curが
+  // 同一参照になるため、in-memory側をbeforeに使うと2回目以降の保存差分が構造的に消失する
+  // （Fable 5実装前独立監査§3.1で実測確認・ChatGPT最終裁定で修正版仕様として確定）。
+  //
+  // 新規windowグローバルは0件。既存window.klogCapturePaste（第194弾契約）だけを維持し、本弾の2API
+  // (appEventDiffV1/appEventAppendV1)は同関数オブジェクトへ非列挙propertyとして付与する。
+  // 呼出元はsave_actions.js／draft_autosave.jsだけ（ai_paste.js／full_backup.js／
+  // knowledge_log_hygiene.jsはいずれも不可触・不呼出）。
+
+  var _klogAppEventQuotaSuppressed = false; // app_event専用Quota抑止。paste_capture用_klogQuotaSuppressedとは完全分離
+  var _klogAppEventLast = Object.create(null); // dedupe直近記録: key=customerId+eventType+field+before+after -> ts
+
+  var _KLOG_STAGE_VALUES = ['', '0', '1', '2', '3', '4', '5', '6', '7'];
+  var _KLOG_REVISIT_JUDGE_VALUES = ['', '追客開始', '継続訪問', '打ち切り'];
+  var _KLOG_PURSUIT_JUDGE_SEL_VALUES = ['', 'A見込み', '追撃継続', '変化待ち', '打ち切り'];
+  var _KLOG_APP_EVENT_TYPE_BY_FIELD = {
+    stage: 'stage_change',
+    revisit_judge: 'judgment_change',
+    pursuit_judge_sel: 'judgment_change',
+    proposal_req: 'proposal_request_change'
+  };
+
+  // 私設ヘルパー: app_event対象4フィールドの正規化・許可値判定。producer(本節)とvalidator
+  // (_klogValidateHygieneEntryのapp_event分岐)が必ずこの1関数だけを共有する（正規化規則の
+  // 二重実装・食い違いを構造的に防ぐ）。戻り値は正規化済み文字列、または許可集合外を示すundefined。
+  function _klogNormAppEventField(field, v){
+    if(field === 'stage'){
+      var sv = (v === null || v === undefined) ? '' : String(v);
+      return _KLOG_STAGE_VALUES.indexOf(sv) !== -1 ? sv : undefined;
+    }
+    if(field === 'revisit_judge'){
+      var rv = (v === null || v === undefined) ? '' : String(v);
+      return _KLOG_REVISIT_JUDGE_VALUES.indexOf(rv) !== -1 ? rv : undefined;
+    }
+    if(field === 'pursuit_judge_sel'){
+      var pv = (v === null || v === undefined) ? '' : String(v);
+      return _KLOG_PURSUIT_JUDGE_SEL_VALUES.indexOf(pv) !== -1 ? pv : undefined;
+    }
+    if(field === 'proposal_req'){
+      if(v === true || v === 1 || v === '1') return '1';
+      if(v === false || v === 0 || v === null || v === undefined || v === '' || v === '0') return '0';
+      return undefined;
+    }
+    return undefined;
+  }
+
+  // 私設ヘルパー: 厳格ISO UTC文字列判定（第1品質ゲートB2是正）。new Date(v).toISOString()===vと
+  // 同義だが、Invalid DateでtoISOString()がRangeError throwする経路を先にisNaNで遮断する。
+  function _klogIsStrictIsoUtc197(v){
+    if(typeof v !== 'string' || v.length === 0) return false;
+    var d = new Date(v);
+    if(isNaN(d.getTime())) return false;
+    try{ return d.toISOString() === v; }catch(_e){ return false; }
+  }
+
+  // 私設ヘルパー: app_event候補1件（またはstore内entry1件）の厳格shape検証。producer出力・
+  // 既存store保存済みentryの両方がこの1関数を通る（field/eventType対応・許可値・before!==after・
+  // stageReasonPresentのfield限定とboolean型を検証）。
+  function _klogValidateAppEventCandidateShape(cand){
+    if(!_klogIsPlainObject(cand)) return false;
+    if(!_klogNonEmptyString(cand.field)) return false;
+    if(!Object.prototype.hasOwnProperty.call(_KLOG_APP_EVENT_TYPE_BY_FIELD, cand.field)) return false;
+    if(!_klogNonEmptyString(cand.eventType)) return false;
+    if(_KLOG_APP_EVENT_TYPE_BY_FIELD[cand.field] !== cand.eventType) return false;
+    if(typeof cand.before !== 'string' || typeof cand.after !== 'string') return false;
+    var beforeN = _klogNormAppEventField(cand.field, cand.before);
+    var afterN = _klogNormAppEventField(cand.field, cand.after);
+    if(beforeN === undefined || afterN === undefined) return false;
+    if(beforeN !== cand.before || afterN !== cand.after) return false; // 未正規化値の混入を拒否
+    if(beforeN === afterN) return false;
+    if(cand.field === 'stage'){
+      if(Object.prototype.hasOwnProperty.call(cand, 'stageReasonPresent') && typeof cand.stageReasonPresent !== 'boolean') return false;
+    } else if(Object.prototype.hasOwnProperty.call(cand, 'stageReasonPresent')){
+      return false; // stage以外でstageReasonPresentを持つのは契約違反
+    }
+    return true;
+  }
+
+  // appEventDiffV1(nextCard): 同期・純読取・非throw。保存呼出直前のlocalStorage SKに永続化済みの
+  // 直前カード（in-memory cards[idx]ではない）とnextCardを4フィールドだけ比較し、深くfreezeした
+  // snapshotまたはnullを返す。localStorage書込・toast・console出力は一切行わない。
+  function appEventDiffV1(nextCard){
+    try{
+      if(!_klogIsPlainObject(nextCard)) return null;
+      if(!_klogNonEmptyString(nextCard.id)) return null;
+      if(typeof SK !== 'string') return null;
+
+      var raw;
+      try{ raw = localStorage.getItem(SK); }catch(_eGet){ return null; }
+      if(!raw) return null;
+      var arr;
+      try{ arr = JSON.parse(raw); }catch(_eParse){ return null; }
+      if(!Array.isArray(arr)) return null;
+
+      var matchCount = 0, prevCard = null;
+      for(var i=0;i<arr.length;i++){
+        if(arr[i] && arr[i].id === nextCard.id){ matchCount++; prevCard = arr[i]; }
+      }
+      if(matchCount !== 1) return null; // 0件=新規未永続、2件以上=id不整合。いずれもイベント化しない
+
+      var fields = ['stage', 'revisit_judge', 'pursuit_judge_sel', 'proposal_req'];
+      var candidates = [];
+      for(var f=0; f<fields.length; f++){
+        var field = fields[f];
+        var beforeN = _klogNormAppEventField(field, prevCard[field]);
+        var afterN = _klogNormAppEventField(field, nextCard[field]);
+        if(beforeN === undefined || afterN === undefined) continue; // 許可集合外(レガシー値等)は候補化しない
+        if(beforeN === afterN) continue;
+        var cand = { eventType: _KLOG_APP_EVENT_TYPE_BY_FIELD[field], field: field, before: beforeN, after: afterN };
+        if(field === 'stage'){
+          cand.stageReasonPresent = !!(String(nextCard.stage_reason || '').trim());
+        }
+        Object.freeze(cand);
+        candidates.push(cand);
+      }
+      if(candidates.length === 0) return null;
+
+      var snapshot = {
+        customerId: nextCard.id,
+        occurredAt: new Date().toISOString(),
+        candidates: candidates
+      };
+      Object.freeze(snapshot.candidates);
+      return Object.freeze(snapshot);
+    }catch(_eAll){
+      return null;
+    }
+  }
+
+  // appEventAppendV1(snapshot): 同期・非throw。全候補を厳格検証・dedupe・既存store検証を書込前に
+  // 完了し、localStorage.setItemはちょうど1回。部分成功はしない。戻り値は呼出元がfire-and-forgetで
+  // 無視してよい{ok,code,appended}。
+  // 第1品質ゲートB1/B2/B3是正:
+  //   B1: 厳格shape検証後・klog書込前に、SK上の現在カードがcandidates全件のafterと一致するかを
+  //       再検証する。doSaveCardsのcoalesceで複数snapshotが後続flushへ合流した場合、実際に
+  //       永続化されたのは最後のflush結果だけである。afterが現在SKと一致しないsnapshotは
+  //       supersededとして書込0にする（beforeは再比較しない＝直近の実差分だけを正史とする）。
+  //   B2: snapshot.occurredAtを厳格ISO UTC文字列として必須検証する。
+  //   B3: 同一snapshot内でのfield重複・dedupe key重複を禁止する（過去成功履歴との比較とは別）。
+  function appEventAppendV1(snapshot){
+    try{
+      if(_klogAppEventQuotaSuppressed) return { ok:false, code:'quota_suppressed', appended:0 };
+      if(!_klogIsPlainObject(snapshot)) return { ok:false, code:'invalid_candidate', appended:0 };
+      if(!_klogNonEmptyString(snapshot.customerId)) return { ok:false, code:'invalid_candidate', appended:0 };
+      if(!_klogIsStrictIsoUtc197(snapshot.occurredAt)) return { ok:false, code:'invalid_candidate', appended:0 }; // B2
+      if(!Array.isArray(snapshot.candidates) || snapshot.candidates.length < 1 || snapshot.candidates.length > 4){
+        return { ok:false, code:'invalid_candidate', appended:0 };
+      }
+      var customerId = snapshot.customerId;
+      var seenFields197 = Object.create(null);
+      var seenDkeys197 = Object.create(null);
+      for(var v=0; v<snapshot.candidates.length; v++){
+        var vCand = snapshot.candidates[v];
+        if(!_klogValidateAppEventCandidateShape(vCand)) return { ok:false, code:'invalid_candidate', appended:0 };
+        if(seenFields197[vCand.field]) return { ok:false, code:'invalid_candidate', appended:0 }; // B3
+        seenFields197[vCand.field] = true;
+        var vDkey = customerId + '\u0001' + vCand.eventType + '\u0001' + vCand.field + '\u0001' + vCand.before + '\u0001' + vCand.after;
+        if(seenDkeys197[vDkey]) return { ok:false, code:'invalid_candidate', appended:0 }; // B3
+        seenDkeys197[vDkey] = true;
+      }
+
+      // B1: final-state再検証。SK読取不能・parse不能・非配列・同一id 0件/複数件は書込0（明確なcode）。
+      var curCard197;
+      if(typeof SK !== 'string') return { ok:false, code:'source_unavailable', appended:0 };
+      var skRaw197;
+      try{ skRaw197 = localStorage.getItem(SK); }catch(_eSkGet197){ return { ok:false, code:'source_unavailable', appended:0 }; }
+      if(!skRaw197) return { ok:false, code:'source_unavailable', appended:0 };
+      var skArr197;
+      try{ skArr197 = JSON.parse(skRaw197); }catch(_eSkParse197){ return { ok:false, code:'source_unavailable', appended:0 }; }
+      if(!Array.isArray(skArr197)) return { ok:false, code:'source_unavailable', appended:0 };
+      var skMatch197 = 0;
+      for(var sk197=0; sk197<skArr197.length; sk197++){
+        if(skArr197[sk197] && skArr197[sk197].id === customerId){ skMatch197++; curCard197 = skArr197[sk197]; }
+      }
+      if(skMatch197 !== 1) return { ok:false, code:'source_unavailable', appended:0 };
+      for(var chk197=0; chk197<snapshot.candidates.length; chk197++){
+        var chkCand197 = snapshot.candidates[chk197];
+        var curN197 = _klogNormAppEventField(chkCand197.field, curCard197[chkCand197.field]);
+        if(curN197 === undefined || curN197 !== chkCand197.after){
+          return { ok:true, code:'superseded', appended:0 }; // coalesceで上書きされた古いsnapshot
+        }
+      }
+
+      var nowMs = Date.now();
+      var survivors = [];
+      for(var c=0; c<snapshot.candidates.length; c++){
+        var cand = snapshot.candidates[c];
+        var dkey = customerId + '\u0001' + cand.eventType + '\u0001' + cand.field + '\u0001' + cand.before + '\u0001' + cand.after;
+        var lastTs = _klogAppEventLast[dkey];
+        if(typeof lastTs === 'number' && (nowMs - lastTs) < KLOG_DEDUPE_WINDOW_MS) continue; // 窓内重複
+        survivors.push({ cand: cand, dkey: dkey });
+      }
+      if(survivors.length === 0) return { ok:true, code:'deduped', appended:0 };
+
+      var read = _klogReadArrayDetailed(customerId);
+      if(!read.ok) return { ok:false, code: (read.reason === 'storage_read_failed') ? 'source_read_failed' : 'source_invalid_store', appended:0 };
+
+      var comp = _klogComputeActive(read.arr, customerId);
+      if(!comp.ok) return { ok:false, code: comp.reason, appended:0 };
+
+      var nowIso = new Date().toISOString();
+      var newEntries = [];
+      var newIds = Object.create(null);
+      for(var s=0; s<survivors.length; s++){
+        var sc = survivors[s].cand;
+        var newId = _klogGenId();
+        if(Object.prototype.hasOwnProperty.call(comp.idIndex, newId) || Object.prototype.hasOwnProperty.call(newIds, newId)){
+          return { ok:false, code:'id_collision', appended:0 }; // retryせず全件断念
+        }
+        newIds[newId] = true;
+        var entry = {
+          id: newId,
+          occurredAt: snapshot.occurredAt,
+          recordedAt: nowIso,
+          author: 'self',
+          customerId: customerId,
+          origin: 'ui_card_save',
+          realm: 'app',
+          kind: 'app_event',
+          status: 'captured',
+          eventType: sc.eventType,
+          field: sc.field,
+          before: sc.before,
+          after: sc.after,
+          schemaVer: KLOG_SCHEMA_VER
+        };
+        if(sc.field === 'stage'){
+          entry.stageReasonPresent = !!sc.stageReasonPresent;
+        }
+        newEntries.push(entry);
+      }
+
+      var serialized;
+      try{ serialized = JSON.stringify(read.arr.concat(newEntries)); }catch(_eSer){ return { ok:false, code:'serialize_failed', appended:0 }; }
+
+      try{
+        localStorage.setItem(_klogKey(customerId), serialized);
+      }catch(_eSet){
+        if(_klogIsQuotaError(_eSet)){ _klogAppEventQuotaSuppressed = true; } // paste_capture用_klogQuotaSuppressedは不変
+        return { ok:false, code:'write_failed', appended:0 };
+      }
+
+      for(var d=0; d<survivors.length; d++){ _klogAppEventLast[survivors[d].dkey] = nowMs; } // 成功後だけdedupe更新
+
+      return { ok:true, code:'ok', appended: newEntries.length };
+    }catch(_eAll){
+      return { ok:false, code:'invalid_candidate', appended:0 };
+    }
+  }
+
   Object.defineProperty(klogCapturePaste, 'backupExportV1', {
     value: backupExportV1, enumerable:false, writable:false, configurable:false
   });
@@ -3980,6 +4256,12 @@ function doSaveCards(cb) {
   });
   Object.defineProperty(klogCapturePaste, 'hygieneApplyV1', {
     value: hygieneApplyV1, enumerable:false, writable:false, configurable:false
+  });
+  Object.defineProperty(klogCapturePaste, 'appEventDiffV1', {
+    value: appEventDiffV1, enumerable:false, writable:false, configurable:false
+  });
+  Object.defineProperty(klogCapturePaste, 'appEventAppendV1', {
+    value: appEventAppendV1, enumerable:false, writable:false, configurable:false
   });
 
   window.klogCapturePaste = klogCapturePaste;
@@ -9508,10 +9790,13 @@ function autoCommitEdit(){
     collectForm();
     if(!curId && !String(cur.name||'').trim()){ if(typeof scheduleDraftSave==='function') scheduleDraftSave(); return; }
     if(cur.address) cur.address=_han(cur.address);
-    if(curId){ var idx=cards.findIndex(function(c){return c.id===curId;}); if(idx>=0){ _stageUpLog(cards[idx],cur); cards[idx]=cur; } else { cards.push(cur); curId=cur.id; } }
+    // 第197弾: beforeは保存呼出直前のlocalStorage SK（in-memory cards[idx]ではない）から取得する。
+    // idx<0分岐・新規分岐（curId未設定）では取得しない。
+    var _kev197=null;
+    if(curId){ var idx=cards.findIndex(function(c){return c.id===curId;}); if(idx>=0){ _stageUpLog(cards[idx],cur); cards[idx]=cur; try{ _kev197=(window.klogCapturePaste&&typeof klogCapturePaste.appEventDiffV1==='function')?klogCapturePaste.appEventDiffV1(cur):null; }catch(_e197){ _kev197=null; } } else { cards.push(cur); curId=cur.id; } }
     else { _stageUpLog(null,cur); cards.push(cur); curId=cur.id; }
     // 第183弾: 保存成功が確定するまでdirtyを解除しない（失敗時はdirty維持・draft保持）。
-    doSaveCards(function(ok){ if(ok){ setDirty(false); clearDraft(); if(typeof renderCards==='function') renderCards(); } });
+    doSaveCards(function(ok){ if(ok){ if(_kev197){ try{ klogCapturePaste.appEventAppendV1(_kev197); }catch(_e197b){} } setDirty(false); clearDraft(); if(typeof renderCards==='function') renderCards(); } });
   }catch(ex){}
 }
 function maybeRestoreDraft(){
@@ -9551,8 +9836,11 @@ function saveCard(){
   var wasNew=!curId;
   if(curId){ var idx=cards.findIndex(function(c){return c.id===curId;}); if(idx>=0){ _stageUpLog(cards[idx],cur); cards[idx]=cur; } }
   else{ _stageUpLog(null,cur); cards.push(cur); curId=cur.id; }
+  // 第197弾: beforeは保存呼出直前のlocalStorage SK（in-memory cards[idx]ではない）から取得する。
+  var _kev197=null; if(!wasNew && idx>=0){ try{ _kev197=(window.klogCapturePaste&&typeof klogCapturePaste.appEventDiffV1==='function')?klogCapturePaste.appEventDiffV1(cur):null; }catch(_e197){ _kev197=null; } }
   doSaveCards(function(ok){
     if(!ok){ toast('⚠ 保存に失敗しました'); return; }
+    if(_kev197){ try{ klogCapturePaste.appEventAppendV1(_kev197); }catch(_e197b){} }
     updateCount();
     setDirty(false);
     clearDraft();
