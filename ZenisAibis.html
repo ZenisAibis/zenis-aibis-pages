@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.94";
+var APP_VERSION = "v10.95";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -4264,7 +4264,1214 @@ function doSaveCards(cb) {
     value: appEventAppendV1, enumerable:false, writable:false, configurable:false
   });
 
+  // ===== 第198弾: card-knowledge-readonly（営業知識OS 弾5） =====
+  // 目的：既存カードと対象顧客のactive knowledge logから、6軸＋障害・未解決をread-time
+  // 派生表示する読取専用モーダル（knowledge_card_view.js）向けに、対象顧客のklog 1keyだけを
+  // 読み取り、activeなpaste_capture／app_eventだけを射影して返す。DAN198_CHATGPT_FINAL_
+  // DESIGN_RULING_20260802.md §8を正本とする。同期・非throw・純読取・setItem 0回。
+  // 既存_klogReadArrayDetailed／_klogComputeActive（第196弾・不変）を再利用し、validator・
+  // active判定ロジックを複製しない。新規windowグローバルは0件。既存window.klogCapturePaste
+  // （第194弾契約）だけを維持し、本弾の1API(knowledgeReadV1)は同関数オブジェクトへ非列挙
+  // propertyとして付与する。呼出元はsource/main/ui/knowledge_card_view.jsだけ
+  // （hygiene／appEvent／backup系APIは本関数から呼ばない。既存7APIの挙動・呼出元は無改変）。
+  var KLOG_READ_CAP_198 = 200;
+
+  // 私設ヘルパー: paste_captureエントリの読取専用射影（rawTextは無加工。表示制御・プレビュー
+  // 切詰め等はUI側/L2側の責務であり、本層は原文をそのまま返す）。
+  function _klogProjectPasteCapture198(e){
+    var out = { id:e.id, kind:e.kind, theme:e.theme, occurredAt:e.occurredAt, recordedAt:e.recordedAt, status:e.status, rawText:e.rawText };
+    if(Object.prototype.hasOwnProperty.call(e, 'links') && e.links) out.links = e.links;
+    return out;
+  }
+  // 私設ヘルパー: app_eventエントリの読取専用射影。
+  function _klogProjectAppEvent198(e){
+    var out = { id:e.id, kind:e.kind, occurredAt:e.occurredAt, eventType:e.eventType, field:e.field, before:e.before, after:e.after };
+    if(Object.prototype.hasOwnProperty.call(e, 'stageReasonPresent')) out.stageReasonPresent = e.stageReasonPresent;
+    return out;
+  }
+
+  // knowledgeReadV1(customerId): 同期・非throw・純読取。手順：
+  //   1) 対象顧客store全件読取 2) 既存validatorで全件検証 3) 既存_klogComputeActiveで
+  //   active計算 4) activeなpaste_capture／app_eventを収集 5) occurredAt降順・同値は
+  //   recordedAt降順・さらに同値はid降順の決定的tie-breakでソート 6) active計算「後」に
+  //   最新200件へcap 7) totalActive／truncatedを返す。invalid時は段階を出さずfail-closed
+  //   （自動修復・上書きをしない）。
+  function knowledgeReadV1(customerId){
+    try{
+      if(typeof customerId !== 'string' || customerId.length === 0){
+        return { ok:false, code:'invalid_argument', entries:[], totalActive:0, truncated:false };
+      }
+      var read = _klogReadArrayDetailed(customerId);
+      if(!read.ok){
+        return { ok:false, code:read.reason, entries:[], totalActive:0, truncated:false };
+      }
+      var comp = _klogComputeActive(read.arr, customerId);
+      if(!comp.ok){
+        return { ok:false, code:comp.reason, entries:[], totalActive:0, truncated:false };
+      }
+
+      var candidates = [];
+      for(var i=0;i<read.arr.length;i++){
+        var e = read.arr[i];
+        if(!comp.activeIds[e.id]) continue;
+        if(e.kind === 'paste_capture' || e.kind === 'app_event') candidates.push(e);
+      }
+
+      // active計算後のcap前にソート（cap後の200件が「最新」であることを保証するため、
+      // ソートは必ずcapより前に行う。active計算そのものより前にcapしないという絶対条件は、
+      // 上のcandidates収集がread.arr全件を対象にしていることで満たされている）。
+      candidates.sort(function(a, b){
+        if(a.occurredAt > b.occurredAt) return -1;
+        if(a.occurredAt < b.occurredAt) return 1;
+        if(a.recordedAt > b.recordedAt) return -1;
+        if(a.recordedAt < b.recordedAt) return 1;
+        if(a.id > b.id) return -1;
+        if(a.id < b.id) return 1;
+        return 0;
+      });
+
+      var totalActive = candidates.length;
+      var truncated = totalActive > KLOG_READ_CAP_198;
+      var top = candidates.slice(0, KLOG_READ_CAP_198);
+      var entries = [];
+      for(var k=0;k<top.length;k++){
+        var ee = top[k];
+        entries.push(ee.kind === 'paste_capture' ? _klogProjectPasteCapture198(ee) : _klogProjectAppEvent198(ee));
+      }
+
+      return { ok:true, code:'ok', entries:entries, totalActive:totalActive, truncated:truncated };
+    }catch(_eAll){
+      return { ok:false, code:'invalid_store', entries:[], totalActive:0, truncated:false };
+    }
+  }
+  Object.defineProperty(klogCapturePaste, 'knowledgeReadV1', {
+    value: knowledgeReadV1, enumerable:false, writable:false, configurable:false
+  });
+
   window.klogCapturePaste = klogCapturePaste;
+})();
+
+// ===== 第198弾: card-knowledge-readonly（営業知識OS 弾5・L2派生module）=====
+// 目的：deriveCardKnowledgeV1(cardSnapshot, readResult, nowIso)は、カードの現在値と
+// knowledgeReadV1の読取結果(active paste_capture／app_event)から、6軸の段階
+// （未着手／断片／把握）・鮮度（fresh／stale／要再確認／鮮度不明）・障害/未解決・直近変化を
+// read-time純関数で導出する。DOM／storage／toast／console非依存。副作用0。保存しない。
+// DAN198_CHATGPT_FINAL_DESIGN_RULING_20260802.md §5〜10、第1品質ゲート是正、
+// 第2品質ゲート是正（DAN198_CHATGPT_SECOND_QUALITY_GATE_REPORT_20260802.md）を正本とする。
+//
+// 第2品質ゲート是正内容（本file）：
+//   B5: pursuits[]の「current row」（strict有効date最大・同日は配列後方・無ければ内容ある最終行）
+//       だけのnext_appo_dateを現在の期日候補にする。older rowのnext_appo_dateは履歴として除外。
+//   B6: 実接触グループはstrict有効日付または非空contentのみ。不正日付単独は実接触にしない。
+//   B7: stage／stance／revisit_judge／pursuit_judge_sel／proposal_req_qualityを実値域で検証し、
+//       値域外はaOk/bOk/cOkへ算入せず invalid_value 障害として扱う。
+//   B8: JST（UTC+9固定・host timezone非依存）で業務日を決定的に計算する。
+//   M6: pursuits[].date/content/rec・initial_content_rec・revisits[].rec を接触軸へ算入する。
+//   M7: 採用した定量・定性basisをすべてevidenceUsedへ個別に出す（理由文だけにしない）。
+//   M8: hatazao等のboolean定性値をtrueのまま採用する（_kdHasTextで握りつぶさない）。
+//   M9: 対応app_event（stage_change→motivation, proposal_request_change→proposal,
+//       judgment_change→nextaction）の最新occurredAtを鮮度候補へ加える（level根拠にはしない）。
+//   M10: analog_memo_at／ai_*_at／discovery_dateの不正・未来を軸別に一貫してinvalid_date／
+//        future_dateとして障害化する（futureをstale_only_axisと誤表示しない）。
+//   M11: nowIsoが不正な場合は現在時刻へフォールバックせず{ok:false, code:'invalid_now'}を返す
+//        （決定性を保つ）。
+//
+// window公開はklogCapturePaste（第194弾契約）の非列挙propertyとして「本file」から付与する
+// （knowledge_log.js外からの付与は本series初。ChatGPT裁定§3で承認）。derive側は呼出し前に
+// klogCapturePasteの存在・型を検査し、不成立なら非throwで付与しない。
+//
+// 出力語彙に「確認済み」相当（3段階＝未着手／断片／把握を超える確定ステータス表現）を一切含めない。
+// app_eventは顧客行動・接触・合意の根拠にせず、変化来歴と鮮度だけに使う。
+// captured／AI根拠は出所を示すだけでhuman_confirmed相当へ昇格しない。
+// rawText引用は最大40文字のプレビューのみ（全文はUIの明示展開時にreadResult.entriesから）。
+(function(){
+  'use strict';
+
+  var FRESH_DAYS = {
+    contact:    { fresh: 30,  stale: 90  },
+    family:     { fresh: 90,  stale: 180 },
+    asset:      { fresh: 180, stale: 365 },
+    motivation: { fresh: 30,  stale: 60  },
+    proposal:   { fresh: 14,  stale: 45  },
+    nextaction: { fresh: 7,   stale: 30  }
+  };
+
+  // ---- 第2品質ゲートB7/D是正: 実field値域 ----
+  var VALID_STAGE = ['', '0', '1', '2', '3', '4', '5', '6', '7'];
+  var VALID_KAIWA = ['ピンポン', '立ち話', '玄関内', '連れ出し', '上り込み'];
+  var VALID_STANCE = ['pos', 'neg', 'unk'];
+  var VALID_REVISIT_JUDGE = ['', '追客開始', '継続訪問', '打ち切り'];
+  var VALID_PURSUIT_JUDGE_SEL = ['', 'A見込み', '追撃継続', '変化待ち', '打ち切り'];
+  var VALID_PROPOSAL_QUALITY = ['', '自然依頼', '許可依頼', '形だけ', '課長同行', '家族条件付き'];
+  var VALID_SETSUDO = ['北西', '北', '北東', '西', '東', '南西', '南', '南東'];
+  var VALID_HOUBUN = ['単独名義', '法人名義', '共有名義', '借地'];
+
+  // ===== 汎用ヘルパー =====
+  function _kdIsPlainObject(v){ return !!v && typeof v === 'object' && !Array.isArray(v); }
+  function _kdStr(v){ return (typeof v === 'string') ? v : ''; }
+  function _kdTrim(v){ return _kdStr(v).trim(); }
+  function _kdHasText(v){ return _kdTrim(v).length > 0; }
+  function _kdArr(v){ return Array.isArray(v) ? v : []; }
+  function _kdInDomain(v, domain){ return typeof v === 'string' && domain.indexOf(v) !== -1; }
+  // 第4品質ゲートB13/M16是正: 「非stringなら未入力」と黙って扱わない。undefined/null/空文字
+  // だけを「未提供」とし、number/object/boolean等の非string値は「提供済みだが型不正」として
+  // 区別する（provided=trueだが有効値かどうかは別途検証する）。
+  function _kdIsPresent(v){
+    if(v === null || v === undefined) return false;
+    if(typeof v === 'string') return v.trim().length > 0;
+    return true;
+  }
+  // 第4品質ゲートA是正: boolean専用field用。undefined/nullは欠落。string/number等の非booleanは
+  // 「提供済みだが型不正」。true相当への暗黙変換はしない。
+  function _kdEvalBooleanField(fieldName, axisLabel, rawVal){
+    if(rawVal === undefined || rawVal === null) return { present:false, valid:true, value:false, conflict:null };
+    if(typeof rawVal === 'boolean') return { present:true, valid:true, value:rawVal, conflict:null };
+    return { present:true, valid:false, value:false, conflict:{ type:'invalid_value', axis:axisLabel, field:fieldName, value:String(rawVal) } };
+  }
+  // 第4品質ゲートC是正: array入力とlegacy scalar string入力の両方をarray要素列へ正規化する
+  // （正規化のみ。値域検証・空要素除去・top-level型検証は呼出元で行う）。
+  function _kdNormalizeArrOrScalar(v){
+    if(Array.isArray(v)) return v;
+    if(_kdHasText(v)) return [v];
+    return [];
+  }
+
+  // 第5品質ゲートA是正: 「保存値として有効」(valid-unset＝空文字含む)と「basisとして選択済み」
+  // (非空の正規値)を分離するdomain state helper。undefined/null/空文字/空白文字はvalid-unset
+  // （present=false, valid=true, selected=false, conflict=null）。非空の正規stringはvalid-selected。
+  // 非stringまたは非空の値域外stringはinvalid_value。
+  function _kdEvalDomainField(fieldName, axisLabel, rawVal, domain){
+    if(rawVal === undefined || rawVal === null) return { present:false, valid:true, selected:false, value:'', conflict:null };
+    if(typeof rawVal === 'string'){
+      if(rawVal.trim() === '') return { present:false, valid:true, selected:false, value:rawVal, conflict:null };
+      if(domain.indexOf(rawVal) !== -1) return { present:true, valid:true, selected:true, value:rawVal, conflict:null };
+      return { present:true, valid:false, selected:false, value:rawVal, conflict:{ type:'invalid_value', axis:axisLabel, field:fieldName, value:rawVal } };
+    }
+    return { present:true, valid:false, selected:false, value:String(rawVal), conflict:{ type:'invalid_value', axis:axisLabel, field:fieldName, value:String(rawVal) } };
+  }
+
+  // 第198弾Fable統合是正12-5(b)/F6是正: scalar text fieldの型契約共通helper。
+  // undefined／null／''／whitespaceは未入力（present=false, conflict=null）。非空stringはselected。
+  // 非string提供済み（number等）はinvalid_value＋basis不採用（present=trueだがselected=false）。
+  // 対象は消費するcard直下の自由記述fieldだけ。行object内prop（revisits[].content等）は対象外
+  // （§8裁定どおり無音skipを維持）。
+  function _kdEvalTextField(fieldName, axisLabel, rawVal){
+    if(rawVal === undefined || rawVal === null) return { present:false, selected:false, value:'', conflict:null };
+    if(typeof rawVal === 'string'){
+      if(rawVal.trim() === '') return { present:false, selected:false, value:rawVal, conflict:null };
+      return { present:true, selected:true, value:rawVal, conflict:null };
+    }
+    return { present:true, selected:false, value:String(rawVal), conflict:{ type:'invalid_value', axis:axisLabel, field:fieldName, value:String(rawVal) } };
+  }
+
+  // 第198弾Fable統合是正12-5(a)/M22是正: collection(array)fieldの型契約共通helper。
+  // undefined／null：未入力（list:[]・conflict:null）。top-level非null非array：invalid_value＋空list。
+  // array内null／undefined要素：無音skip（疎配列として許容）。array内truthy非object要素：
+  // field単位1件のinvalid_value（dedupe）＋skip。呼出元でaxisLabelを指定するため、同一field
+  // （revisits／pursuits）でも軸ごとに個別呼出＝軸別帰属（全体obstaclesはsigにaxisを含むため
+  // 2行表示を仕様とする）。
+  function _kdEvalCollection(fieldName, axisLabel, rawVal){
+    if(rawVal === undefined || rawVal === null) return { list:[], conflict:null };
+    if(!Array.isArray(rawVal)){
+      return { list:[], conflict:{ type:'invalid_value', axis:axisLabel, field:fieldName, value:String(rawVal) } };
+    }
+    var list = [], hasInvalidElement = false;
+    rawVal.forEach(function(el){
+      if(el === null || el === undefined) return; // 疎配列要素: 無音skip
+      if(_kdIsPlainObject(el)){ list.push(el); }
+      else{ hasInvalidElement = true; } // truthy非object要素: skip（field単位1件で下でconflict化）
+    });
+    var conflict = hasInvalidElement ? { type:'invalid_value', axis:axisLabel, field:fieldName } : null;
+    return { list:list, conflict:conflict };
+  }
+
+  // date-only契約（YYYY-MM-DD・UTC round-trip）：discovery_date／family_headcount_at／
+  // proposal_req_at／revisits[].date／pursuits[].date／pursuits[].next_appo_date／
+  // revisit_judge_date／pursuit_judge_date
+  function _kdStrictDateOnly(v){
+    if(typeof v !== 'string') return false;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if(!m) return false;
+    var y = parseInt(m[1],10), mo = parseInt(m[2],10), d = parseInt(m[3],10);
+    if(mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+    var dt = new Date(Date.UTC(y, mo-1, d));
+    if(dt.getUTCFullYear() !== y || dt.getUTCMonth() !== (mo-1) || dt.getUTCDate() !== d) return false;
+    return true;
+  }
+  function _kdDateOnlyToUtcMs(v){
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    return Date.UTC(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+  }
+  // ISO UTC timestamp契約：analog_memo_at／ai_inheritance_at／ai_hearing_at／
+  // ai_motivation_at／ai_personality_at／klog・app_event occurredAt
+  function _kdStrictIsoUtc(v){
+    if(typeof v !== 'string' || v.length === 0) return false;
+    var d = new Date(v);
+    if(isNaN(d.getTime())) return false;
+    try{ return d.toISOString() === v; }catch(_e){ return false; }
+  }
+
+  // 第2品質ゲートC是正: JST（UTC+9固定）業務日。host timezoneに依存しない。
+  function _kdTodayJst(nowMs){
+    return new Date(nowMs + 9*3600000).toISOString().slice(0,10);
+  }
+  // date-only同士の暦日差（today - value。正=過去、0=当日、負=未来）。
+  function _kdCalendarDaysAgo(todayJstStr, dateOnlyStr){
+    if(!_kdStrictDateOnly(todayJstStr) || !_kdStrictDateOnly(dateOnlyStr)) return null;
+    return Math.round((_kdDateOnlyToUtcMs(todayJstStr) - _kdDateOnlyToUtcMs(dateOnlyStr)) / 86400000);
+  }
+  // ISO timestampのnowMsとの実時間差（日単位。正=過去、負=未来）。
+  function _kdIsoDaysAgo(nowMs, isoStr){
+    if(!_kdStrictIsoUtc(isoStr)) return null;
+    return (nowMs - new Date(isoStr).getTime()) / 86400000;
+  }
+
+  // 第6品質ゲートD是正: 表示用previewは(1)string以外は空 (2)外側whitespaceをtrim
+  // (3)改行分割後、最初の非空行を使用 (4)40文字超は従来どおり40文字+ellipsis (5)rawText本体は
+  // 変更しない、という契約に統一する。先頭改行・空白だけの行があっても後続の実内容を拾う。
+  function _kdPreview40(rawText){
+    var s = (typeof rawText === 'string') ? rawText : '';
+    var lines = s.split('\n');
+    var firstNonEmpty = '';
+    for(var i=0;i<lines.length;i++){
+      var t = lines[i].trim();
+      if(t.length > 0){ firstNonEmpty = t; break; }
+    }
+    return firstNonEmpty.length > 40 ? (firstNonEmpty.slice(0, 40) + '\u2026') : firstNonEmpty;
+  }
+
+  function _kdFreshnessFromDaysAgo(axisKey, daysAgo){
+    if(daysAgo === null || daysAgo === undefined) return '鮮度不明';
+    var th = FRESH_DAYS[axisKey];
+    if(daysAgo <= th.fresh) return 'fresh';
+    if(daysAgo <= th.stale) return 'stale';
+    return '要再確認';
+  }
+
+  // ===== klog由来根拠の整理 =====
+  function _kdIndexEntries(entries){
+    var byTheme = Object.create(null);
+    var byField = Object.create(null);
+    for(var i=0;i<entries.length;i++){
+      var e = entries[i];
+      // 第198弾Fable統合是正12-5(c)/F7是正: nonobject要素は要素単位でskipする（全体をderive_error
+      // にしない）。実read path（knowledgeReadV1射影）からは発生し得ないが、純関数としての堅牢化。
+      if(!e || typeof e !== 'object') continue;
+      if(e.kind === 'paste_capture' && typeof e.theme === 'string'){
+        if(!byTheme[e.theme]) byTheme[e.theme] = [];
+        byTheme[e.theme].push(e);
+      } else if(e.kind === 'app_event' && typeof e.field === 'string'){
+        if(!byField[e.field]) byField[e.field] = [];
+        byField[e.field].push(e);
+      }
+    }
+    return { byTheme: byTheme, byField: byField };
+  }
+  function _kdLatestOfTheme(byTheme, theme){
+    var list = byTheme[theme];
+    return (list && list.length > 0) ? list[0] : null;
+  }
+  function _kdLatestOfField(byField, field){
+    var list = byField[field];
+    return (list && list.length > 0) ? list[0] : null;
+  }
+  function _kdKlogEvidence(theme, entry){
+    return {
+      source:'klog', theme:theme, occurredAt:entry.occurredAt, entryId:entry.id,
+      preview:_kdPreview40(entry.rawText),
+      origin:'external_ai_paste', status:'captured', provenanceLabel:'外部AI貼付・未確認'
+    };
+  }
+  // 第6品質ゲートC是正: paste_captureを軸basisへ採用する前の共通有効性評価。
+  //   rawTextが空/空白だけ: invalid_value（evidence／reason自体を出さない。事実上「内容が
+  //   無い」ため出所確認の対象にもならない）
+  //   occurredAtが不正: invalid_date（evidenceは出所確認用に表示。level根拠使用時は断片cap）
+  //   occurredAtが未来: future_date（同上）
+  //   いずれも該当しない場合のみselected=trueとしlevel根拠・freshness候補に使ってよい。
+  function _kdKlogEvalBasis(entry, theme, axisLabel, nowMs){
+    var rawTextUsable = typeof entry.rawText === 'string' && entry.rawText.trim().length > 0;
+    if(!rawTextUsable){
+      return { hasContent:false, selected:false, daysAgo:null, conflict:{ type:'invalid_value', axis:axisLabel, field:'klog.'+theme+'.rawText' } };
+    }
+    if(!_kdStrictIsoUtc(entry.occurredAt)){
+      return { hasContent:true, selected:false, daysAgo:null, conflict:{ type:'invalid_date', axis:axisLabel, field:'klog.'+theme+'.occurredAt' } };
+    }
+    var d = _kdIsoDaysAgo(nowMs, entry.occurredAt);
+    if(d < 0){
+      return { hasContent:true, selected:false, daysAgo:null, conflict:{ type:'future_date', axis:axisLabel, field:'klog.'+theme } };
+    }
+    return { hasContent:true, selected:true, daysAgo:d, conflict:null };
+  }
+  function _kdFieldEvidence(fieldName, previewText, dateIso){
+    return { source:'card', field:fieldName, preview:_kdPreview40(String(previewText == null ? '' : previewText)), occurredAt: dateIso || null };
+  }
+  function _kdAiCardEvidence(field, previewText, atIso){
+    return { source:'ai_card', field:field, occurredAt: atIso || null, status:'ai_unconfirmed', preview:_kdPreview40(String(previewText == null ? '' : previewText)) };
+  }
+
+  // 第2品質ゲートM10是正: ISO timestamp fieldの検証を共通化する。非空で不正はinvalid_date、
+  // 有効だが未来はfuture_date（該当軸の断片cap対象）として呼出元へ通知する。
+  // 戻り値：{daysAgo, conflict:null|{type,axis,field}}
+  function _kdEvalIsoField(fieldName, axisLabel, rawVal, nowMs){
+    if(!_kdIsPresent(rawVal)) return { daysAgo: null, conflict: null };
+    if(!_kdStrictIsoUtc(rawVal)) return { daysAgo: null, conflict: { type:'invalid_date', axis:axisLabel, field:fieldName } };
+    var d = _kdIsoDaysAgo(nowMs, rawVal);
+    if(d < 0) return { daysAgo: null, conflict: { type:'future_date', axis:axisLabel, field:fieldName } };
+    return { daysAgo: d, conflict: null };
+  }
+  // date-only field版（discovery_date等の単発検証に使用。futureAllowedはnextaction軸専用）。
+  function _kdEvalDateOnlyField(fieldName, axisLabel, rawVal, todayJst, futureAllowed){
+    if(!_kdIsPresent(rawVal)) return { daysAgo: null, conflict: null, valid: null };
+    if(!_kdStrictDateOnly(rawVal)) return { daysAgo: null, conflict: { type:'invalid_date', axis:axisLabel, field:fieldName }, valid: false };
+    var d = _kdCalendarDaysAgo(todayJst, rawVal);
+    if(d < 0 && !futureAllowed) return { daysAgo: null, conflict: { type:'future_date', axis:axisLabel, field:fieldName }, valid: true, isFuture: true };
+    return { daysAgo: d, conflict: null, valid: true, isFuture: d < 0 };
+  }
+
+  // 第2品質ゲートA是正・第6品質ゲートB是正: pursuits[]の「current row」を決定する。
+  //   1. strict有効dateかつJST当日以前の行のうちdate最大（同日は配列index後方）を最新とする
+  //   2. 1が無ければ、date空または不正（strict有効な未来dateではない）の行のうち
+  //      content／rec／next_appo_dateのいずれかがある最後の行
+  //   3. strict有効な未来date行はcurrent候補から完全に除外する（1にも2にも入れない）
+  //   4. current rowが無ければnull
+  function _kdCurrentPursuit(pursuits, todayJst){
+    var withValidPastDate = [];
+    for(var i=0;i<pursuits.length;i++){
+      var p = pursuits[i];
+      if(p && _kdStrictDateOnly(p.date)){
+        var d = _kdCalendarDaysAgo(todayJst, p.date);
+        if(d !== null && d >= 0) withValidPastDate.push({ p:p, idx:i }); // JST当日以前だけ
+      }
+    }
+    if(withValidPastDate.length > 0){
+      withValidPastDate.sort(function(a, b){
+        if(a.p.date !== b.p.date) return a.p.date > b.p.date ? -1 : 1;
+        return b.idx - a.idx; // 同日は配列後方（idx大）を優先
+      });
+      return withValidPastDate[0].p;
+    }
+    for(var j=pursuits.length-1;j>=0;j--){
+      var pj = pursuits[j];
+      if(!pj) continue;
+      // strict有効な未来dateの行はfallback候補にもしない（date空・不正はfallback可）。
+      if(_kdStrictDateOnly(pj.date)){
+        var dj = _kdCalendarDaysAgo(todayJst, pj.date);
+        if(dj !== null && dj < 0) continue;
+      }
+      if(_kdHasText(pj.content) || _kdHasText(pj.rec) || _kdHasText(pj.next_appo_date)) return pj;
+    }
+    return null;
+  }
+
+  // ===== 軸1: 接触・関係（第2品質ゲートB6/M6是正・第198弾Fable統合是正12-2(c)/12-3(a)/12-5是正） =====
+  function _kdAxis1(card, idx, todayJst, nowMs){
+    var evidence = [], reasons = [], missing = [], stale = [], conflicts = [];
+    var daysAgoCandidates = [];
+
+    // 12-5(a)/M22是正: revisits／pursuitsの型契約（軸1専用評価。軸6とは別呼出＝軸別帰属）。
+    var revisitsEval1 = _kdEvalCollection('revisits', '接触・関係', card.revisits);
+    if(revisitsEval1.conflict) conflicts.push(revisitsEval1.conflict);
+    var revisits = revisitsEval1.list;
+    var pursuitsEval1 = _kdEvalCollection('pursuits', '接触・関係', card.pursuits);
+    if(pursuitsEval1.conflict) conflicts.push(pursuitsEval1.conflict);
+    var pursuits = pursuitsEval1.list;
+    var family = _kdArr(card.family);
+
+    // --- a) 実接触グループ: initial_content／strict有効revisits[].date／strict有効
+    //     pursuits[].date／family[].met===true。不正日付単独・空content単独・appo単独は対象外。
+    var initialContentEval = _kdEvalTextField('initial_content', '接触・関係', card.initial_content);
+    if(initialContentEval.conflict) conflicts.push(initialContentEval.conflict);
+    var hasInitialContent = initialContentEval.selected;
+    if(hasInitialContent){ evidence.push(_kdFieldEvidence('initial_content', card.initial_content)); reasons.push('初訪内容の記録あり'); }
+
+    // 第3品質ゲートB10是正→第198弾Fable統合是正12-3(a)で更新: strict有効かつJST厳密過去
+    // （d>0）の日付だけを実接触記録として採用する。当日（d===0）・未来（d<0）はどちらも対象外。
+    // 当日行は軸6（次回行動）側の有効予定として単一帰属し、翌日以降にd>0へ遷移して実接触化する
+    // （最大24時間の保守的な反映遅延。同一行の軸1／軸6二重採用を構造的に排除する）。
+    var validRevisitDates = [];
+    revisits.forEach(function(r){
+      if(r && _kdStrictDateOnly(r.date)){
+        var rd = _kdCalendarDaysAgo(todayJst, r.date);
+        if(rd !== null && rd > 0) validRevisitDates.push(r.date);
+      }
+    });
+    var hasValidRevisitDate = validRevisitDates.length > 0;
+    if(hasValidRevisitDate){
+      validRevisitDates.sort();
+      var latestRDate = validRevisitDates[validRevisitDates.length - 1];
+      evidence.push(_kdFieldEvidence('revisits.date', latestRDate, latestRDate));
+      reasons.push('再訪の実施記録あり');
+      daysAgoCandidates.push(_kdCalendarDaysAgo(todayJst, latestRDate));
+    }
+    // 不正なrevisits[].dateはinvalid_date障害（実接触には算入しない：B6）
+    revisits.forEach(function(r){ if(r && _kdHasText(r.date) && !_kdStrictDateOnly(r.date)){ conflicts.push({ type:'invalid_date', axis:'接触・関係', field:'revisits.date', value:r.date }); } });
+
+    var validPursuitDates = [];
+    pursuits.forEach(function(p){
+      if(p && _kdStrictDateOnly(p.date)){
+        var pdz = _kdCalendarDaysAgo(todayJst, p.date);
+        if(pdz !== null && pdz > 0) validPursuitDates.push(p.date);
+      }
+    });
+    var hasValidPursuitDate = validPursuitDates.length > 0;
+    if(hasValidPursuitDate){
+      validPursuitDates.sort();
+      var latestPDate = validPursuitDates[validPursuitDates.length - 1];
+      evidence.push(_kdFieldEvidence('pursuits.date', latestPDate, latestPDate));
+      reasons.push('追客訪問の実施記録あり（M6是正）');
+      daysAgoCandidates.push(_kdCalendarDaysAgo(todayJst, latestPDate));
+    }
+    pursuits.forEach(function(p){ if(p && _kdHasText(p.date) && !_kdStrictDateOnly(p.date)){ conflicts.push({ type:'invalid_date', axis:'接触・関係', field:'pursuits.date', value:p.date }); } });
+
+    var metFamily = family.filter(function(f){ return f && f.met === true; });
+    var hasFamilyMet = metFamily.length > 0;
+    if(hasFamilyMet){ evidence.push(_kdFieldEvidence('family.met', metFamily.map(function(f){ return f.name || '(氏名未入力)'; }).join('・'))); reasons.push('家族との対面記録あり'); }
+
+    var aOk = hasInitialContent || hasValidRevisitDate || hasValidPursuitDate || hasFamilyMet;
+
+    // --- b) 内容根拠グループ: initial_content_rec／revisits[].content・rec／
+    //     pursuits[].content・rec／valid kaiwa／analog_memo／general klog／ai_general（M6/F2是正）。
+    var initialRecEval = _kdEvalTextField('initial_content_rec', '接触・関係', card.initial_content_rec);
+    if(initialRecEval.conflict) conflicts.push(initialRecEval.conflict);
+    var hasInitialRec = initialRecEval.selected;
+    if(hasInitialRec){ evidence.push(_kdFieldEvidence('initial_content_rec', card.initial_content_rec)); reasons.push('録音要約の記録あり（M6是正）'); }
+
+    // 第6品質ゲートA是正→第198弾Fable統合是正12-3(a)で更新: revisits[].content/recは行単位で
+    // 評価する。同一行のdateがstrict有効かつJST当日以降（d<=0＝当日または未来）の場合、その行の
+    // content/recは接触内容basisへ使わない。date空・不正・厳密過去（d>0）の行は採用可。
+    var revisitContentTexts = [];
+    revisits.forEach(function(r){
+      if(!r) return;
+      if(_kdStrictDateOnly(r.date)){
+        var rcd = _kdCalendarDaysAgo(todayJst, r.date);
+        if(rcd !== null && rcd <= 0) return; // strict有効かつ当日・未来の行は内容basis対象外
+      }
+      if(_kdHasText(r.content)) revisitContentTexts.push(r.content);
+      if(_kdHasText(r.rec)) revisitContentTexts.push(r.rec);
+    });
+    var hasRevisitContent = revisitContentTexts.length > 0;
+    if(hasRevisitContent){ evidence.push(_kdFieldEvidence('revisits.content/rec', revisitContentTexts[revisitContentTexts.length-1])); reasons.push('再訪の内容記録あり'); }
+
+    var pursuitContentTexts = [];
+    pursuits.forEach(function(p){
+      if(!p) return;
+      if(_kdStrictDateOnly(p.date)){
+        var pcd = _kdCalendarDaysAgo(todayJst, p.date);
+        if(pcd !== null && pcd <= 0) return; // strict有効かつ当日・未来の行は内容basis対象外
+      }
+      if(_kdHasText(p.content)) pursuitContentTexts.push(p.content);
+      if(_kdHasText(p.rec)) pursuitContentTexts.push(p.rec);
+    });
+    var hasPursuitContent = pursuitContentTexts.length > 0;
+    if(hasPursuitContent){ evidence.push(_kdFieldEvidence('pursuits.content/rec', pursuitContentTexts[pursuitContentTexts.length-1])); reasons.push('追客訪問の内容記録あり（M6是正）'); }
+
+    var kaiwaVal = card.kaiwa;
+    var kaiwaTypeInvalid = _kdIsPresent(kaiwaVal) && !Array.isArray(kaiwaVal) && typeof kaiwaVal !== 'string';
+    var kaiwaList = _kdNormalizeArrOrScalar(kaiwaVal);
+    var validSeenKaiwa = Object.create(null), validKaiwa = [];
+    var kaiwaHasInvalidElement = false;
+    kaiwaList.forEach(function(k){
+      var kev = _kdEvalDomainField('kaiwa', '接触・関係', k, VALID_KAIWA);
+      if(kev.selected){ if(!validSeenKaiwa[kev.value]){ validSeenKaiwa[kev.value] = true; validKaiwa.push(kev.value); } }
+      else if(!kev.valid){ kaiwaHasInvalidElement = true; }
+      // kev.valid && !kev.selected（空文字要素）はvalid-unsetとして黙ってskipする。
+    });
+    var hasKaiwa = validKaiwa.length > 0;
+    if(hasKaiwa){ evidence.push(_kdFieldEvidence('kaiwa', validKaiwa.join('・'))); reasons.push('会話レベルの記録あり'); }
+    if(kaiwaTypeInvalid){ conflicts.push({ type:'invalid_value', axis:'接触・関係', field:'kaiwa', value: String(kaiwaVal) }); }
+    else if(kaiwaHasInvalidElement){ conflicts.push({ type:'invalid_value', axis:'接触・関係', field:'kaiwa' }); }
+
+    var analogEval = _kdEvalIsoField('analog_memo_at', '接触・関係', card.analog_memo_at, nowMs);
+    if(analogEval.conflict) conflicts.push(analogEval.conflict);
+    var analogMemoEval = _kdEvalTextField('analog_memo', '接触・関係', card.analog_memo);
+    if(analogMemoEval.conflict) conflicts.push(analogMemoEval.conflict);
+    var hasAnalogMemo = analogMemoEval.selected;
+    if(hasAnalogMemo){ evidence.push(_kdFieldEvidence('analog_memo', card.analog_memo, _kdHasText(card.analog_memo_at) ? card.analog_memo_at : null)); reasons.push('現地メモあり'); }
+    if(hasAnalogMemo && analogEval.daysAgo !== null) daysAgoCandidates.push(analogEval.daysAgo);
+
+    var generalKlog = _kdLatestOfTheme(idx.byTheme, 'general');
+    var generalKlogHasContent = false;
+    if(generalKlog){
+      var gkb = _kdKlogEvalBasis(generalKlog, 'general', '接触・関係', nowMs);
+      if(gkb.conflict) conflicts.push(gkb.conflict);
+      if(gkb.hasContent){
+        generalKlogHasContent = true;
+        evidence.push(_kdKlogEvidence('general', generalKlog));
+        reasons.push('戦略協議（一般）の貼付記録あり');
+        if(gkb.selected && gkb.daysAgo !== null) daysAgoCandidates.push(gkb.daysAgo);
+      }
+    }
+
+    // 第198弾Fable統合是正12-2(c)/F2是正: ai_general＋ai_general_atをgeneral klogと対称化する
+    // （bOk内容候補・ai_card evidence・invalid/future障害・freshness候補。空/whitespace/nonstringは
+    // basis不採用）。
+    var aiGeneralEval = _kdEvalTextField('ai_general', '接触・関係', card.ai_general);
+    if(aiGeneralEval.conflict) conflicts.push(aiGeneralEval.conflict);
+    var aiGeneralAtEval = _kdEvalIsoField('ai_general_at', '接触・関係', card.ai_general_at, nowMs);
+    if(aiGeneralAtEval.conflict) conflicts.push(aiGeneralAtEval.conflict);
+    var hasAiGeneral = aiGeneralEval.selected;
+    if(hasAiGeneral){
+      evidence.push(_kdAiCardEvidence('ai_general', card.ai_general, _kdHasText(card.ai_general_at) ? card.ai_general_at : null));
+      reasons.push('AI総合分析欄の記載あり（未確認情報）');
+      if(aiGeneralAtEval.daysAgo !== null) daysAgoCandidates.push(aiGeneralAtEval.daysAgo);
+    }
+
+    var bOk = hasInitialRec || hasRevisitContent || hasPursuitContent || hasKaiwa || hasAnalogMemo || generalKlogHasContent || hasAiGeneral;
+
+    if(!aOk) missing.push('実接触記録（初訪内容／有効な再訪日／有効な追客日／家族対面）');
+    if(!bOk) missing.push('内容根拠（録音要約／再訪内容／追客内容／会話レベル／現地メモ／一般ナレッジ／AI総合分析）');
+
+    var level = (aOk && bOk) ? '把握' : ((aOk || bOk) ? '断片' : '未着手');
+    daysAgoCandidates = daysAgoCandidates.filter(function(d){ return d !== null && d !== undefined; });
+    var minDaysAgo = daysAgoCandidates.length > 0 ? Math.min.apply(null, daysAgoCandidates) : null;
+    var freshness = _kdFreshnessFromDaysAgo('contact', minDaysAgo);
+    if(level === '把握' && (freshness === 'stale' || freshness === '要再確認')){ level = '断片'; stale.push({ axis:'接触・関係', lastEvidenceDaysAgo: minDaysAgo }); }
+    if(level === '把握' && conflicts.length > 0) level = '断片';
+    return { key:'contact', label:'接触・関係', level:level, freshness:freshness, reasons:reasons, evidenceUsed:evidence, missing:missing, staleEvidence:stale, conflicts:conflicts };
+  }
+
+  // ===== 軸2: 家族・意思決定者（第2品質ゲートB7是正: stance実値域検証・第198弾Fable統合是正12-5(a)） =====
+  function _kdAxis2(card, todayJst){
+    var evidence = [], reasons = [], missing = [], stale = [], conflicts = [];
+    // 12-5(a)/M22是正: familyの型契約（top-level非array→invalid_value＋空list、要素非object→
+    // field単位1件のinvalid_value＋skip）。
+    var familyEval = _kdEvalCollection('family', '家族・意思決定者', card.family);
+    if(familyEval.conflict) conflicts.push(familyEval.conflict);
+    var family = familyEval.list;
+    var namedFamily = family.filter(function(f){ return f && _kdHasText(f.name); });
+
+    // 第4品質ゲートA是正: family_headcount／family[].met/owner/kpはboolean専用契約。
+    var fhBoolEval = _kdEvalBooleanField('family_headcount', '家族・意思決定者', card.family_headcount);
+    if(fhBoolEval.conflict) conflicts.push(fhBoolEval.conflict);
+    var familyHeadcountTrue = fhBoolEval.valid && fhBoolEval.value === true;
+
+    namedFamily.forEach(function(f){
+      ['met', 'owner', 'kp'].forEach(function(bf){
+        var be = _kdEvalBooleanField('family.' + bf, '家族・意思決定者', f[bf]);
+        if(be.conflict) conflicts.push(Object.assign({ name: f.name }, be.conflict));
+      });
+    });
+    function _kdFamBool(f, key){ return typeof f[key] === 'boolean' && f[key] === true; }
+
+    var aOk = namedFamily.length > 0 || familyHeadcountTrue;
+    var decisionMakers = namedFamily.filter(function(f){ return _kdFamBool(f, 'owner') || _kdFamBool(f, 'kp'); });
+    var bOk = decisionMakers.length > 0;
+
+    // 第4品質ゲートB13是正: stance検証のgatingを_kdIsPresentへ変更（非string値を見逃さない）。
+    var stanceEvals = namedFamily.map(function(f){ return { f:f, ev:_kdEvalDomainField('family.stance', '家族・意思決定者', f.stance, VALID_STANCE) }; });
+    stanceEvals.forEach(function(se){ if(se.ev.conflict) conflicts.push(Object.assign({ name: se.f.name }, se.ev.conflict)); });
+    // cOk: met===true、または実値域内・選択済み(pos/neg)のstance（unk・未設定・値域外は対象外）
+    var contactedFamily = stanceEvals.filter(function(se){ return _kdFamBool(se.f, 'met') || (se.ev.selected && (se.ev.value === 'pos' || se.ev.value === 'neg')); }).map(function(se){ return se.f; });
+    var cOk = contactedFamily.length > 0;
+
+    if(namedFamily.length > 0){ evidence.push(_kdFieldEvidence('family', namedFamily.map(function(f){return f.name;}).join('・'))); reasons.push('家族構成の実名入力あり'); }
+    // 第4品質ゲートM15是正: family_headcountがaOkへ使われる場合、必ずevidenceへ出す。
+    if(namedFamily.length === 0 && familyHeadcountTrue){
+      evidence.push(_kdFieldEvidence('family_headcount', 'あり', _kdHasText(card.family_headcount_at) ? card.family_headcount_at : null));
+      reasons.push('家族人数の把握のみ（実名なし）');
+    }
+    if(decisionMakers.length > 0){ evidence.push(_kdFieldEvidence('family.owner/kp', decisionMakers.map(function(f){return f.name;}).join('・'))); reasons.push('決定者（owner／kp）の特定あり'); }
+    if(contactedFamily.length > 0){
+      evidence.push(_kdFieldEvidence('family.met/stance', contactedFamily.map(function(f){ return f.name + (_kdFamBool(f, 'met') ? '(対面)' : '(' + f.stance + ')'); }).join('・')));
+      reasons.push('家族との接触またはstance記録あり');
+    }
+
+    var negStance = namedFamily.filter(function(f){ return f.stance === 'neg'; });
+    negStance.forEach(function(f){ conflicts.push({ type:'family_negative_stance', axis:'家族・意思決定者', name:f.name, role:f.role || '' }); });
+
+    if(!aOk) missing.push('家族構成の実名入力');
+    if(aOk && !bOk) missing.push('決定者（owner／kp）の特定');
+    if(aOk && !cOk) missing.push('家族との接触またはstance');
+
+    var level = (aOk && bOk && cOk) ? '把握' : (aOk ? '断片' : '未着手');
+    var fhEval = _kdEvalDateOnlyField('family_headcount_at', '家族・意思決定者', card.family_headcount_at, todayJst, false);
+    if(fhEval.conflict) conflicts.push(fhEval.conflict);
+    var freshness = _kdFreshnessFromDaysAgo('family', fhEval.daysAgo);
+    if(level === '把握' && (freshness === 'stale' || freshness === '要再確認')){ level = '断片'; stale.push({ axis:'家族・意思決定者', lastEvidenceDaysAgo: fhEval.daysAgo }); }
+    if(level === '把握' && conflicts.length > 0) level = '断片';
+    return { key:'family', label:'家族・意思決定者', level:level, freshness:freshness, reasons:reasons, evidenceUsed:evidence, missing:missing, staleEvidence:stale, conflicts:conflicts };
+  }
+
+  // ===== 軸3: 相続・資産課題（第2品質ゲートM7/M8/M10是正） =====
+  function _kdAxis3(card, idx, todayJst, nowMs){
+    var quantFields = ['souteim','shisan_kibo','rosenka','m2','maguchi','kenpei_b','kenpei_y','chikunen'];
+    var qualStrFields = ['genjo','land_asset','jitaku','ryokuchi','old_rent','parking_lot','chishaku','youto'];
+    var evidence = [], reasons = [], missing = [], stale = [], conflicts = [];
+    var daysAgoCandidates = [];
+
+    var quantConflicts = [];
+    var quantHit = quantFields.filter(function(f){
+      var ev = _kdEvalTextField(f, '相続・資産課題', card[f]);
+      if(ev.conflict) quantConflicts.push(ev.conflict);
+      return ev.selected;
+    });
+    quantConflicts.forEach(function(c){ conflicts.push(c); });
+    quantHit.forEach(function(f){ evidence.push(_kdFieldEvidence(f, card[f])); });
+    if(quantHit.length > 0) reasons.push('定量項目（' + quantHit.join('・') + '）の入力あり');
+    var aOk = quantHit.length > 0;
+
+    // M7是正: 定性basisは採用したもの全てを個別にevidenceUsedへ出す。M8是正: hatazao(boolean)採用。
+    // 第198弾Fable統合是正12-5(b)/F6是正: quant8と同様にscalar text型契約を適用する。
+    var qualConflicts = [];
+    var qualHit = qualStrFields.filter(function(f){
+      var ev = _kdEvalTextField(f, '相続・資産課題', card[f]);
+      if(ev.conflict) qualConflicts.push(ev.conflict);
+      return ev.selected;
+    });
+    qualConflicts.forEach(function(c){ conflicts.push(c); });
+    qualHit.forEach(function(f){ evidence.push(_kdFieldEvidence(f, card[f])); });
+
+    // 第4品質ゲートC是正: setsudo/houbunはarray／legacy scalar stringの両方を受理し、
+    // 値域検証・空/null/非string要素の除外・stable dedupeを行う。invalid要素だけではbOkを
+    // 成立させず、valid要素と混在する場合は把握capする（conflictをbOk判定と独立して記録）。
+    function _kdNormalizeQualList(rawVal, domain, fieldName, axisLabel){
+      // 第5品質ゲートD是正: top-level型不正（number/boolean/plain object/function等、
+      // array・string以外）を空配列へ黙って変換せず、invalid_value障害として検出する。
+      var topLevelTypeInvalid = rawVal !== undefined && rawVal !== null && rawVal !== ''
+        && !Array.isArray(rawVal) && typeof rawVal !== 'string';
+      if(topLevelTypeInvalid){
+        return { valid: [], hasInvalidElement: true, conflict: { type:'invalid_value', axis:axisLabel, field:fieldName, value:String(rawVal) } };
+      }
+      var rawList = _kdNormalizeArrOrScalar(rawVal);
+      var validSeen = Object.create(null), validUniq = [];
+      var hasInvalidElement = false;
+      rawList.forEach(function(el){
+        if(typeof el === 'string' && domain.indexOf(el) !== -1){
+          if(!validSeen[el]){ validSeen[el] = true; validUniq.push(el); }
+        } else {
+          hasInvalidElement = true;
+        }
+      });
+      var conflict = (rawList.length > 0 && hasInvalidElement) ? { type:'invalid_value', axis:axisLabel, field:fieldName } : null;
+      return { valid: validUniq, hasInvalidElement: hasInvalidElement, conflict: conflict };
+    }
+    var setsudoRes = _kdNormalizeQualList(card.setsudo, VALID_SETSUDO, 'setsudo', '相続・資産課題');
+    var houbunRes = _kdNormalizeQualList(card.houbun, VALID_HOUBUN, 'houbun', '相続・資産課題');
+    if(setsudoRes.conflict) conflicts.push(setsudoRes.conflict);
+    if(houbunRes.conflict) conflicts.push(houbunRes.conflict);
+    if(setsudoRes.valid.length > 0){ evidence.push(_kdFieldEvidence('setsudo', setsudoRes.valid.join('・'))); }
+    if(houbunRes.valid.length > 0){ evidence.push(_kdFieldEvidence('houbun', houbunRes.valid.join('・'))); }
+
+    var hatazaoEval = _kdEvalBooleanField('hatazao', '相続・資産課題', card.hatazao);
+    if(hatazaoEval.conflict) conflicts.push(hatazaoEval.conflict);
+    var hasHatazao = hatazaoEval.valid && hatazaoEval.value === true;
+    if(hasHatazao){ evidence.push(_kdFieldEvidence('hatazao', '旗竿地')); }
+
+    var hasQualField = qualHit.length > 0 || setsudoRes.valid.length > 0 || houbunRes.valid.length > 0 || hasHatazao;
+    if(qualHit.length > 0 || hasHatazao || setsudoRes.valid.length > 0 || houbunRes.valid.length > 0){
+      var qualLabel = qualHit.concat(hasHatazao ? ['hatazao'] : []).concat(setsudoRes.valid.length ? ['setsudo'] : []).concat(houbunRes.valid.length ? ['houbun'] : []);
+      reasons.push('定性課題項目（' + qualLabel.join('・') + '）の入力あり');
+    }
+
+    var inheritanceKlog = _kdLatestOfTheme(idx.byTheme, 'inheritance');
+    var hearingKlog = _kdLatestOfTheme(idx.byTheme, 'hearing');
+    var inheritanceKlogHasContent = false, hearingKlogHasContent = false;
+    if(inheritanceKlog){
+      var ikb = _kdKlogEvalBasis(inheritanceKlog, 'inheritance', '相続・資産課題', nowMs);
+      if(ikb.conflict) conflicts.push(ikb.conflict);
+      if(ikb.hasContent){ inheritanceKlogHasContent = true; evidence.push(_kdKlogEvidence('inheritance', inheritanceKlog)); reasons.push('相続テーマの貼付記録あり'); if(ikb.selected && ikb.daysAgo !== null) daysAgoCandidates.push(ikb.daysAgo); }
+    }
+    if(hearingKlog){
+      var hkb3 = _kdKlogEvalBasis(hearingKlog, 'hearing', '相続・資産課題', nowMs);
+      if(hkb3.conflict) conflicts.push(hkb3.conflict);
+      if(hkb3.hasContent){ hearingKlogHasContent = true; evidence.push(_kdKlogEvidence('hearing', hearingKlog)); reasons.push('ヒアリングテーマの貼付記録あり'); if(hkb3.selected && hkb3.daysAgo !== null) daysAgoCandidates.push(hkb3.daysAgo); }
+    }
+
+    var aiInhEval = _kdEvalIsoField('ai_inheritance_at', '相続・資産課題', card.ai_inheritance_at, nowMs);
+    if(aiInhEval.conflict) conflicts.push(aiInhEval.conflict);
+    var aiInheritanceTextEval = _kdEvalTextField('ai_inheritance', '相続・資産課題', card.ai_inheritance);
+    if(aiInheritanceTextEval.conflict) conflicts.push(aiInheritanceTextEval.conflict);
+    var hasAiInheritance = aiInheritanceTextEval.selected;
+    if(hasAiInheritance){ evidence.push(_kdAiCardEvidence('ai_inheritance', card.ai_inheritance, _kdHasText(card.ai_inheritance_at) ? card.ai_inheritance_at : null)); reasons.push('AI相続分析欄の記載あり（未確認情報）'); if(aiInhEval.daysAgo !== null) daysAgoCandidates.push(aiInhEval.daysAgo); }
+
+    var aiHrEval = _kdEvalIsoField('ai_hearing_at', '相続・資産課題', card.ai_hearing_at, nowMs);
+    if(aiHrEval.conflict) conflicts.push(aiHrEval.conflict);
+    var aiHearingTextEval = _kdEvalTextField('ai_hearing', '相続・資産課題', card.ai_hearing);
+    if(aiHearingTextEval.conflict) conflicts.push(aiHearingTextEval.conflict);
+    var hasAiHearing = aiHearingTextEval.selected;
+    if(hasAiHearing){ evidence.push(_kdAiCardEvidence('ai_hearing', card.ai_hearing, _kdHasText(card.ai_hearing_at) ? card.ai_hearing_at : null)); reasons.push('AIヒアリング分析欄の記載あり（未確認情報）'); if(aiHrEval.daysAgo !== null) daysAgoCandidates.push(aiHrEval.daysAgo); }
+
+    var bOk = hasQualField || inheritanceKlogHasContent || hearingKlogHasContent || hasAiInheritance || hasAiHearing;
+
+    if(!aOk) missing.push('定量情報（相続財産規模・路線価・面積等）');
+    if(!bOk) missing.push('定性課題（現況・土地種別・老朽貸家等）またはヒアリング根拠');
+
+    var level = (aOk && bOk) ? '把握' : ((aOk || bOk) ? '断片' : '未着手');
+    daysAgoCandidates = daysAgoCandidates.filter(function(d){ return d !== null && d !== undefined; });
+    var minDaysAgo = daysAgoCandidates.length > 0 ? Math.min.apply(null, daysAgoCandidates) : null;
+    var freshness = _kdFreshnessFromDaysAgo('asset', minDaysAgo);
+    if(level === '把握' && (freshness === 'stale' || freshness === '要再確認')){ level='断片'; stale.push({axis:'相続・資産課題', lastEvidenceDaysAgo:minDaysAgo}); }
+    if(level === '把握' && conflicts.length > 0) level = '断片';
+    return { key:'asset', label:'相続・資産課題', level:level, freshness:freshness, reasons:reasons, evidenceUsed:evidence, missing:missing, staleEvidence:stale, conflicts:conflicts };
+  }
+
+  // ===== 軸4: 動機・心理（第2品質ゲートB7/M9是正） =====
+  function _kdAxis4(card, idx, nowMs){
+    var evidence = [], reasons = [], missing = [], stale = [], conflicts = [];
+    var daysAgoCandidates = [];
+
+    var stageEval = _kdEvalDomainField('stage', '動機・心理', card.stage, VALID_STAGE);
+    if(stageEval.conflict) conflicts.push(stageEval.conflict);
+    var aOk = stageEval.selected;
+    if(aOk){ evidence.push(_kdFieldEvidence('stage', stageEval.value)); reasons.push('段階（stage=' + stageEval.value + '）の設定あり（M7是正: 判定根拠として明示）'); }
+
+    var stageReasonEval = _kdEvalTextField('stage_reason', '動機・心理', card.stage_reason);
+    if(stageReasonEval.conflict) conflicts.push(stageReasonEval.conflict);
+    var hasStageReason = stageReasonEval.selected;
+    if(hasStageReason){ evidence.push(_kdFieldEvidence('stage_reason', card.stage_reason)); reasons.push('段階理由の記載あり'); }
+
+    var motivationKlog = _kdLatestOfTheme(idx.byTheme, 'motivation');
+    var personalityKlog = _kdLatestOfTheme(idx.byTheme, 'personality');
+    var motivationKlogHasContent = false, personalityKlogHasContent = false;
+    if(motivationKlog){
+      var mkb = _kdKlogEvalBasis(motivationKlog, 'motivation', '動機・心理', nowMs);
+      if(mkb.conflict) conflicts.push(mkb.conflict);
+      if(mkb.hasContent){ motivationKlogHasContent = true; evidence.push(_kdKlogEvidence('motivation', motivationKlog)); reasons.push('動機テーマの貼付記録あり'); if(mkb.selected && mkb.daysAgo !== null) daysAgoCandidates.push(mkb.daysAgo); }
+    }
+    if(personalityKlog){
+      var pkb = _kdKlogEvalBasis(personalityKlog, 'personality', '動機・心理', nowMs);
+      if(pkb.conflict) conflicts.push(pkb.conflict);
+      if(pkb.hasContent){ personalityKlogHasContent = true; evidence.push(_kdKlogEvidence('personality', personalityKlog)); reasons.push('人物像テーマの貼付記録あり'); if(pkb.selected && pkb.daysAgo !== null) daysAgoCandidates.push(pkb.daysAgo); }
+    }
+
+    var aiMoEval = _kdEvalIsoField('ai_motivation_at', '動機・心理', card.ai_motivation_at, nowMs);
+    if(aiMoEval.conflict) conflicts.push(aiMoEval.conflict);
+    var aiMotivationTextEval = _kdEvalTextField('ai_motivation', '動機・心理', card.ai_motivation);
+    if(aiMotivationTextEval.conflict) conflicts.push(aiMotivationTextEval.conflict);
+    var hasAiMotivation = aiMotivationTextEval.selected;
+    if(hasAiMotivation){ evidence.push(_kdAiCardEvidence('ai_motivation', card.ai_motivation, _kdHasText(card.ai_motivation_at) ? card.ai_motivation_at : null)); reasons.push('AI動機分析欄の記載あり（未確認情報）'); if(aiMoEval.daysAgo !== null) daysAgoCandidates.push(aiMoEval.daysAgo); }
+
+    var aiPeEval = _kdEvalIsoField('ai_personality_at', '動機・心理', card.ai_personality_at, nowMs);
+    if(aiPeEval.conflict) conflicts.push(aiPeEval.conflict);
+    var aiPersonalityTextEval = _kdEvalTextField('ai_personality', '動機・心理', card.ai_personality);
+    if(aiPersonalityTextEval.conflict) conflicts.push(aiPersonalityTextEval.conflict);
+    var hasAiPersonality = aiPersonalityTextEval.selected;
+    if(hasAiPersonality){ evidence.push(_kdAiCardEvidence('ai_personality', card.ai_personality, _kdHasText(card.ai_personality_at) ? card.ai_personality_at : null)); reasons.push('AI人物像分析欄の記載あり（未確認情報）'); if(aiPeEval.daysAgo !== null) daysAgoCandidates.push(aiPeEval.daysAgo); }
+
+    var bOk = hasStageReason || motivationKlogHasContent || personalityKlogHasContent || hasAiMotivation || hasAiPersonality;
+
+    if(!aOk) missing.push('段階（stage）の設定');
+    if(!bOk) missing.push('段階理由または動機・人物像の根拠');
+
+    var level;
+    if(aOk && bOk) level = '把握';
+    else if(aOk || bOk) level = '断片';
+    else level = '未着手';
+
+    // M9是正: 対応するapp_event(stage_change)の最新occurredAtを鮮度候補へ加える（level根拠にはしない）。
+    var stageEvent = _kdLatestOfField(idx.byField, 'stage');
+    if(stageEvent){
+      var evd = _kdIsoDaysAgo(nowMs, stageEvent.occurredAt);
+      if(evd !== null){ if(evd < 0){ conflicts.push({ type:'future_date', axis:'動機・心理', field:'app_event.stage' }); } else { daysAgoCandidates.push(evd); } }
+    }
+
+    daysAgoCandidates = daysAgoCandidates.filter(function(d){ return d !== null && d !== undefined; });
+    var minDaysAgo = daysAgoCandidates.length > 0 ? Math.min.apply(null, daysAgoCandidates) : null;
+    var freshness = _kdFreshnessFromDaysAgo('motivation', minDaysAgo);
+    if(level === '把握' && (freshness === 'stale' || freshness === '要再確認')){ level='断片'; stale.push({axis:'動機・心理', lastEvidenceDaysAgo:minDaysAgo}); }
+    if(level === '把握' && conflicts.length > 0) level = '断片';
+    return { key:'motivation', label:'動機・心理', level:level, freshness:freshness, reasons:reasons, evidenceUsed:evidence, missing:missing, staleEvidence:stale, conflicts:conflicts };
+  }
+
+  // ===== 軸5: 提案準備（第2品質ゲートB7/D/M9是正） =====
+  function _kdAxis5(card, idx, todayJst, nowMs){
+    var evidence = [], reasons = [], missing = [], stale = [], conflicts = [];
+    var daysAgoCandidates = [];
+
+    var reqRaw = card.proposal_req;
+    var reqTrue = reqRaw === true; // E是正: booleanだけ。undefined/null/falseは未取得
+    if(reqRaw !== undefined && reqRaw !== null && typeof reqRaw !== 'boolean'){
+      conflicts.push({ type:'invalid_value', axis:'提案準備', field:'proposal_req', value: String(reqRaw) });
+    }
+    var reqAtEval = _kdEvalDateOnlyField('proposal_req_at', '提案準備', card.proposal_req_at, todayJst, false);
+    if(reqAtEval.conflict) conflicts.push(reqAtEval.conflict);
+    var aOk = reqTrue && reqAtEval.valid === true && !reqAtEval.isFuture;
+    if(aOk){
+      evidence.push(_kdFieldEvidence('proposal_req', 'true'));
+      evidence.push(_kdFieldEvidence('proposal_req_at', card.proposal_req_at, card.proposal_req_at));
+      reasons.push('提案依頼あり（有効な日付記録つき）');
+      daysAgoCandidates.push(reqAtEval.daysAgo);
+    }
+    else if(reqTrue){
+      // 第198弾Fable統合是正12-4/F1是正: reqTrue単独を断片tierへ明示計上する。evidenceを出すことで
+      // stage_high_no_proposalの虚偽発火（依頼が実在するのに「未着手」表示）を解消する。
+      evidence.push(_kdFieldEvidence('proposal_req', 'true（日付記録なし）'));
+      reasons.push('提案依頼あり（日付記録なし）');
+    }
+
+    var qualityEval = _kdEvalDomainField('proposal_req_quality', '提案準備', card.proposal_req_quality, VALID_PROPOSAL_QUALITY);
+    if(qualityEval.conflict) conflicts.push(qualityEval.conflict);
+    var hasQuality = qualityEval.selected;
+    if(hasQuality){ evidence.push(_kdFieldEvidence('proposal_req_quality', qualityEval.value)); reasons.push('依頼の質（' + qualityEval.value + '）の記録あり'); }
+
+    // 第3品質ゲートM13/B12是正: hearing klogのoccurredAtをfreshness候補へ加える（未来はfuture_date
+    // 障害＋freshness候補から除外）。最新有効根拠を無視しない。第6品質ゲートC是正:
+    // _kdKlogEvalBasisで空白rawText・不正occurredAtも評価する。
+    var hearingKlog = _kdLatestOfTheme(idx.byTheme, 'hearing');
+    var hearingKlogHasContent = false;
+    if(hearingKlog){
+      var hkb5 = _kdKlogEvalBasis(hearingKlog, 'hearing', '提案準備', nowMs);
+      if(hkb5.conflict) conflicts.push(hkb5.conflict);
+      if(hkb5.hasContent){
+        hearingKlogHasContent = true;
+        evidence.push(_kdKlogEvidence('hearing', hearingKlog));
+        reasons.push('ヒアリングテーマの貼付記録あり');
+        if(hkb5.selected && hkb5.daysAgo !== null) daysAgoCandidates.push(hkb5.daysAgo);
+      }
+    }
+
+    var bOk = hasQuality || hearingKlogHasContent;
+
+    if(!aOk) missing.push('有効な提案依頼（proposal_req＋strict有効日付・未来日でない）');
+    if(!bOk) missing.push('依頼の質または素材（proposal_req_quality／ヒアリング根拠）');
+
+    if(reqTrue){
+      var fam = _kdArr(card.family);
+      var ownerKpIdentified = fam.some(function(f){ return f && (f.owner === true || f.kp === true) && _kdHasText(f.name); });
+      if(!ownerKpIdentified){ conflicts.push({ type:'proposal_req_no_owner_kp', axis:'提案準備' }); }
+    }
+
+    var level = (aOk && bOk) ? '把握' : ((aOk || bOk || reqTrue || (reqAtEval.conflict !== null)) ? '断片' : '未着手');
+
+    var proposalEvent = _kdLatestOfField(idx.byField, 'proposal_req');
+    if(proposalEvent){
+      var evd = _kdIsoDaysAgo(nowMs, proposalEvent.occurredAt);
+      if(evd !== null){ if(evd < 0){ conflicts.push({ type:'future_date', axis:'提案準備', field:'app_event.proposal_req' }); } else { daysAgoCandidates.push(evd); } }
+    }
+
+    daysAgoCandidates = daysAgoCandidates.filter(function(d){ return d !== null && d !== undefined; });
+    var minDaysAgo = daysAgoCandidates.length > 0 ? Math.min.apply(null, daysAgoCandidates) : null;
+    var freshness = _kdFreshnessFromDaysAgo('proposal', minDaysAgo);
+    if(level === '把握' && (freshness === 'stale' || freshness === '要再確認')){ level='断片'; stale.push({axis:'提案準備', lastEvidenceDaysAgo:minDaysAgo}); }
+    if(level === '把握' && conflicts.length > 0) level = '断片';
+    return { key:'proposal', label:'提案準備', level:level, freshness:freshness, reasons:reasons, evidenceUsed:evidence, missing:missing, staleEvidence:stale, conflicts:conflicts };
+  }
+
+  // ===== 軸6: 次回行動（第2品質ゲートA/B7/M9是正・第198弾Fable統合是正12-2/12-5是正） =====
+  function _kdAxis6(card, idx, todayJst, nowMs){
+    var evidence = [], reasons = [], missing = [], stale = [], conflicts = [];
+    var daysAgoCandidates = [];
+    var conflictSeen = Object.create(null);
+    function pushConflictOnce(c){ var sig = c.type+'|'+c.field+'|'+(c.value||''); if(!conflictSeen[sig]){ conflictSeen[sig]=true; conflicts.push(c); } }
+
+    // 12-5(a)/M22是正: revisits／pursuitsの型契約（軸6専用評価。軸1とは別呼出＝軸別帰属。
+    // 全体obstaclesはsigにaxisを含むため2行表示を仕様とする）。
+    var revisitsEval6 = _kdEvalCollection('revisits', '次回行動', card.revisits);
+    if(revisitsEval6.conflict) pushConflictOnce(revisitsEval6.conflict);
+    var revisits = revisitsEval6.list;
+    var pursuitsEval6 = _kdEvalCollection('pursuits', '次回行動', card.pursuits);
+    if(pursuitsEval6.conflict) pushConflictOnce(pursuitsEval6.conflict);
+    var pursuits = pursuitsEval6.list;
+
+    // 第3品質ゲートB9是正: JST暦日差dについて、d<=0（当日または未来）は有効な次回予定
+    // （fresh扱い）とし、d>0（厳密に過去）だけをcurrent pursuitのoverdue候補とする。
+    // 第198弾Fable統合是正12-3(a): 軸6側のこの規則は不変（当日は引き続き有効期日）。
+    var revisitEffectiveDates = [];
+    revisits.forEach(function(r){
+      if(!r) return;
+      if(_kdHasText(r.date) && !_kdStrictDateOnly(r.date)){ pushConflictOnce({ type:'invalid_date', axis:'次回行動', field:'revisits.date', value:r.date }); return; }
+      if(_kdStrictDateOnly(r.date)){
+        var d = _kdCalendarDaysAgo(todayJst, r.date);
+        if(d <= 0) revisitEffectiveDates.push(r.date); // 当日・未来はどちらも有効期日
+      }
+    });
+
+    // A是正: pursuitsは「current row」だけのnext_appo_dateを現在の期日候補にする。
+    // 12-3(a): current row選択自体のd>=0規則は不変（当日行がcurrentでもその行のdateは軸1へ入らない）。
+    var currentPursuit = _kdCurrentPursuit(pursuits, todayJst);
+    pursuits.forEach(function(p){
+      if(p && _kdHasText(p.next_appo_date) && !_kdStrictDateOnly(p.next_appo_date)){ pushConflictOnce({ type:'invalid_date', axis:'次回行動', field:'pursuits.next_appo_date', value:p.next_appo_date }); }
+      if(p && _kdHasText(p.date) && !_kdStrictDateOnly(p.date)){ pushConflictOnce({ type:'invalid_date', axis:'次回行動', field:'pursuits.date', value:p.date }); }
+    });
+    var pursuitEffectiveDate = null, pursuitOverdue = null;
+    if(currentPursuit && _kdStrictDateOnly(currentPursuit.next_appo_date)){
+      var pd = _kdCalendarDaysAgo(todayJst, currentPursuit.next_appo_date);
+      if(pd <= 0) pursuitEffectiveDate = currentPursuit.next_appo_date; // 当日・未来は有効期日
+      else pursuitOverdue = currentPursuit.next_appo_date; // d>0（厳密に過去）だけがoverdue
+    }
+
+    var futureDates = revisitEffectiveDates.concat(pursuitEffectiveDate ? [pursuitEffectiveDate] : []);
+    futureDates.sort();
+
+    var revisitJudgeEval = _kdEvalDomainField('revisit_judge', '次回行動', card.revisit_judge, VALID_REVISIT_JUDGE);
+    if(revisitJudgeEval.conflict) conflicts.push(revisitJudgeEval.conflict);
+    var revisitJudgeRaw = revisitJudgeEval.value;
+    var revisitJudgeDateEval = _kdEvalDateOnlyField('revisit_judge_date', '次回行動', card.revisit_judge_date, todayJst, false);
+    if(revisitJudgeDateEval.conflict) conflicts.push(revisitJudgeDateEval.conflict);
+
+    var pursuitJudgeEval = _kdEvalDomainField('pursuit_judge_sel', '次回行動', card.pursuit_judge_sel, VALID_PURSUIT_JUDGE_SEL);
+    if(pursuitJudgeEval.conflict) conflicts.push(pursuitJudgeEval.conflict);
+    var pursuitJudgeRaw = pursuitJudgeEval.value;
+    var pursuitJudgeDateEval = _kdEvalDateOnlyField('pursuit_judge_date', '次回行動', card.pursuit_judge_date, todayJst, false);
+    if(pursuitJudgeDateEval.conflict) conflicts.push(pursuitJudgeDateEval.conflict);
+
+    var hasRevisitJudgeDate = revisitJudgeDateEval.valid === true && !revisitJudgeDateEval.isFuture;
+    var hasPursuitJudgeDate = pursuitJudgeDateEval.valid === true && !pursuitJudgeDateEval.isFuture;
+
+    // 第4品質ゲートD是正: 判断値(選択済み・値域内)と判断日(strict有効・未来でない)の両方が揃った
+    // 場合だけを判断実績(pair)とする。単独判断日・単独判断値はincomplete_pairとし、aOkへ使わない
+    // （値域外はinvalid_valueを優先し、同一fieldでincomplete_pairと重複させない。第5品質ゲートA
+    // 是正: 空文字はvalid-unsetでありincomplete_pair判定の「値あり」には数えない）。
+    var hasRevisitJudge = revisitJudgeEval.selected && hasRevisitJudgeDate;
+    if(revisitJudgeEval.valid && revisitJudgeEval.selected !== hasRevisitJudgeDate){
+      conflicts.push({ type:'incomplete_pair', axis:'次回行動', field:'revisit_judge' });
+    }
+    var hasPursuitJudge = pursuitJudgeEval.selected && hasPursuitJudgeDate;
+    if(pursuitJudgeEval.valid && pursuitJudgeEval.selected !== hasPursuitJudgeDate){
+      conflicts.push({ type:'incomplete_pair', axis:'次回行動', field:'pursuit_judge_sel' });
+    }
+
+    // B15是正: aOkは「今日／未来の有効予定日」または「有効な判断値＋判断日のpair」だけで成立する。
+    // 判断日単独ではaOkへ使わない。第198弾Fable統合是正12-2(a): next_visit系（klog／ai_next_visit）は
+    // aOk（期日）には絶対に使わない。
+    var aOk = futureDates.length > 0 || hasRevisitJudge || hasPursuitJudge;
+
+    // 12-5(b)/F6是正: next_aimはscalar text契約（非string提供はinvalid_value＋basis不採用）。
+    var nextAimEval = _kdEvalTextField('next_aim', '次回行動', card.next_aim);
+    if(nextAimEval.conflict) conflicts.push(nextAimEval.conflict);
+    var hasNextAim = nextAimEval.selected;
+
+    // 第198弾Fable統合是正12-2(a)/B22是正: klog next_visitは狙い候補(bOk)・evidence・freshness候補
+    // のみに使う。期日(aOk)には絶対に使わない。whitespace/invalid/futureは既存klog契約どおり
+    // （futureは断片cap、evidenceは出所確認用に表示継続）。
+    var nextVisitKlog = _kdLatestOfTheme(idx.byTheme, 'next_visit');
+    var nextVisitKlogHasContent = false;
+    if(nextVisitKlog){
+      var nvkb = _kdKlogEvalBasis(nextVisitKlog, 'next_visit', '次回行動', nowMs);
+      if(nvkb.conflict) conflicts.push(nvkb.conflict);
+      if(nvkb.hasContent){
+        nextVisitKlogHasContent = true;
+        evidence.push(_kdKlogEvidence('next_visit', nextVisitKlog));
+        reasons.push('次回行動テーマの貼付記録あり');
+        if(nvkb.selected && nvkb.daysAgo !== null) daysAgoCandidates.push(nvkb.daysAgo);
+      }
+    }
+    // 12-2(b)/B22是正: ai_next_visit＋_atは他ai欄と同型（bOk候補・ai_card evidence・O・F）。
+    var aiNextVisitEval = _kdEvalTextField('ai_next_visit', '次回行動', card.ai_next_visit);
+    if(aiNextVisitEval.conflict) conflicts.push(aiNextVisitEval.conflict);
+    var aiNextVisitAtEval = _kdEvalIsoField('ai_next_visit_at', '次回行動', card.ai_next_visit_at, nowMs);
+    if(aiNextVisitAtEval.conflict) conflicts.push(aiNextVisitAtEval.conflict);
+    var hasAiNextVisit = aiNextVisitEval.selected;
+    if(hasAiNextVisit){
+      evidence.push(_kdAiCardEvidence('ai_next_visit', card.ai_next_visit, _kdHasText(card.ai_next_visit_at) ? card.ai_next_visit_at : null));
+      reasons.push('AI次回行動分析欄の記載あり（未確認情報）');
+      if(aiNextVisitAtEval.daysAgo !== null) daysAgoCandidates.push(aiNextVisitAtEval.daysAgo);
+    }
+
+    // next_visit系だけでは軸6を把握にしない（aOk除外により自動的に成立。有効期日または有効
+    // 判断pair＋next_visit内容の組合せで初めて把握になる）。
+    var bOk = hasNextAim || hasRevisitJudge || hasPursuitJudge || nextVisitKlogHasContent || hasAiNextVisit;
+
+    if(futureDates.length > 0){ evidence.push(_kdFieldEvidence('revisits.date/pursuits.next_appo_date(current)', futureDates[0], futureDates[0])); reasons.push('今日／未来の予定日あり'); }
+    if(hasNextAim){ evidence.push(_kdFieldEvidence('next_aim', card.next_aim)); reasons.push('次回の狙いの記載あり'); }
+    if(hasRevisitJudge){ evidence.push(_kdFieldEvidence('revisit_judge', revisitJudgeRaw + '（判断日：' + card.revisit_judge_date + '）', card.revisit_judge_date)); reasons.push('再訪判断（' + revisitJudgeRaw + '）の記録あり（判断日つき）'); }
+    if(hasPursuitJudge){ evidence.push(_kdFieldEvidence('pursuit_judge_sel', pursuitJudgeRaw + '（判断日：' + card.pursuit_judge_date + '）', card.pursuit_judge_date)); reasons.push('追客判断（' + pursuitJudgeRaw + '）の記録あり（判断日つき）'); }
+
+    if(!aOk) missing.push('有効な期日（未来のrevisits.date、または現在のpursuits.next_appo_date、または有効な判断pair）');
+    if(!bOk) missing.push('狙いまたは判断（next_aim／revisit_judge＋日付pair／pursuit_judge_sel＋日付pair／次回行動klog／AI次回行動欄）');
+
+    var isTerminalRevisit = revisitJudgeRaw === '打ち切り';
+    var isTerminalPursuit = pursuitJudgeRaw === '打ち切り';
+    if((isTerminalRevisit || isTerminalPursuit) && futureDates.length > 0){
+      conflicts.push({ type:'terminal_judge_with_future_appo', axis:'次回行動', judge: isTerminalPursuit ? 'pursuit_judge_sel' : 'revisit_judge' });
+    }
+    var discoveryEval = _kdEvalDateOnlyField('discovery_date', '次回行動', card.discovery_date, todayJst, false);
+    if(discoveryEval.conflict) conflicts.push(discoveryEval.conflict);
+    if(discoveryEval.valid){
+      if(hasPursuitJudgeDate && card.pursuit_judge_date < card.discovery_date){ conflicts.push({ type:'judge_before_discovery', axis:'次回行動', judge:'pursuit_judge_date' }); }
+      if(hasRevisitJudgeDate && card.revisit_judge_date < card.discovery_date){ conflicts.push({ type:'judge_before_discovery', axis:'次回行動', judge:'revisit_judge_date' }); }
+    }
+
+    var level = (aOk && bOk) ? '把握' : ((aOk || bOk) ? '断片' : '未着手');
+    if(hasRevisitJudgeDate && revisitJudgeDateEval.daysAgo !== null && !revisitJudgeDateEval.isFuture) daysAgoCandidates.push(revisitJudgeDateEval.daysAgo);
+    if(hasPursuitJudgeDate && pursuitJudgeDateEval.daysAgo !== null && !pursuitJudgeDateEval.isFuture) daysAgoCandidates.push(pursuitJudgeDateEval.daysAgo);
+
+    var freshness;
+    if(futureDates.length > 0){ freshness = 'fresh'; }
+    else{
+      daysAgoCandidates = daysAgoCandidates.filter(function(d){ return d !== null && d !== undefined; });
+      var minDaysAgo = daysAgoCandidates.length > 0 ? Math.min.apply(null, daysAgoCandidates) : null;
+      freshness = _kdFreshnessFromDaysAgo('nextaction', minDaysAgo);
+    }
+    if(pursuitOverdue){
+      if(level === '把握') level = '断片';
+      stale.push({ axis:'次回行動', overdue: [{ type:'pursuit', date: pursuitOverdue }] });
+    }
+    if(level === '把握' && conflicts.length > 0) level = '断片';
+    return { key:'nextaction', label:'次回行動', level:level, freshness:freshness, reasons:reasons, evidenceUsed:evidence, missing:missing, staleEvidence:stale, conflicts:conflicts, _overdue: pursuitOverdue ? [{ type:'pursuit', date: pursuitOverdue }] : [] };
+  }
+
+  // 軸6用: app_event(judgment_change)の鮮度反映はaxis6計算後に別途合成する（idxが必要なため）。
+  function _kdApplyNextActionAppEvent(ax6, idx, nowMs){
+    var revisitJudgeEvent = _kdLatestOfField(idx.byField, 'revisit_judge');
+    var pursuitJudgeEvent = _kdLatestOfField(idx.byField, 'pursuit_judge_sel');
+    var candidates = [];
+    var futureJudgmentConflictAdded = false;
+    [revisitJudgeEvent, pursuitJudgeEvent].forEach(function(ev){
+      if(!ev) return;
+      var d = _kdIsoDaysAgo(nowMs, ev.occurredAt);
+      if(d === null) return;
+      if(d < 0){
+        // 第4品質ゲートF是正: 複数のjudgment app_eventが同時に未来でも、軸内の同一
+        // future_date/次回行動/app_event.judgment conflictは1件だけに重複排除する。
+        if(!futureJudgmentConflictAdded){ ax6.conflicts.push({ type:'future_date', axis:'次回行動', field:'app_event.judgment' }); futureJudgmentConflictAdded = true; }
+      }
+      else{ candidates.push(d); }
+    });
+    if(ax6.freshness !== 'fresh' && candidates.length > 0){
+      var best = Math.min.apply(null, candidates);
+      var betterFreshness = _kdFreshnessFromDaysAgo('nextaction', best);
+      var order = { 'fresh':0, 'stale':1, '要再確認':2, '鮮度不明':3 };
+      if(order[betterFreshness] < order[ax6.freshness]) ax6.freshness = betterFreshness;
+    }
+    if(ax6.level === '把握' && ax6.conflicts.length > 0) ax6.level = '断片';
+  }
+
+  // ===== 障害・未解決リスト =====
+  function _kdBuildObstacles(card, axes, idx, readOk, nowIso, nowMs){
+    var obstacles = [];
+    var seen = Object.create(null);
+    function pushOnce(o){
+      var sig = o.type + '|' + (o.axis||'') + '|' + (o.field||'') + '|' + (o.name||'') + '|' + (o.judge||'') + '|' + (o.date||'') + '|' + (o.value||'');
+      if(seen[sig]) return;
+      seen[sig] = true;
+      obstacles.push(o);
+    }
+    if(!readOk){
+      pushOnce({ type:'klog_unreadable', text:'知識ログを読み取れません。貼付履歴の訂正が必要な可能性があります。' });
+      return obstacles;
+    }
+
+    axes.forEach(function(ax){ (ax.conflicts||[]).forEach(function(c){ pushOnce(c); }); });
+
+    // 第198弾Fable統合是正12-1(a)(b)(c)/B21+M23+F4部分: objection統一契約。
+    // klog: 既存klog basis評価契約(_kdKlogEvalBasis)を共有する。rawText空白のみ→invalid_valueのみ・
+    // active_objection不発（内容自体が無いため出所確認の対象にもならない）。occurredAt不正→
+    // active_objection発火＋invalid_date併記。occurredAt未来→active_objection発火＋future_date併記
+    // （内容実在の反論を日時不正だけで隠さない。日時の信頼性は独立障害として明示する）。
+    // tombstone後・別顧客move後の扱いはknowledgeReadV1のactive計算に従う（本関数は変更不要）。
+    var objectionSources = [];
+    var objectionKlog = _kdLatestOfTheme(idx.byTheme, 'objection');
+    if(objectionKlog){
+      var okb = _kdKlogEvalBasis(objectionKlog, 'objection', '障害・未解決', nowMs);
+      if(okb.conflict) pushOnce(okb.conflict);
+      if(okb.hasContent){
+        objectionSources.push({ kind:'klog', entryId: objectionKlog.id, occurredAt: objectionKlog.occurredAt, preview: _kdPreview40(objectionKlog.rawText), status:'captured', provenanceLabel:'外部AI貼付・未確認' });
+      }
+    }
+    // ai_objection: 本文はtrim後非空stringだけ有効（nonstring providedはinvalid_value）。
+    // ai_objection_atはstrict ISO UTC。invalid／futureはactive_objectionを維持し障害併記する。
+    var aiObjEval = _kdEvalTextField('ai_objection', '障害・未解決', card.ai_objection);
+    if(aiObjEval.conflict) pushOnce(aiObjEval.conflict);
+    var aiObjAtEval = _kdEvalIsoField('ai_objection_at', '障害・未解決', card.ai_objection_at, nowMs);
+    if(aiObjAtEval.conflict) pushOnce(aiObjAtEval.conflict);
+    if(aiObjEval.selected){
+      objectionSources.push({ kind:'ai_card', occurredAt: (card.ai_objection_at || null), preview: _kdPreview40(card.ai_objection), status:'ai_unconfirmed', provenanceLabel:'AI生成・未確認' });
+    }
+    // 同一source重複0（klogは最新1件、ai_cardは1件のみをそれぞれ集約するため構造的に重複しない）。
+    if(objectionSources.length > 0){
+      pushOnce({ type:'active_objection', sources: objectionSources });
+    }
+
+    var stageVal = card.stage;
+    if(typeof stageVal === 'string' && VALID_STAGE.indexOf(stageVal) !== -1){
+      var stageNum = parseInt(stageVal, 10);
+      if(!isNaN(stageNum) && stageNum >= 5){
+        var propAxis = null;
+        for(var i=0;i<axes.length;i++){ if(axes[i].key === 'proposal') propAxis = axes[i]; }
+        if(propAxis && propAxis.level === '未着手'){ pushOnce({ type:'stage_high_no_proposal', stage: stageVal, text:'要確認：段階が進んでいますが提案準備が未着手です。' }); }
+      }
+
+    }
+
+    axes.forEach(function(ax){ if(ax.staleEvidence && ax.staleEvidence.length > 0 && ax.level === '断片'){ ax.staleEvidence.forEach(function(se){ if(!se.overdue){ pushOnce({ type:'stale_only_axis', axis: ax.label, lastEvidenceDaysAgo: se.lastEvidenceDaysAgo != null ? se.lastEvidenceDaysAgo : null }); } }); } });
+    var nextAxis = null; for(var j=0;j<axes.length;j++){ if(axes[j].key==='nextaction') nextAxis = axes[j]; }
+    if(nextAxis && nextAxis._overdue && nextAxis._overdue.length > 0){ nextAxis._overdue.forEach(function(o){ pushOnce({ type:'next_action_overdue', kind:o.type, date:o.date }); }); }
+    return obstacles;
+  }
+
+  function _kdRecentChanges(idx){
+    var changes = [];
+    var fields = ['stage','revisit_judge','pursuit_judge_sel','proposal_req'];
+    fields.forEach(function(f){
+      var list = idx.byField[f];
+      if(list && list.length > 0){
+        var latest = list[0];
+        changes.push({ field:f, before: latest.before, after: latest.after, occurredAt: latest.occurredAt, eventType: latest.eventType });
+      }
+    });
+    return changes;
+  }
+
+  // deriveCardKnowledgeV1(card, readResult, nowIso): 同期・非throw・純関数。
+  // DOM／storage／toast／console非依存。nowIso注入で決定的。入力を変更しない（deep read only）。
+  // 第2品質ゲートM11是正: nowIsoが厳格ISO UTCでない場合は現在時刻へフォールバックせず
+  // {ok:false, code:'invalid_now'}を返す（決定性を保つ）。
+  function deriveCardKnowledgeV1(card, readResult, nowIso){
+    try{
+      var safeCard = _kdIsPlainObject(card) ? card : {};
+      if(typeof nowIso !== 'string' || nowIso.length === 0){
+        return { ok:false, code:'invalid_now', axes: [], obstacles: [], recentChanges: [], totalActive:0, truncated:false };
+      }
+      var nowDate = new Date(nowIso);
+      if(isNaN(nowDate.getTime()) || nowDate.toISOString() !== nowIso){
+        return { ok:false, code:'invalid_now', axes: [], obstacles: [], recentChanges: [], totalActive:0, truncated:false };
+      }
+      var nowMs = nowDate.getTime();
+      var todayJst = _kdTodayJst(nowMs);
+
+      if(!_kdIsPlainObject(readResult) || readResult.ok !== true){
+        var failCode = (_kdIsPlainObject(readResult) && typeof readResult.code === 'string') ? readResult.code : 'invalid_store';
+        return {
+          ok:false, code:failCode,
+          axes: [], obstacles: _kdBuildObstacles(safeCard, [], {byTheme:Object.create(null),byField:Object.create(null)}, false, nowIso, nowMs),
+          recentChanges: [], totalActive:0, truncated:false
+        };
+      }
+
+      var entries = Array.isArray(readResult.entries) ? readResult.entries : [];
+      var idx = _kdIndexEntries(entries);
+
+      var ax1 = _kdAxis1(safeCard, idx, todayJst, nowMs);
+      var ax2 = _kdAxis2(safeCard, todayJst);
+      var ax3 = _kdAxis3(safeCard, idx, todayJst, nowMs);
+      var ax4 = _kdAxis4(safeCard, idx, nowMs);
+      var ax5 = _kdAxis5(safeCard, idx, todayJst, nowMs);
+      var ax6 = _kdAxis6(safeCard, idx, todayJst, nowMs);
+      _kdApplyNextActionAppEvent(ax6, idx, nowMs);
+
+      var axes = [ax1, ax2, ax3, ax4, ax5, ax6];
+      // 第4品質ゲートF是正: 各軸のconflictsをstable signatureで重複排除する（軸内二重表示防止）。
+      axes.forEach(function(ax){
+        var seenC = Object.create(null), uniqC = [];
+        (ax.conflicts || []).forEach(function(c){
+          var sig = c.type + '|' + (c.axis||'') + '|' + (c.field||'') + '|' + (c.name||'') + '|' + (c.judge||'') + '|' + (c.value||'');
+          if(!seenC[sig]){ seenC[sig] = true; uniqC.push(c); }
+        });
+        ax.conflicts = uniqC;
+      });
+      var obstacles = _kdBuildObstacles(safeCard, axes, idx, true, nowIso, nowMs);
+      var recentChanges = _kdRecentChanges(idx);
+
+      var axesOut = axes.map(function(ax){
+        return { key:ax.key, label:ax.label, level:ax.level, freshness:ax.freshness, reasons:ax.reasons, evidenceUsed:ax.evidenceUsed, missing:ax.missing, staleEvidence:ax.staleEvidence, conflicts:ax.conflicts };
+      });
+
+      return { ok:true, code:'ok', axes:axesOut, obstacles:obstacles, recentChanges:recentChanges, totalActive: readResult.totalActive || 0, truncated: !!readResult.truncated };
+    }catch(_eAll){
+      return { ok:false, code:'derive_error', axes:[], obstacles:[], recentChanges:[], totalActive:0, truncated:false };
+    }
+  }
+
+  try{
+    if(typeof window !== 'undefined' && typeof window.klogCapturePaste === 'function'){
+      if(!Object.prototype.hasOwnProperty.call(window.klogCapturePaste, 'deriveCardKnowledgeV1')){
+        Object.defineProperty(window.klogCapturePaste, 'deriveCardKnowledgeV1', {
+          value: deriveCardKnowledgeV1, enumerable:false, writable:false, configurable:false
+        });
+      }
+    }
+  }catch(_eDefine){ /* 非throw: 付与できない場合は何もしない */ }
 })();
 
 
@@ -6118,6 +7325,465 @@ window.handleAiPaste = handleAiPaste;
     document.addEventListener('DOMContentLoaded', _khBindButton);
   } else {
     _khBindButton();
+  }
+})();
+
+// ===== 第198弾: card-knowledge-readonly（営業知識OS 弾5・L4 UI） =====
+// 目的：既存カードと対象顧客のknowledge logから、6軸＋障害・未解決を読取専用モーダルとして
+// read-time表示する。本ファイルはUI専任であり、knowledgeReadV1／deriveCardKnowledgeV1
+// （source/main/core/knowledge_log.js／knowledge_derive.js）だけを呼ぶ。
+// localStorage直接アクセス0・innerHTML 0・input/changeを発火するUI要素0・保存系APIへの
+// 呼出し0・hygiene/appEvent/backup系APIの呼出し0。新規windowグローバルは0（本IIFE内は
+// すべて非公開）。DAN198_CHATGPT_FINAL_DESIGN_RULING_20260802.md §4、および第1品質ゲート
+// 是正（DAN198_CHATGPT_FIRST_QUALITY_GATE_REPORT_20260802.md）を正本とする。
+// rawText・顧客氏名等は常にtextContent/createTextNodeで描画し、innerHTMLへは一切挿入しない。
+//
+// 第1品質ゲート是正内容（本file）：
+//   M2: klog根拠に「外部AI貼付・未確認」の出所表示を追加する。「確認済み」と誤認させる文言は使わない。
+//   M3: rawTextは初期40字previewのみ。klog根拠行に「全文を見る／閉じる」を追加し、open context内で
+//       保持したreadResult.entriesのentryId mapから全文を取得する（localStorage再読取0）。
+//   M4: 実コード確認済みの全field/groupについて、switchTab＋DOM確定後の_cardScrollToPanel(id,0)で
+//       該当panel位置まで戻れるようにする。未確認のfieldはtab遷移だけに留め、「完成」と偽装しない。
+(function () {
+  'use strict';
+
+  var KCV_BTN_ID = 'kcvOpenBtn';
+  var _kcvBound = false;
+  var _kcvOverlay = null;
+  var _kcvKeydownHandler = null;
+
+  var LEVEL_COLOR = { '未着手': '#a0aec0', '断片': '#d69e2e', '把握': '#2f855a' };
+  var FRESH_LABEL = { fresh: '新しい', stale: '古い', '要再確認': '要再確認', '鮮度不明': '鮮度不明' };
+  var FRESH_COLOR = { fresh: '#2f855a', stale: '#d69e2e', '要再確認': '#c53030', '鮮度不明': '#a0aec0' };
+
+  // 第1品質ゲートM4是正: 実コード（edit_shell.html／initial_visit_panel.html／revisit_panel.html／
+  // pursuit_panel.html／strategy_panel.html／form_core.js TFmap）を実読し、実在するDOM idだけを
+  // 登録する。値は[tab, panelId]。panelId=null=tab遷移のみ（該当panel idを実コード上で確認できな
+  // かったfieldであり、憶測でidを補わない）。klog由来（ai_*含む）はnavField不要（別経路で処理）。
+  // 未登録＝ナビゲーション導線なし（next_aim・stage_reasonはTFmap上id自体はあるか不在かに関わらず
+  // 対応panelを実HTML上で確認できなかったため、憶測を避けて意図的に導線を付けない。
+  // revisits.date/pursuits.next_appo_date結合evidenceはrevisits由来かpursuits由来か個別に
+  // 判別できないため、誤ったtabへの遷移を避けて意図的に導線を付けない）。
+  var FIELD_NAV_MAP = {
+    'initial_content':        ['ti', 'f_content'],
+    'initial_content_rec':    ['ti', 'f_content_rec'],
+    'kaiwa':                  ['ti', 'secMikomi'],
+    'family':                 ['ti', 'famTreeBox'],
+    'family.met':              ['ti', 'famTreeBox'],
+    'family.owner/kp':        ['ti', 'famTreeBox'],
+    'family.met/stance':      ['ti', 'famTreeBox'],
+    'family_headcount':       ['ti', null],
+    'souteim':                ['ti', 'f_soutei'],
+    'rosenka':                 ['ti', 'f_rosenka'],
+    'm2':                       ['ti', 'f_m2'],
+    'maguchi':                  ['ti', 'f_maguchi'],
+    'kenpei_b':                 ['ti', 'f_kb'],
+    'kenpei_y':                 ['ti', 'f_ky'],
+    'chikunen':                 ['ti', 'f_chiku'],
+    'genjo':                  ['ti', 'f_genjo'],
+    'land_asset':             ['ti', 'f_landasset'],
+    'jitaku':                 ['ti', 'f_jitaku'],
+    'ryokuchi':                ['ti', 'f_ryokuchi'],
+    'old_rent':                ['ti', 'f_oldrent'],
+    'parking_lot':             ['ti', 'f_parking'],
+    'chishaku':                 ['ti', 'f_chishaku'],
+    'youto':                    ['ti', 'f_youto'],
+    'hatazao':                  ['ti', 'hatazaoBtn'],
+    'setsudo':                  ['ti', null],
+    'houbun':                   ['ti', 'houbunPills'],
+    'analog_memo':            ['ta', 'f_analog'],
+    'proposal_req':           ['tr', 'proposalReqBtn'],
+    'proposal_req_quality':   ['tp', 'f_proposal_quality'],
+    'proposal_req_at':        ['tr', 'proposalReqBtn'],
+    'revisit_judge':          ['tr', 'f_rjdate'],
+    'pursuit_judge_sel':      ['tp', 'f_pjdate'],
+    'revisits.date':            ['tr', null],
+    'revisits.content/rec':     ['tr', null],
+    'pursuits.date':             ['tp', null],
+    'pursuits.content/rec':      ['tp', null],
+    'stage':                     ['tp', null]
+  };
+  var KLOG_TAB = 'ta';
+  var AI_FIELD_ANCHOR = { ai_inheritance: 'f_ai_inheritance', ai_hearing: 'f_ai_hearing', ai_motivation: 'f_ai_motivation', ai_personality: 'f_ai_personality', ai_general: 'f_ai_general', ai_next_visit: 'f_ai_next_visit' };
+  var AI_FIELD_THEME = { ai_inheritance: 'inheritance', ai_hearing: 'hearing', ai_motivation: 'motivation', ai_personality: 'personality', ai_general: 'general', ai_next_visit: 'next_visit' };
+
+  // ---- 安全なDOM構築ヘルパー（innerHTMLは一切使わない・hygiene _khEl と同型） ----
+  function _kcvEl(tag, opts) {
+    var el = document.createElement(tag);
+    opts = opts || {};
+    if (opts.className) el.className = opts.className;
+    if (opts.text !== undefined) el.textContent = opts.text;
+    if (opts.style) { for (var k in opts.style) { if (Object.prototype.hasOwnProperty.call(opts.style, k)) el.style[k] = opts.style[k]; } }
+    if (opts.attrs) { for (var a in opts.attrs) { if (Object.prototype.hasOwnProperty.call(opts.attrs, a)) el.setAttribute(a, opts.attrs[a]); } }
+    if (opts.onclick) el.addEventListener('click', opts.onclick);
+    return el;
+  }
+
+  function _kcvCloseOverlay() {
+    if (_kcvOverlay && _kcvOverlay.parentNode) { _kcvOverlay.parentNode.removeChild(_kcvOverlay); }
+    _kcvOverlay = null;
+    if (_kcvKeydownHandler) { document.removeEventListener('keydown', _kcvKeydownHandler); _kcvKeydownHandler = null; }
+  }
+
+  function _kcvBuildShell(title) {
+    _kcvCloseOverlay();
+    var overlay = _kcvEl('div', {
+      attrs: { id: 'kcvOverlay' },
+      style: { position: 'fixed', left: '0', top: '0', right: '0', bottom: '0', background: 'rgba(0,0,0,0.45)', zIndex: '9999', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }
+    });
+    var card = _kcvEl('div', { style: { background: 'white', borderRadius: '10px', maxWidth: '560px', width: '100%', maxHeight: '88vh', overflowY: 'auto', padding: '14px', boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontFamily: 'inherit' } });
+    var head = _kcvEl('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } });
+    head.appendChild(_kcvEl('div', { text: title, style: { fontSize: '15px', fontWeight: '700', color: '#2d3748' } }));
+    head.appendChild(_kcvEl('button', { text: '\u2715', attrs: { type: 'button', 'aria-label': '閉じる' }, style: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#718096' }, onclick: _kcvCloseOverlay }));
+    card.appendChild(head);
+    var body = _kcvEl('div', {});
+    card.appendChild(body);
+    overlay.appendChild(card);
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) _kcvCloseOverlay(); });
+    document.body.appendChild(overlay);
+    _kcvOverlay = overlay;
+    _kcvKeydownHandler = function (ev) { if (ev.key === 'Escape') _kcvCloseOverlay(); };
+    document.addEventListener('keydown', _kcvKeydownHandler);
+    return body;
+  }
+
+  function _kcvCurrentCustomerId() {
+    try { return (typeof cur !== 'undefined' && cur && cur.id) ? String(cur.id) : null; } catch (_e) { return null; }
+  }
+  function _kcvDeepCopy(v) {
+    try { return JSON.parse(JSON.stringify(v)); } catch (_e) { return null; }
+  }
+  function _kcvCurrentIsDirty() {
+    try { return !!(typeof isDirty !== 'undefined' && isDirty); } catch (_e) { return false; }
+  }
+
+  // ---- 段階chip（タップで展開） ----
+  function _kcvRenderAxisChip(container, axisResult, ctx) {
+    var wrap = _kcvEl('div', { style: { border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '8px', overflow: 'hidden' } });
+    var headRow = _kcvEl('div', { attrs: { role: 'button', tabindex: '0' }, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', cursor: 'pointer', background: '#f7fafc' } });
+    var leftBox = _kcvEl('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
+    var dot = _kcvEl('span', { style: { display: 'inline-block', width: '9px', height: '9px', borderRadius: '50%', background: LEVEL_COLOR[axisResult.level] || '#a0aec0' } });
+    leftBox.appendChild(dot);
+    leftBox.appendChild(_kcvEl('span', { text: axisResult.label, style: { fontSize: '13px', fontWeight: '700', color: '#2d3748' } }));
+    leftBox.appendChild(_kcvEl('span', { text: axisResult.level, style: { fontSize: '11px', color: LEVEL_COLOR[axisResult.level] || '#718096', fontWeight: '700' } }));
+    headRow.appendChild(leftBox);
+    var freshBadge = _kcvEl('span', { text: FRESH_LABEL[axisResult.freshness] || axisResult.freshness, style: { fontSize: '11px', color: FRESH_COLOR[axisResult.freshness] || '#718096', border: '1px solid ' + (FRESH_COLOR[axisResult.freshness] || '#cbd5e0'), borderRadius: '10px', padding: '1px 8px' } });
+    headRow.appendChild(freshBadge);
+    wrap.appendChild(headRow);
+
+    var detail = _kcvEl('div', { style: { display: 'none', padding: '10px', borderTop: '1px solid #e2e8f0' } });
+    var expanded = false;
+    headRow.addEventListener('click', function () {
+      expanded = !expanded;
+      detail.style.display = expanded ? 'block' : 'none';
+      if (expanded && detail.childNodes.length === 0) _kcvFillAxisDetail(detail, axisResult, ctx);
+    });
+    wrap.appendChild(detail);
+    container.appendChild(wrap);
+  }
+
+  function _kcvSectionLabel(text) {
+    return _kcvEl('div', { text: text, style: { fontSize: '11px', fontWeight: '700', color: '#718096', marginTop: '8px', marginBottom: '3px' } });
+  }
+
+  // 第1品質ゲートM4是正: navSpecは[tab, panelIdOrNull]。panelId有りならDOM確定後に
+  // _cardScrollToPanel(id,0)を呼ぶ。panelId無しはtab遷移のみに留め「panelへ戻れる」と偽装しない。
+  function _kcvNavigateTo(navSpec) {
+    _kcvCloseOverlay();
+    try {
+      var tab = navSpec && navSpec[0], panelId = navSpec && navSpec[1];
+      if (!tab) return;
+      if (typeof switchTab === 'function') switchTab(tab);
+      if (panelId && typeof _cardScrollToPanel === 'function') {
+        // switchTabのDOM反映（display切替）を待ってからscrollする。
+        setTimeout(function () { try { _cardScrollToPanel(panelId, 0); } catch (_e2) {} }, 0);
+      }
+    } catch (_eNav) { /* 遷移失敗はUIを壊さない範囲で無視する（読取専用機能のため） */ }
+  }
+  function _kcvNavigateToKlog(theme) {
+    _kcvCloseOverlay();
+    try {
+      if (typeof switchTab === 'function') switchTab(KLOG_TAB);
+      if (typeof switchStrategyTab === 'function') switchStrategyTab(theme);
+    } catch (_eNav) { /* noop */ }
+  }
+  function _kcvNavigateToAi(field) {
+    _kcvCloseOverlay();
+    try {
+      if (typeof switchTab === 'function') switchTab(KLOG_TAB);
+      if (typeof switchStrategyTab === 'function') switchStrategyTab(AI_FIELD_THEME[field] || 'general');
+      var anchor = AI_FIELD_ANCHOR[field];
+      if (anchor && typeof _cardScrollToPanel === 'function') {
+        setTimeout(function () { try { _cardScrollToPanel(anchor, 0); } catch (_e2) {} }, 0);
+      }
+    } catch (_eNav) { /* noop */ }
+  }
+
+  // 第1品質ゲートM3是正: rawText全文表示。open context内のentryIdMapからentryを引き、
+  // textContentで表示するだけ（localStorage再読取0・innerHTML 0）。
+  function _kcvRenderEvidenceRow(container, ev, ctx) {
+    var row = _kcvEl('div', { style: { fontSize: '12px', color: '#2d3748', background: '#f7fafc', border: '1px solid #edf2f7', borderRadius: '6px', padding: '6px 8px', marginBottom: '4px' } });
+
+    if (ev.source === 'klog') {
+      var metaRow = _kcvEl('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '2px' } });
+      metaRow.appendChild(_kcvEl('span', { text: '戦略協議・' + ev.theme + '\u3000' + (typeof _fmtStamp === 'function' ? _fmtStamp(ev.occurredAt) : ev.occurredAt), style: { fontSize: '10px', color: '#a0aec0' } }));
+      // M2: 出所表示（外部AI貼付・未確認）。「確認済み」と誤認させない。
+      metaRow.appendChild(_kcvEl('span', { text: '\ud83e\udd16 外部AI貼付・未確認', style: { fontSize: '10px', color: '#b7791f', background: '#fffaf0', border: '1px solid #feebc8', borderRadius: '8px', padding: '0 6px' } }));
+      row.appendChild(metaRow);
+
+      var previewEl = _kcvEl('div', { text: ev.preview, style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' } });
+      row.appendChild(previewEl);
+
+      var fullShown = false;
+      var entry = ctx.entryIdMap ? ctx.entryIdMap[ev.entryId] : null;
+      var btnRow = _kcvEl('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' } });
+      if (entry) {
+        var toggleBtn = _kcvEl('button', {
+          text: '\u25bc 全文を見る', attrs: { type: 'button' },
+          style: { fontSize: '11px', padding: '3px 7px', border: '1px solid #cbd5e0', borderRadius: '4px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' },
+          onclick: function () {
+            fullShown = !fullShown;
+            previewEl.textContent = fullShown ? entry.rawText : ev.preview;
+            toggleBtn.textContent = fullShown ? '\u25b2 閉じる' : '\u25bc 全文を見る';
+          }
+        });
+        btnRow.appendChild(toggleBtn);
+      }
+      var navBtn = _kcvEl('button', {
+        text: '\u2192 該当箇所へ', attrs: { type: 'button' },
+        style: { fontSize: '11px', padding: '3px 7px', border: '1px solid #cbd5e0', borderRadius: '4px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' },
+        onclick: function () { _kcvNavigateToKlog(ev.theme); }
+      });
+      btnRow.appendChild(navBtn);
+      row.appendChild(btnRow);
+    } else if (ev.source === 'ai_card') {
+      var metaRow2 = _kcvEl('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '2px' } });
+      metaRow2.appendChild(_kcvEl('span', { text: 'AI分析欄：' + ev.field + (ev.occurredAt ? ('\u3000' + (typeof _fmtStamp === 'function' ? _fmtStamp(ev.occurredAt) : ev.occurredAt)) : ''), style: { fontSize: '10px', color: '#a0aec0' } }));
+      metaRow2.appendChild(_kcvEl('span', { text: '\ud83e\udd16 AI生成・未確認', style: { fontSize: '10px', color: '#b7791f', background: '#fffaf0', border: '1px solid #feebc8', borderRadius: '8px', padding: '0 6px' } }));
+      row.appendChild(metaRow2);
+      row.appendChild(_kcvEl('div', { text: ev.preview, style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }));
+      var navBtn2 = _kcvEl('button', {
+        text: '\u2192 該当箇所へ', attrs: { type: 'button' },
+        style: { marginTop: '4px', fontSize: '11px', padding: '3px 7px', border: '1px solid #cbd5e0', borderRadius: '4px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' },
+        onclick: function () { _kcvNavigateToAi(ev.field); }
+      });
+      row.appendChild(navBtn2);
+    } else {
+      row.appendChild(_kcvEl('div', { text: 'カード項目：' + ev.field, style: { fontSize: '10px', color: '#a0aec0', marginBottom: '2px' } }));
+      row.appendChild(_kcvEl('div', { text: ev.preview, style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }));
+      var navSpec = FIELD_NAV_MAP[ev.field];
+      if (navSpec) {
+        var navBtn3 = _kcvEl('button', {
+          text: navSpec[1] ? '\u2192 該当箇所へ' : '\u2192 該当タブへ', attrs: { type: 'button' },
+          style: { marginTop: '4px', fontSize: '11px', padding: '3px 7px', border: '1px solid #cbd5e0', borderRadius: '4px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' },
+          onclick: function () { _kcvNavigateTo(navSpec); }
+        });
+        row.appendChild(navBtn3);
+      }
+    }
+    container.appendChild(row);
+  }
+
+  function _kcvFillAxisDetail(detail, axisResult, ctx) {
+    if (axisResult.reasons && axisResult.reasons.length > 0) {
+      detail.appendChild(_kcvSectionLabel('判定理由'));
+      var reasonsBox = _kcvEl('div', { style: { fontSize: '12px', color: '#4a5568' } });
+      axisResult.reasons.forEach(function (r) { reasonsBox.appendChild(_kcvEl('div', { text: '\u30fb' + r })); });
+      detail.appendChild(reasonsBox);
+    }
+    if (axisResult.evidenceUsed && axisResult.evidenceUsed.length > 0) {
+      detail.appendChild(_kcvSectionLabel('採用根拠'));
+      axisResult.evidenceUsed.forEach(function (ev) { _kcvRenderEvidenceRow(detail, ev, ctx); });
+    }
+    if (axisResult.missing && axisResult.missing.length > 0) {
+      detail.appendChild(_kcvSectionLabel('不足'));
+      var missBox = _kcvEl('div', { style: { fontSize: '12px', color: '#718096' } });
+      axisResult.missing.forEach(function (m) { missBox.appendChild(_kcvEl('div', { text: '\u30fb' + m })); });
+      detail.appendChild(missBox);
+    }
+    if (axisResult.staleEvidence && axisResult.staleEvidence.length > 0) {
+      detail.appendChild(_kcvSectionLabel('古い根拠'));
+      var staleBox = _kcvEl('div', { style: { fontSize: '12px', color: '#d69e2e' } });
+      axisResult.staleEvidence.forEach(function (s) {
+        var txt = (s.lastEvidenceDaysAgo !== undefined && s.lastEvidenceDaysAgo !== null) ? ('最終根拠：約' + Math.round(s.lastEvidenceDaysAgo) + '日前') : (s.overdue ? '期日超過あり' : '古い根拠のみ');
+        staleBox.appendChild(_kcvEl('div', { text: '\u30fb' + txt }));
+      });
+      detail.appendChild(staleBox);
+    }
+    if (axisResult.conflicts && axisResult.conflicts.length > 0) {
+      detail.appendChild(_kcvSectionLabel('矛盾'));
+      var confBox = _kcvEl('div', { style: { fontSize: '12px', color: '#c53030' } });
+      axisResult.conflicts.forEach(function (c) { confBox.appendChild(_kcvEl('div', { text: '\u30fb' + _kcvObstacleText(c) })); });
+      detail.appendChild(confBox);
+    }
+    if ((!axisResult.reasons || axisResult.reasons.length === 0) && (!axisResult.evidenceUsed || axisResult.evidenceUsed.length === 0)) {
+      detail.appendChild(_kcvEl('div', { text: 'この軸に該当する記録はまだありません。', style: { fontSize: '12px', color: '#a0aec0' } }));
+    }
+  }
+
+  var OBSTACLE_TEXT = {
+    klog_unreadable: function (o) { return o.text || '知識ログを読み取れません。'; },
+    family_negative_stance: function (o) { return '要確認：' + (o.role || '家族') + '（' + (o.name || '') + '）が消極的な意向を示しています。'; },
+    // 第198弾Fable統合是正12-1(c)＋第8品質ゲート限定是正G1/G2:
+    // sources（出所・日時・preview・provenanceLabel＝未確認ラベル）を日本語表示する。
+    // G1是正: 通常のevidence行と同様に「外部AI貼付・未確認」「AI生成・未確認」を明示する。
+    // provenanceLabelがtrim後非空ならその値を使用し、無ければkindからfallbackする
+    // （「確認済み」という語は使用しない）。
+    active_objection: function (o) {
+      var srcs = Array.isArray(o.sources) ? o.sources : [];
+      if (srcs.length === 0) return '要確認：反対意見に関する記録があります。';
+      var parts = srcs.map(function (s) {
+        var label = s.kind === 'klog' ? '戦略協議貼付' : (s.kind === 'ai_card' ? 'AI分析欄' : '記録');
+        var provenance;
+        if (typeof s.provenanceLabel === 'string' && s.provenanceLabel.trim() !== '') {
+          provenance = s.provenanceLabel;
+        } else if (s.kind === 'klog') {
+          provenance = '外部AI貼付・未確認';
+        } else if (s.kind === 'ai_card') {
+          provenance = 'AI生成・未確認';
+        } else {
+          provenance = '未確認記録';
+        }
+        // G2是正: occurredAtがtruthyでも_fmtStampが空文字を返す場合（不正日時）があるため、
+        // 整形結果のtrim後非空を確認してから採用する。それ以外・_fmtStamp不在時のraw値も
+        // 非空stringでなければ「日時不明」にfallbackし、source説明を空欄にしない。
+        var dateStr;
+        if (!s.occurredAt) {
+          dateStr = '日時不明';
+        } else if (typeof _fmtStamp === 'function') {
+          var fmted = _fmtStamp(s.occurredAt);
+          dateStr = (typeof fmted === 'string' && fmted.trim() !== '') ? fmted : '日時不明';
+        } else {
+          dateStr = (typeof s.occurredAt === 'string' && s.occurredAt.trim() !== '') ? s.occurredAt : '日時不明';
+        }
+        return label + '（' + provenance + '）' + '\u3000' + dateStr + (s.preview ? '\u3000「' + s.preview + '」' : '');
+      });
+      return '要確認：反対意見の記録があります（' + parts.join('／') + '）。';
+    },
+    stage_high_no_proposal: function (o) { return o.text; },
+    proposal_req_no_owner_kp: function () { return '要確認：提案依頼はありますが、決定者（owner／kp）が未特定です。'; },
+    terminal_judge_with_future_appo: function (o) { return '要確認：' + (o.judge === 'pursuit_judge_sel' ? '追客判断' : '再訪判断') + 'は「打ち切り」ですが、未来の予定があります。'; },
+    judge_before_discovery: function () { return '要確認：判断日が初訪日より前になっています。'; },
+    invalid_date: function (o) { return '要確認：' + (o.field || '日付項目') + 'の日付形式が不正です。'; },
+    invalid_value: function (o) { return '要確認：' + (o.field || '項目') + 'が想定される値域外です' + (o.value ? '（値：' + o.value + '）' : '') + '。'; },
+    future_date: function (o) { return '要確認：' + (o.field || '日時項目') + 'が未来日時になっています。'; },
+    incomplete_pair: function (o) { return '要確認：' + (o.field || '判断') + 'は判断値と判断日の両方が揃っていません。'; },
+    // 第198弾Fable統合是正12-6(a)/F3是正: deriveの実出力キー(lastEvidenceDaysAgo)基準へ修正。
+    stale_only_axis: function (o) { return '要確認：' + o.axis + 'の根拠が古いままです' + ((o.lastEvidenceDaysAgo !== undefined && o.lastEvidenceDaysAgo !== null) ? '（最終根拠：約' + Math.round(o.lastEvidenceDaysAgo) + '日前）' : '') + '。'; },
+    next_action_overdue: function (o) { return '要確認：次回予定（追客）の期日（' + o.date + '）を過ぎています。'; }
+  };
+  function _kcvObstacleText(o) {
+    var f = OBSTACLE_TEXT[o.type];
+    return f ? f(o) : '要確認：詳細不明の項目があります。';
+  }
+
+  function _kcvRenderObstacles(container, obstacles) {
+    container.appendChild(_kcvSectionLabel('不足・要再確認・矛盾・障害'));
+    if (!obstacles || obstacles.length === 0) {
+      container.appendChild(_kcvEl('div', { text: '現時点で特筆すべき障害・矛盾はありません。', style: { fontSize: '12px', color: '#a0aec0', marginBottom: '6px' } }));
+      return;
+    }
+    var list = _kcvEl('div', { style: { marginBottom: '6px' } });
+    obstacles.forEach(function (o) {
+      list.appendChild(_kcvEl('div', { text: '\u26a0 ' + _kcvObstacleText(o), style: { fontSize: '12px', color: '#c53030', padding: '3px 0' } }));
+    });
+    container.appendChild(list);
+  }
+
+  var EVENT_FIELD_LABEL = { stage: '段階', revisit_judge: '再訪判断', pursuit_judge_sel: '追客判断', proposal_req: '提案依頼' };
+  function _kcvRenderRecentChanges(container, recentChanges) {
+    container.appendChild(_kcvSectionLabel('直近の変化（担当者操作の記録。顧客の言動そのものではありません）'));
+    if (!recentChanges || recentChanges.length === 0) {
+      container.appendChild(_kcvEl('div', { text: '直近の変化はありません。', style: { fontSize: '12px', color: '#a0aec0' } }));
+      return;
+    }
+    recentChanges.forEach(function (c) {
+      var label = EVENT_FIELD_LABEL[c.field] || c.field;
+      var stamp = (typeof _fmtStamp === 'function') ? _fmtStamp(c.occurredAt) : c.occurredAt;
+      container.appendChild(_kcvEl('div', { text: label + '：' + (c.before || '(空)') + ' \u2192 ' + (c.after || '(空)') + '\u3000' + stamp, style: { fontSize: '12px', color: '#4a5568', padding: '2px 0' } }));
+    });
+  }
+
+  function _kcvRenderMain() {
+    var customerId = _kcvCurrentCustomerId();
+    var body = _kcvBuildShell('\ud83e\udded 現状ナレッジ');
+
+    if (!customerId) {
+      body.appendChild(_kcvEl('div', { text: '顧客カードを開いてからご利用ください。', style: { padding: '10px 2px', fontSize: '13px', color: '#718096' } }));
+      return;
+    }
+
+    var ctx = {
+      customerId: customerId,
+      cardSnapshot: _kcvDeepCopy((typeof cur !== 'undefined') ? cur : null) || { id: customerId },
+      dirtyAtOpen: _kcvCurrentIsDirty(),
+      nowIso: new Date().toISOString(),
+      entryIdMap: Object.create(null) // M3: open context内のentryId→entry map（localStorage再読取0のため）
+    };
+
+    if (ctx.dirtyAtOpen) {
+      body.appendChild(_kcvEl('div', { text: '\u26a0 未保存の変更を含みます。', style: { fontSize: '12px', color: '#d69e2e', background: '#fffaf0', border: '1px solid #feebc8', borderRadius: '6px', padding: '6px 8px', marginBottom: '10px' } }));
+    }
+
+    var readResult, deriveResult;
+    try {
+      readResult = (window.klogCapturePaste && typeof window.klogCapturePaste.knowledgeReadV1 === 'function')
+        ? window.klogCapturePaste.knowledgeReadV1(ctx.customerId)
+        : { ok: false, code: 'module_unavailable' };
+    } catch (_eRead) { readResult = { ok: false, code: 'module_unavailable' }; }
+
+    if (readResult && readResult.ok === true && Array.isArray(readResult.entries)) {
+      for (var i = 0; i < readResult.entries.length; i++) {
+        var en = readResult.entries[i];
+        if (en && en.id) ctx.entryIdMap[en.id] = en;
+      }
+    }
+
+    try {
+      deriveResult = (window.klogCapturePaste && typeof window.klogCapturePaste.deriveCardKnowledgeV1 === 'function')
+        ? window.klogCapturePaste.deriveCardKnowledgeV1(ctx.cardSnapshot, readResult, ctx.nowIso)
+        : { ok: false, code: 'module_unavailable', axes: [], obstacles: [], recentChanges: [] };
+    } catch (_eDerive) { deriveResult = { ok: false, code: 'module_unavailable', axes: [], obstacles: [], recentChanges: [] }; }
+
+    if (!deriveResult || deriveResult.ok !== true) {
+      var readFailCodes = { invalid_store: 1, storage_read_failed: 1, duplicate_entry_id: 1, derived_cycle: 1, invalid_argument: 1 };
+      var msg = (deriveResult && deriveResult.code === 'invalid_now') ? '表示基準時刻を確認できないため、現状ナレッジを表示できません。'
+        : (deriveResult && readFailCodes[deriveResult.code]) ? '知識ログを読み取れませんでした。貼付履歴の訂正が必要な可能性があります。'
+        : '現状ナレッジを表示できませんでした。';
+      body.appendChild(_kcvEl('div', { text: msg, style: { padding: '10px 2px', fontSize: '13px', color: '#c53030' } }));
+      if (deriveResult && Array.isArray(deriveResult.obstacles) && deriveResult.obstacles.length > 0) {
+        _kcvRenderObstacles(body, deriveResult.obstacles);
+      }
+      return;
+    }
+
+    var axesBox = _kcvEl('div', { style: { marginBottom: '6px' } });
+    deriveResult.axes.forEach(function (ax) { _kcvRenderAxisChip(axesBox, ax, ctx); });
+    body.appendChild(axesBox);
+
+    if (deriveResult.truncated) {
+      body.appendChild(_kcvEl('div', { text: '\u203b 直近200件の記録のみで判定しています（全' + deriveResult.totalActive + '件）。', style: { fontSize: '11px', color: '#a0aec0', marginBottom: '6px' } }));
+    }
+
+    _kcvRenderObstacles(body, deriveResult.obstacles);
+    _kcvRenderRecentChanges(body, deriveResult.recentChanges);
+
+    body.appendChild(_kcvEl('div', { text: '\u203b 記録日時は貼付・保存が行われた時刻であり、出来事そのものが起きた時刻とは限りません。klog根拠は外部AI貼付の未確認情報です。', style: { fontSize: '10px', color: '#cbd5e0', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #edf2f7' } }));
+    body.appendChild(_kcvEl('div', { text: '\u203b 当日の訪問記録は翌日から接触実績に反映されます。', style: { fontSize: '10px', color: '#cbd5e0', marginTop: '2px' } }));
+  }
+
+  function _kcvOnButtonClick() { _kcvRenderMain(); }
+  function _kcvBindButton() {
+    if (_kcvBound) return;
+    var btn = document.getElementById(KCV_BTN_ID);
+    if (!btn) return;
+    btn.addEventListener('click', _kcvOnButtonClick);
+    _kcvBound = true;
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _kcvBindButton);
+  } else {
+    _kcvBindButton();
   }
 })();
 
@@ -16905,6 +18571,8 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
             <button onclick="closeCardMenu();showSetup()">⚙ 初期設定</button>
             <button onclick="closeCardMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル</button>
+            <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
+            <button id="kcvOpenBtn" onclick="closeCardMenu()">🧭 現状ナレッジ</button>
           </div>
         </div>
         <button id="cardPrintBtn" onclick="openPrintModal()" title="印刷（カード・家族・戦略を選択）" style="background:#0d9488;color:white;border:1px solid rgba(255,255,255,0.25);border-radius:6px;font-size:15px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">🖨</button>
