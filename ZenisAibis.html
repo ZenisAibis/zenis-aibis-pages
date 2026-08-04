@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.95";
+var APP_VERSION = "v10.97";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3680,6 +3680,36 @@ function doSaveCards(cb) {
       return true;
     }
 
+    // 第199弾: confirmation_pin（軸別確認ピン／human_confirmed化）。author/origin/realmは他既知
+    // kindと同型の厳格検査。axisKeyは既存derive6key限定（_KLOG_CONFIRMATION_AXIS_KEYS・本ファイル
+    // 末尾第199弾節で定義）。confirm/revokeでstatus・evidenceRefs件数・links.corrects必須性が
+    // 異なる。evidenceRefs shapeはproducer側と_klogValidateConfirmationEvidenceRefs(Shape)を
+    // 共有し、書込・読取の二重実装を避ける（同ファイル末尾で定義・hoistingにより本関数から参照可）。
+    // 未知の将来field追加はここでは拒否しない（読取寛容・書込厳格はconfirmationApplyV1側で担保）。
+    if(entry.kind === 'confirmation_pin'){
+      if(entry.author !== 'self') return false;
+      if(entry.origin !== 'knowledge_card_view') return false;
+      if(entry.realm !== 'app') return false;
+      if(_KLOG_CONFIRMATION_AXIS_KEYS.indexOf(entry.axisKey) === -1) return false;
+      if(entry.action === 'confirm'){
+        if(entry.status !== 'human_confirmed') return false;
+        if(!_klogValidateConfirmationEvidenceRefs(entry.evidenceRefs, 1, 6)) return false;
+        if(Object.prototype.hasOwnProperty.call(entry, 'links')){
+          if(!_klogIsPlainObject(entry.links)) return false;
+          if(Object.prototype.hasOwnProperty.call(entry.links, 'corrects') && !_klogNonEmptyString(entry.links.corrects)) return false;
+        }
+        return true;
+      }
+      if(entry.action === 'revoke'){
+        if(entry.status !== 'human_edited') return false;
+        if(!Array.isArray(entry.evidenceRefs) || entry.evidenceRefs.length !== 0) return false;
+        if(!_klogIsPlainObject(entry.links)) return false;
+        if(!_klogNonEmptyString(entry.links.corrects)) return false;
+        return true;
+      }
+      return false;
+    }
+
     // 将来kind: hygieneの直接対象外だが、最低限の共通契約（linksがあればplain object・
     // derivedFromがあれば非空文字列）は満たす必要がある。ここを満たせない場合はfail-closed。
     if(Object.prototype.hasOwnProperty.call(entry, 'links')){
@@ -4290,31 +4320,46 @@ function doSaveCards(cb) {
     return out;
   }
 
+  // 私設ヘルパー: confirmation_pinエントリの読取専用射影（第199弾C2）。
+  function _klogProjectConfirmationPin199(e){
+    var out = { id:e.id, occurredAt:e.occurredAt, recordedAt:e.recordedAt, axisKey:e.axisKey, action:e.action, evidenceRefs:e.evidenceRefs };
+    if(Object.prototype.hasOwnProperty.call(e, 'links') && e.links) out.links = e.links;
+    return out;
+  }
+
   // knowledgeReadV1(customerId): 同期・非throw・純読取。手順：
   //   1) 対象顧客store全件読取 2) 既存validatorで全件検証 3) 既存_klogComputeActiveで
   //   active計算 4) activeなpaste_capture／app_eventを収集 5) occurredAt降順・同値は
   //   recordedAt降順・さらに同値はid降順の決定的tie-breakでソート 6) active計算「後」に
   //   最新200件へcap 7) totalActive／truncatedを返す。invalid時は段階を出さずfail-closed
   //   （自動修復・上書きをしない）。
+  //   第199弾C2追加: pins（activeなconfirmation_pin全件・cap対象外・entriesと同じ決定的順）と
+  //   activeIdList（cap適用前の全active entry id配列。knowledge_derive.js側でcap外klog参照を
+  //   参照不能と誤判定しないために必要）を追加する。既存entries/totalActive/truncatedの意味・
+  //   並び・capは一切変更しない。
   function knowledgeReadV1(customerId){
     try{
       if(typeof customerId !== 'string' || customerId.length === 0){
-        return { ok:false, code:'invalid_argument', entries:[], totalActive:0, truncated:false };
+        return { ok:false, code:'invalid_argument', entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[] };
       }
       var read = _klogReadArrayDetailed(customerId);
       if(!read.ok){
-        return { ok:false, code:read.reason, entries:[], totalActive:0, truncated:false };
+        return { ok:false, code:read.reason, entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[] };
       }
       var comp = _klogComputeActive(read.arr, customerId);
       if(!comp.ok){
-        return { ok:false, code:comp.reason, entries:[], totalActive:0, truncated:false };
+        return { ok:false, code:comp.reason, entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[] };
       }
 
+      var activeIdList = [];
       var candidates = [];
+      var pinCandidates = [];
       for(var i=0;i<read.arr.length;i++){
         var e = read.arr[i];
         if(!comp.activeIds[e.id]) continue;
+        activeIdList.push(e.id);
         if(e.kind === 'paste_capture' || e.kind === 'app_event') candidates.push(e);
+        else if(e.kind === 'confirmation_pin') pinCandidates.push(e);
       }
 
       // active計算後のcap前にソート（cap後の200件が「最新」であることを保証するため、
@@ -4339,13 +4384,208 @@ function doSaveCards(cb) {
         entries.push(ee.kind === 'paste_capture' ? _klogProjectPasteCapture198(ee) : _klogProjectAppEvent198(ee));
       }
 
-      return { ok:true, code:'ok', entries:entries, totalActive:totalActive, truncated:truncated };
+      // 第199弾C2: pinsはentriesと同じ決定的tie-break（occurredAt desc→recordedAt desc→id desc）
+      // でソートするが、cap200の対象外とする（pin件数は実用上微小のため全件返す）。
+      pinCandidates.sort(function(a, b){
+        if(a.occurredAt > b.occurredAt) return -1;
+        if(a.occurredAt < b.occurredAt) return 1;
+        if(a.recordedAt > b.recordedAt) return -1;
+        if(a.recordedAt < b.recordedAt) return 1;
+        if(a.id > b.id) return -1;
+        if(a.id < b.id) return 1;
+        return 0;
+      });
+      var pins = [];
+      for(var p=0;p<pinCandidates.length;p++){ pins.push(_klogProjectConfirmationPin199(pinCandidates[p])); }
+
+      return { ok:true, code:'ok', entries:entries, totalActive:totalActive, truncated:truncated, pins:pins, activeIdList:activeIdList };
     }catch(_eAll){
-      return { ok:false, code:'invalid_store', entries:[], totalActive:0, truncated:false };
+      return { ok:false, code:'invalid_store', entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[] };
     }
   }
   Object.defineProperty(klogCapturePaste, 'knowledgeReadV1', {
     value: knowledgeReadV1, enumerable:false, writable:false, configurable:false
+  });
+
+  // ===== 第199弾: knowledge-confirmation-pin（営業知識OS 弾6） =====
+  // 目的：既存「現状ナレッジ」6軸に対し、担当者が表示済み根拠を1〜6件選び、明示操作で
+  // 「確認済み」にする最小機能を追加する。ZENIS_AIBIS_KNOWLEDGE_OS_V4_2_20260802.md §17.5、
+  // DAN199_FABLE5_CONFIRMATION_PIN_DESIGN_AUDIT_REPORT_20260803.md C1〜C8を正本とする。
+  // 確認ピンは事実を固定するロックではなく、指定日時に担当者が表示根拠を確認した履歴である。
+  // 取消はrevoke entryの追記のみで行い、既存entryを削除・上書きしない（append-only）。
+  // 新規windowグローバルは0件。既存window.klogCapturePaste（第194弾契約）だけを維持し、
+  // 本弾の1API(confirmationApplyV1)は同関数オブジェクトへ非列挙propertyとして付与する。
+  // 呼出元はsource/main/ui/knowledge_card_view.jsのみ（他既存API・呼出元は無改変）。
+  var _KLOG_CONFIRMATION_AXIS_KEYS = ['contact', 'family', 'asset', 'motivation', 'proposal', 'nextaction'];
+  var _klogConfirmationQuotaSuppressed = false; // confirmation専用Quota抑止。paste_capture／app_eventとは完全分離
+  var _klogConfirmationLast = Object.create(null); // dedupe直近記録: key=customerId|action|axisKey|correctsId|evidenceRefs指紋 -> ts
+
+  // 私設ヘルパー: evidenceRef 1件のshape検証（読取validator・書込APIの双方から共有）。
+  //   klog: {source:'klog', entryId(非空string), occurredAt(非空string), preview(string)}
+  //   card／ai_card: {source:'card'|'ai_card', field(非空string), occurredAt(null|非空string), preview(string)}
+  function _klogValidateConfirmationEvidenceRefShape(ref){
+    if(!_klogIsPlainObject(ref)) return false;
+    if(typeof ref.preview !== 'string') return false;
+    if(ref.source === 'klog'){
+      if(!_klogNonEmptyString(ref.entryId)) return false;
+      if(!_klogNonEmptyString(ref.occurredAt)) return false;
+      return true;
+    }
+    if(ref.source === 'card' || ref.source === 'ai_card'){
+      if(!_klogNonEmptyString(ref.field)) return false;
+      if(ref.occurredAt !== null && !_klogNonEmptyString(ref.occurredAt)) return false;
+      return true;
+    }
+    return false;
+  }
+  // 私設ヘルパー: confirm entryのevidenceRefs配列検証（件数min〜max・shape・重複禁止）。
+  // 重複判定はsource別識別子（klog:entryId／card・ai_card:field）の同一性で行う（同一根拠の
+  // 二重選択だけを禁止し、異なるklog entry同士・klogとcard等の併用は妨げない）。
+  function _klogValidateConfirmationEvidenceRefs(refs, min, max){
+    if(!Array.isArray(refs)) return false;
+    if(refs.length < min || refs.length > max) return false;
+    var seen = Object.create(null);
+    for(var i=0;i<refs.length;i++){
+      var r = refs[i];
+      if(!_klogValidateConfirmationEvidenceRefShape(r)) return false;
+      var dk = r.source + '\u0001' + (r.source === 'klog' ? r.entryId : r.field);
+      if(seen[dk]) return false;
+      seen[dk] = true;
+    }
+    return true;
+  }
+  // 私設ヘルパー: evidenceRefs配列から安定した指紋文字列を作る（dedupe鍵専用。保存はしない）。
+  function _klogConfirmationEvidenceFingerprint(refs){
+    var parts = [];
+    for(var i=0;i<refs.length;i++){
+      var r = refs[i];
+      parts.push(r.source + ':' + (r.source === 'klog' ? r.entryId : r.field));
+    }
+    return parts.join(',');
+  }
+  // 私設ヘルパー: commandまたはevidenceRef 1件のkeyがwhitelistだけで構成されているか
+  // （own enumerable keyのみを検査。プロトタイプ継承・__proto__特殊代入の影響を受けない）。
+  function _klogOnlyAllowedKeys(obj, allowed){
+    var keys = Object.keys(obj);
+    for(var i=0;i<keys.length;i++){
+      if(allowed.indexOf(keys[i]) === -1) return false;
+    }
+    return true;
+  }
+  var _KLOG_CONFIRMATION_COMMAND_KEYS = ['action', 'customerId', 'axisKey', 'evidenceRefs', 'correctsId'];
+  var _KLOG_CONFIRMATION_EVIDENCE_KLOG_KEYS = ['source', 'entryId', 'occurredAt', 'preview'];
+  var _KLOG_CONFIRMATION_EVIDENCE_CARD_KEYS = ['source', 'field', 'occurredAt', 'preview'];
+
+  // confirmationApplyV1(command): 同期・throwしない。既存内部API(appEventAppendV1等)と同型の
+  // 契約：Quota抑止(専用フラグ)→引数厳格検証(command/evidenceRef両階層のwhitelist)→
+  // corrects検証(revoke時5条件)→dedupe(1500ms窓)→_klogReadArrayDetailed→_klogComputeActive
+  // fail-closed→id衝突検査→concat serialize→setItem厳密1回→成功後のみdedupe状態更新。
+  // 失敗時はstore byte不変。paste_capture／app_eventのQuota・dedupe状態へは一切干渉しない。
+  function confirmationApplyV1(command){
+    try{
+      if(_klogConfirmationQuotaSuppressed) return { ok:false, code:'quota_suppressed' };
+      if(!_klogIsPlainObject(command)) return { ok:false, code:'invalid_argument' };
+      if(!_klogOnlyAllowedKeys(command, _KLOG_CONFIRMATION_COMMAND_KEYS)) return { ok:false, code:'invalid_argument' };
+
+      var action = command.action;
+      var customerId = command.customerId;
+      var axisKey = command.axisKey;
+      var evidenceRefs = command.evidenceRefs;
+      var correctsId = command.correctsId;
+
+      if(action !== 'confirm' && action !== 'revoke') return { ok:false, code:'invalid_argument' };
+      if(!_klogNonEmptyString(customerId)) return { ok:false, code:'invalid_argument' };
+      if(_KLOG_CONFIRMATION_AXIS_KEYS.indexOf(axisKey) === -1) return { ok:false, code:'invalid_argument' };
+
+      if(action === 'confirm'){
+        if(!_klogValidateConfirmationEvidenceRefs(evidenceRefs, 1, 6)) return { ok:false, code:'invalid_argument' };
+        for(var v=0; v<evidenceRefs.length; v++){
+          var vr = evidenceRefs[v];
+          var vAllowed = (vr.source === 'klog') ? _KLOG_CONFIRMATION_EVIDENCE_KLOG_KEYS : _KLOG_CONFIRMATION_EVIDENCE_CARD_KEYS;
+          if(!_klogOnlyAllowedKeys(vr, vAllowed)) return { ok:false, code:'invalid_argument' };
+        }
+        if(correctsId !== undefined && !_klogNonEmptyString(correctsId)) return { ok:false, code:'invalid_argument' };
+      } else {
+        // revoke: evidenceRefsは空配列必須。correctsIdは必須（5条件はstore読取後に検証）。
+        if(!Array.isArray(evidenceRefs) || evidenceRefs.length !== 0) return { ok:false, code:'invalid_argument' };
+        if(!_klogNonEmptyString(correctsId)) return { ok:false, code:'invalid_argument' };
+      }
+
+      var fingerprint = (action === 'confirm') ? _klogConfirmationEvidenceFingerprint(evidenceRefs) : '';
+      var dedupeKey199 = customerId + '\u0001' + action + '\u0001' + axisKey + '\u0001' + (correctsId || '') + '\u0001' + fingerprint;
+      var nowMs = Date.now();
+      var lastTs199 = _klogConfirmationLast[dedupeKey199];
+      if(typeof lastTs199 === 'number' && (nowMs - lastTs199) < KLOG_DEDUPE_WINDOW_MS){
+        return { ok:true, code:'deduped' };
+      }
+
+      var read = _klogReadArrayDetailed(customerId);
+      if(!read.ok) return { ok:false, code: (read.reason === 'storage_read_failed') ? 'source_read_failed' : 'source_invalid_store' };
+
+      var comp = _klogComputeActive(read.arr, customerId);
+      if(!comp.ok) return { ok:false, code: comp.reason };
+
+      if(action === 'revoke'){
+        var target199 = comp.idIndex[correctsId];
+        if(!target199 || !comp.activeIds[correctsId]) return { ok:false, code:'corrects_target_invalid' };
+        if(target199.kind !== 'confirmation_pin' || target199.action !== 'confirm') return { ok:false, code:'corrects_target_invalid' };
+        if(target199.axisKey !== axisKey) return { ok:false, code:'corrects_target_invalid' };
+        for(var rk in comp.idIndex){
+          var re199 = comp.idIndex[rk];
+          if(re199.kind === 'confirmation_pin' && re199.action === 'revoke' && re199.links && re199.links.corrects === correctsId){
+            return { ok:false, code:'corrects_target_invalid' }; // 既にrevoke済み
+          }
+        }
+      }
+
+      var newId199 = _klogGenId();
+      if(Object.prototype.hasOwnProperty.call(comp.idIndex, newId199)) return { ok:false, code:'id_collision' };
+
+      var nowIso199 = new Date().toISOString();
+      var entry199;
+      if(action === 'confirm'){
+        entry199 = {
+          id: newId199, occurredAt: nowIso199, recordedAt: nowIso199, author:'self', customerId: customerId,
+          origin:'knowledge_card_view', realm:'app', kind:'confirmation_pin', status:'human_confirmed',
+          action:'confirm', axisKey: axisKey, evidenceRefs: evidenceRefs, schemaVer: KLOG_SCHEMA_VER
+        };
+        if(correctsId !== undefined) entry199.links = { corrects: correctsId };
+      } else {
+        entry199 = {
+          id: newId199, occurredAt: nowIso199, recordedAt: nowIso199, author:'self', customerId: customerId,
+          origin:'knowledge_card_view', realm:'app', kind:'confirmation_pin', status:'human_edited',
+          action:'revoke', axisKey: axisKey, evidenceRefs: [], schemaVer: KLOG_SCHEMA_VER,
+          links: { corrects: correctsId }
+        };
+      }
+
+      var serialized199;
+      try{ serialized199 = JSON.stringify(read.arr.concat([entry199])); }catch(_eSer199){ return { ok:false, code:'serialize_failed' }; }
+
+      try{
+        localStorage.setItem(_klogKey(customerId), serialized199);
+      }catch(_eSet199){
+        if(_klogIsQuotaError(_eSet199)){ _klogConfirmationQuotaSuppressed = true; }
+        return { ok:false, code:'write_failed' };
+      }
+
+      // revoke成功後は、対象confirmのdedupe履歴だけを失効させる。
+      // これにより「確認→取消→即再確認」という正当な操作を1500ms窓が誤抑止しない。
+      // 同一confirmの二重tap抑止は、revokeを挟まない限り従来どおり維持する。
+      if(action === 'revoke' && target199){
+        var targetCorrects199 = (target199.links && _klogNonEmptyString(target199.links.corrects)) ? target199.links.corrects : '';
+        var targetFingerprint199 = _klogConfirmationEvidenceFingerprint(target199.evidenceRefs || []);
+        var targetConfirmDedupeKey199 = customerId + '\u0001confirm\u0001' + axisKey + '\u0001' + targetCorrects199 + '\u0001' + targetFingerprint199;
+        delete _klogConfirmationLast[targetConfirmDedupeKey199];
+      }
+      _klogConfirmationLast[dedupeKey199] = nowMs; // 成功後だけdedupe更新
+      return { ok:true, code:(action === 'confirm' ? 'confirmed' : 'revoked'), id:newId199 };
+    }catch(_eAll){
+      return { ok:false, code:'invalid_argument' };
+    }
+  }
+  Object.defineProperty(klogCapturePaste, 'confirmationApplyV1', {
+    value: confirmationApplyV1, enumerable:false, writable:false, configurable:false
   });
 
   window.klogCapturePaste = klogCapturePaste;
@@ -4384,6 +4624,15 @@ function doSaveCards(cb) {
 // app_eventは顧客行動・接触・合意の根拠にせず、変化来歴と鮮度だけに使う。
 // captured／AI根拠は出所を示すだけでhuman_confirmed相当へ昇格しない。
 // rawText引用は最大40文字のプレビューのみ（全文はUIの明示展開時にreadResult.entriesから）。
+//
+// 第199弾（knowledge-confirmation-pin・DAN199_FABLE5_CONFIRMATION_PIN_DESIGN_AUDIT_REPORT
+// _20260803.md C1〜C8を正本とする）で追加：
+//   levelは上記のとおり3段階（未着手／断片／把握）で恒久固定。「確認済み」はlevelの4段階目には
+//   ならず、軸ごとの新設sibling field `confirmation`（null｜{state,confirmedAt,pinId,
+//   evidenceRefs,issues}）だけが担う。evidenceUsedの各行へselectable:boolean
+//   （invalid／future klog行はfalse、card／ai_card／通常klogはtrue）を追加した。
+//   confirmation解決はreadResult.pins／activeIdList（第198弾からのC2拡張field。欠落時は
+//   空配列扱い）から純関数で行い、storageへは一切書き込まない。
 (function(){
   'use strict';
 
@@ -4575,11 +4824,15 @@ function doSaveCards(cb) {
     var list = byField[field];
     return (list && list.length > 0) ? list[0] : null;
   }
-  function _kdKlogEvidence(theme, entry){
+  // 第199弾C5: selectableはklog rawTextの出所確認用表示可否とは独立に、確認ピンの根拠として
+  // 選択してよいかどうかを表す。呼出元が_kdKlogEvalBasisのselected値をそのまま渡す
+  // （invalid_date／future_dateの行はfalse、それ以外はtrue）。
+  function _kdKlogEvidence(theme, entry, selectable){
     return {
       source:'klog', theme:theme, occurredAt:entry.occurredAt, entryId:entry.id,
       preview:_kdPreview40(entry.rawText),
-      origin:'external_ai_paste', status:'captured', provenanceLabel:'外部AI貼付・未確認'
+      origin:'external_ai_paste', status:'captured', provenanceLabel:'外部AI貼付・未確認',
+      selectable: selectable === true
     };
   }
   // 第6品質ゲートC是正: paste_captureを軸basisへ採用する前の共通有効性評価。
@@ -4602,11 +4855,13 @@ function doSaveCards(cb) {
     }
     return { hasContent:true, selected:true, daysAgo:d, conflict:null };
   }
+  // 第199弾C5: card／ai_card由来evidenceは常にselectable:true（invalid/future判定はklogだけの
+  // 区分。カード直値・AI直値は確認ピン根拠として常に選択可能）。
   function _kdFieldEvidence(fieldName, previewText, dateIso){
-    return { source:'card', field:fieldName, preview:_kdPreview40(String(previewText == null ? '' : previewText)), occurredAt: dateIso || null };
+    return { source:'card', field:fieldName, preview:_kdPreview40(String(previewText == null ? '' : previewText)), occurredAt: dateIso || null, selectable:true };
   }
   function _kdAiCardEvidence(field, previewText, atIso){
-    return { source:'ai_card', field:field, occurredAt: atIso || null, status:'ai_unconfirmed', preview:_kdPreview40(String(previewText == null ? '' : previewText)) };
+    return { source:'ai_card', field:field, occurredAt: atIso || null, status:'ai_unconfirmed', preview:_kdPreview40(String(previewText == null ? '' : previewText)), selectable:true };
   }
 
   // 第2品質ゲートM10是正: ISO timestamp fieldの検証を共通化する。非空で不正はinvalid_date、
@@ -4796,7 +5051,7 @@ function doSaveCards(cb) {
       if(gkb.conflict) conflicts.push(gkb.conflict);
       if(gkb.hasContent){
         generalKlogHasContent = true;
-        evidence.push(_kdKlogEvidence('general', generalKlog));
+        evidence.push(_kdKlogEvidence('general', generalKlog, gkb.selected));
         reasons.push('戦略協議（一般）の貼付記録あり');
         if(gkb.selected && gkb.daysAgo !== null) daysAgoCandidates.push(gkb.daysAgo);
       }
@@ -4969,12 +5224,12 @@ function doSaveCards(cb) {
     if(inheritanceKlog){
       var ikb = _kdKlogEvalBasis(inheritanceKlog, 'inheritance', '相続・資産課題', nowMs);
       if(ikb.conflict) conflicts.push(ikb.conflict);
-      if(ikb.hasContent){ inheritanceKlogHasContent = true; evidence.push(_kdKlogEvidence('inheritance', inheritanceKlog)); reasons.push('相続テーマの貼付記録あり'); if(ikb.selected && ikb.daysAgo !== null) daysAgoCandidates.push(ikb.daysAgo); }
+      if(ikb.hasContent){ inheritanceKlogHasContent = true; evidence.push(_kdKlogEvidence('inheritance', inheritanceKlog, ikb.selected)); reasons.push('相続テーマの貼付記録あり'); if(ikb.selected && ikb.daysAgo !== null) daysAgoCandidates.push(ikb.daysAgo); }
     }
     if(hearingKlog){
       var hkb3 = _kdKlogEvalBasis(hearingKlog, 'hearing', '相続・資産課題', nowMs);
       if(hkb3.conflict) conflicts.push(hkb3.conflict);
-      if(hkb3.hasContent){ hearingKlogHasContent = true; evidence.push(_kdKlogEvidence('hearing', hearingKlog)); reasons.push('ヒアリングテーマの貼付記録あり'); if(hkb3.selected && hkb3.daysAgo !== null) daysAgoCandidates.push(hkb3.daysAgo); }
+      if(hkb3.hasContent){ hearingKlogHasContent = true; evidence.push(_kdKlogEvidence('hearing', hearingKlog, hkb3.selected)); reasons.push('ヒアリングテーマの貼付記録あり'); if(hkb3.selected && hkb3.daysAgo !== null) daysAgoCandidates.push(hkb3.daysAgo); }
     }
 
     var aiInhEval = _kdEvalIsoField('ai_inheritance_at', '相続・資産課題', card.ai_inheritance_at, nowMs);
@@ -5026,12 +5281,12 @@ function doSaveCards(cb) {
     if(motivationKlog){
       var mkb = _kdKlogEvalBasis(motivationKlog, 'motivation', '動機・心理', nowMs);
       if(mkb.conflict) conflicts.push(mkb.conflict);
-      if(mkb.hasContent){ motivationKlogHasContent = true; evidence.push(_kdKlogEvidence('motivation', motivationKlog)); reasons.push('動機テーマの貼付記録あり'); if(mkb.selected && mkb.daysAgo !== null) daysAgoCandidates.push(mkb.daysAgo); }
+      if(mkb.hasContent){ motivationKlogHasContent = true; evidence.push(_kdKlogEvidence('motivation', motivationKlog, mkb.selected)); reasons.push('動機テーマの貼付記録あり'); if(mkb.selected && mkb.daysAgo !== null) daysAgoCandidates.push(mkb.daysAgo); }
     }
     if(personalityKlog){
       var pkb = _kdKlogEvalBasis(personalityKlog, 'personality', '動機・心理', nowMs);
       if(pkb.conflict) conflicts.push(pkb.conflict);
-      if(pkb.hasContent){ personalityKlogHasContent = true; evidence.push(_kdKlogEvidence('personality', personalityKlog)); reasons.push('人物像テーマの貼付記録あり'); if(pkb.selected && pkb.daysAgo !== null) daysAgoCandidates.push(pkb.daysAgo); }
+      if(pkb.hasContent){ personalityKlogHasContent = true; evidence.push(_kdKlogEvidence('personality', personalityKlog, pkb.selected)); reasons.push('人物像テーマの貼付記録あり'); if(pkb.selected && pkb.daysAgo !== null) daysAgoCandidates.push(pkb.daysAgo); }
     }
 
     var aiMoEval = _kdEvalIsoField('ai_motivation_at', '動機・心理', card.ai_motivation_at, nowMs);
@@ -5114,7 +5369,7 @@ function doSaveCards(cb) {
       if(hkb5.conflict) conflicts.push(hkb5.conflict);
       if(hkb5.hasContent){
         hearingKlogHasContent = true;
-        evidence.push(_kdKlogEvidence('hearing', hearingKlog));
+        evidence.push(_kdKlogEvidence('hearing', hearingKlog, hkb5.selected));
         reasons.push('ヒアリングテーマの貼付記録あり');
         if(hkb5.selected && hkb5.daysAgo !== null) daysAgoCandidates.push(hkb5.daysAgo);
       }
@@ -5241,7 +5496,7 @@ function doSaveCards(cb) {
       if(nvkb.conflict) conflicts.push(nvkb.conflict);
       if(nvkb.hasContent){
         nextVisitKlogHasContent = true;
-        evidence.push(_kdKlogEvidence('next_visit', nextVisitKlog));
+        evidence.push(_kdKlogEvidence('next_visit', nextVisitKlog, nvkb.selected));
         reasons.push('次回行動テーマの貼付記録あり');
         if(nvkb.selected && nvkb.daysAgo !== null) daysAgoCandidates.push(nvkb.daysAgo);
       }
@@ -5403,6 +5658,87 @@ function doSaveCards(cb) {
     return changes;
   }
 
+  // ===== 第199弾: knowledge-confirmation-pin 解決ロジック（C3/C4） =====
+  // 目的：readResult.pins（軸別confirmation_pin全件・_klogComputeActiveでactive判定済み）から、
+  // 各軸の「有効pin」を決定的に解決し、reconfirm_needed（C3の3条件限定）を判定する。
+  // 純関数（storage非依存）。pins/activeIdListが配列でない場合は空配列として扱う（欠落許容読取）。
+
+  // 私設ヘルパー: pinsを軸key別へ分類する。
+  function _kdGroupPinsByAxis(pins){
+    var byAxis = Object.create(null);
+    for(var i=0;i<pins.length;i++){
+      var p = pins[i];
+      if(!_kdIsPlainObject(p) || typeof p.axisKey !== 'string') continue;
+      if(!byAxis[p.axisKey]) byAxis[p.axisKey] = [];
+      byAxis[p.axisKey].push(p);
+    }
+    return byAxis;
+  }
+
+  // 私設ヘルパー: 軸1件分のconfirmation解決（C4: confirm/revoke決定的解決＋C3: reconfirm_needed）。
+  //   1) revoke.links.correctsから失効済みconfirm id集合を作る（dangling revokeは自然に無視される）
+  //   2) 未失効のconfirmを(occurredAt desc, recordedAt desc, id desc)で並べ、最新1件を有効pinとする
+  //   3) 有効pinが無ければnullを返す
+  //   4) 有効pinのevidenceRefsをC3の3条件で評価し、1件でも該当すればreconfirm_needed
+  function _kdResolveAxisConfirmation(pinsForAxis, evidenceUsedCurrent, activeIdSet, nowMs){
+    if(!pinsForAxis || pinsForAxis.length === 0) return null;
+    var revokedIds = Object.create(null);
+    for(var r=0;r<pinsForAxis.length;r++){
+      var pr = pinsForAxis[r];
+      if(pr.action === 'revoke' && pr.links && typeof pr.links.corrects === 'string'){
+        revokedIds[pr.links.corrects] = true;
+      }
+    }
+    var confirms = [];
+    for(var c=0;c<pinsForAxis.length;c++){
+      var pc = pinsForAxis[c];
+      if(pc.action === 'confirm' && !revokedIds[pc.id]) confirms.push(pc);
+    }
+    if(confirms.length === 0) return null;
+    confirms.sort(function(a, b){
+      if(a.occurredAt !== b.occurredAt) return a.occurredAt > b.occurredAt ? -1 : 1;
+      if(a.recordedAt !== b.recordedAt) return a.recordedAt > b.recordedAt ? -1 : 1;
+      if(a.id !== b.id) return a.id > b.id ? -1 : 1;
+      return 0;
+    });
+    var pin = confirms[0];
+    var evidenceRefs = Array.isArray(pin.evidenceRefs) ? pin.evidenceRefs : [];
+    var issues = [];
+    for(var i=0;i<evidenceRefs.length;i++){
+      var ref = evidenceRefs[i];
+      if(!_kdIsPlainObject(ref)){ issues.push({ code:'invalid' }); continue; }
+      // C3条件3: 選択refが解決時点でfutureまたはinvalid（occurredAtがある場合のみ評価）。
+      if(ref.occurredAt !== null && ref.occurredAt !== undefined){
+        if(!_kdStrictIsoUtc(ref.occurredAt)){
+          issues.push({ code:'invalid', source:ref.source, field:ref.field, entryId:ref.entryId });
+        } else if(_kdIsoDaysAgo(nowMs, ref.occurredAt) < 0){
+          issues.push({ code:'future', source:ref.source, field:ref.field, entryId:ref.entryId });
+        }
+      }
+      if(ref.source === 'klog'){
+        // C3条件2: klog refのentryIdがactiveIdListに存在しない。
+        if(!activeIdSet[ref.entryId]) issues.push({ code:'klog_inactive', entryId:ref.entryId });
+      } else if(ref.source === 'card' || ref.source === 'ai_card'){
+        // C3条件1: card／ai_card refの現在previewが保存previewと不一致（現在evidenceUsedとの
+        // 突合せで再判定する。同一axisの同一source+fieldが現在も同一previewで存在するかを見る。
+        // 現在evidenceUsedに同一source+fieldが存在しない場合も不一致として扱う）。
+        var match = null;
+        for(var k=0;k<evidenceUsedCurrent.length;k++){
+          var cu = evidenceUsedCurrent[k];
+          if(cu.source === ref.source && cu.field === ref.field){ match = cu; break; }
+        }
+        if(!match || match.preview !== ref.preview){ issues.push({ code:'preview_mismatch', source:ref.source, field:ref.field }); }
+      }
+    }
+    return {
+      state: issues.length > 0 ? 'reconfirm_needed' : 'confirmed',
+      confirmedAt: pin.occurredAt,
+      pinId: pin.id,
+      evidenceRefs: evidenceRefs,
+      issues: issues
+    };
+  }
+
   // deriveCardKnowledgeV1(card, readResult, nowIso): 同期・非throw・純関数。
   // DOM／storage／toast／console非依存。nowIso注入で決定的。入力を変更しない（deep read only）。
   // 第2品質ゲートM11是正: nowIsoが厳格ISO UTCでない場合は現在時刻へフォールバックせず
@@ -5453,8 +5789,17 @@ function doSaveCards(cb) {
       var obstacles = _kdBuildObstacles(safeCard, axes, idx, true, nowIso, nowMs);
       var recentChanges = _kdRecentChanges(idx);
 
+      // 第199弾C2: pins/activeIdListは欠落許容（配列でなければ空扱い）。既存fixture
+      // （pins/activeIdList未提供のreadResult）はconfirmation:null相当のまま無回帰で通る。
+      var pins199 = Array.isArray(readResult.pins) ? readResult.pins : [];
+      var activeIdList199 = Array.isArray(readResult.activeIdList) ? readResult.activeIdList : [];
+      var activeIdSet199 = Object.create(null);
+      for(var ai=0; ai<activeIdList199.length; ai++){ activeIdSet199[activeIdList199[ai]] = true; }
+      var pinsByAxis199 = _kdGroupPinsByAxis(pins199);
+
       var axesOut = axes.map(function(ax){
-        return { key:ax.key, label:ax.label, level:ax.level, freshness:ax.freshness, reasons:ax.reasons, evidenceUsed:ax.evidenceUsed, missing:ax.missing, staleEvidence:ax.staleEvidence, conflicts:ax.conflicts };
+        return { key:ax.key, label:ax.label, level:ax.level, freshness:ax.freshness, reasons:ax.reasons, evidenceUsed:ax.evidenceUsed, missing:ax.missing, staleEvidence:ax.staleEvidence, conflicts:ax.conflicts,
+          confirmation: _kdResolveAxisConfirmation(pinsByAxis199[ax.key], ax.evidenceUsed, activeIdSet199, nowMs) };
       });
 
       return { ok:true, code:'ok', axes:axesOut, obstacles:obstacles, recentChanges:recentChanges, totalActive: readResult.totalActive || 0, truncated: !!readResult.truncated };
@@ -7457,6 +7802,17 @@ window.handleAiPaste = handleAiPaste;
     try { return !!(typeof isDirty !== 'undefined' && isDirty); } catch (_e) { return false; }
   }
 
+  // 第199弾C7: confirmedAt(strict ISO UTC)からYYYY-MM-DDだけを抜き出す（表示用。業務日計算はしない）。
+  function _kcvDateOnly(iso) {
+    return (typeof iso === 'string' && iso.length >= 10) ? iso.slice(0, 10) : '';
+  }
+  // 第199弾C6: evidenceUsed行(ev)から、confirmationApplyV1のevidenceRefs whitelistへ渡してよい
+  // 部分集合だけを抽出する（theme/status/provenanceLabel等の余剰fieldを渡さない）。
+  function _kcvBuildEvidenceRef(ev) {
+    if (ev.source === 'klog') return { source: 'klog', entryId: ev.entryId, occurredAt: ev.occurredAt, preview: ev.preview };
+    return { source: ev.source, field: ev.field, occurredAt: ev.occurredAt, preview: ev.preview };
+  }
+
   // ---- 段階chip（タップで展開） ----
   function _kcvRenderAxisChip(container, axisResult, ctx) {
     var wrap = _kcvEl('div', { style: { border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '8px', overflow: 'hidden' } });
@@ -7469,6 +7825,16 @@ window.handleAiPaste = handleAiPaste;
     headRow.appendChild(leftBox);
     var freshBadge = _kcvEl('span', { text: FRESH_LABEL[axisResult.freshness] || axisResult.freshness, style: { fontSize: '11px', color: FRESH_COLOR[axisResult.freshness] || '#718096', border: '1px solid ' + (FRESH_COLOR[axisResult.freshness] || '#cbd5e0'), borderRadius: '10px', padding: '1px 8px' } });
     headRow.appendChild(freshBadge);
+    // 第199弾C7: 有効pin存在時のみchip headへバッジを追加（pin無しでは従来どおり無出力＝
+    // 既存E2E 57iのpin無しfixtureを無改変で維持する）。
+    if (axisResult.confirmation) {
+      var confBadgeIsOk = axisResult.confirmation.state === 'confirmed';
+      var confBadge = _kcvEl('span', {
+        text: confBadgeIsOk ? ('\u2713 確認済み ' + _kcvDateOnly(axisResult.confirmation.confirmedAt)) : '\u26a0 再確認が必要',
+        style: { fontSize: '10px', color: confBadgeIsOk ? '#2f855a' : '#c53030', border: '1px solid ' + (confBadgeIsOk ? '#9ae6b4' : '#feb2b2'), borderRadius: '10px', padding: '1px 8px', marginLeft: '6px' }
+      });
+      headRow.appendChild(confBadge);
+    }
     wrap.appendChild(headRow);
 
     var detail = _kcvEl('div', { style: { display: 'none', padding: '10px', borderTop: '1px solid #e2e8f0' } });
@@ -7521,8 +7887,27 @@ window.handleAiPaste = handleAiPaste;
 
   // 第1品質ゲートM3是正: rawText全文表示。open context内のentryIdMapからentryを引き、
   // textContentで表示するだけ（localStorage再読取0・innerHTML 0）。
-  function _kcvRenderEvidenceRow(container, ev, ctx) {
+  // 第199弾C7追加: toggleが渡され、かつev.selectable===trueの場合だけ、行頭に選択用の
+  // ARIA checkbox（role="checkbox"のspan。既存headRowのrole="button"と同型パターンであり、
+  // 静的検査8dが禁止する実input/select/textarea要素は生成しない）を追加する。
+  function _kcvRenderEvidenceRow(container, ev, ctx, toggle) {
     var row = _kcvEl('div', { style: { fontSize: '12px', color: '#2d3748', background: '#f7fafc', border: '1px solid #edf2f7', borderRadius: '6px', padding: '6px 8px', marginBottom: '4px' } });
+
+    if (toggle && ev.selectable === true) {
+      var checked199 = false;
+      var cb199 = _kcvEl('span', {
+        text: '\u2610 この根拠を選択',
+        attrs: { role: 'checkbox', 'aria-checked': 'false', tabindex: '0' },
+        style: { display: 'inline-block', fontSize: '11px', color: '#2b6cb0', cursor: 'pointer', marginBottom: '4px', userSelect: 'none' },
+        onclick: function () {
+          checked199 = !checked199;
+          cb199.textContent = (checked199 ? '\u2611' : '\u2610') + ' この根拠を選択';
+          cb199.setAttribute('aria-checked', checked199 ? 'true' : 'false');
+          toggle.onToggle(checked199);
+        }
+      });
+      row.appendChild(cb199);
+    }
 
     if (ev.source === 'klog') {
       var metaRow = _kcvEl('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '2px' } });
@@ -7591,9 +7976,33 @@ window.handleAiPaste = handleAiPaste;
       axisResult.reasons.forEach(function (r) { reasonsBox.appendChild(_kcvEl('div', { text: '\u30fb' + r })); });
       detail.appendChild(reasonsBox);
     }
+    // 第199弾C7: 選択済みevidenceRefsはこのdetail呼出し専用のローカル配列（軸ごとに独立）。
+    // 参照を保ったままpush/spliceで書換え、確認ボタンの有効化判定・確定時の送信内容の両方が
+    // 同一配列を参照する。
+    var selectedRefs199 = [];
+    var confirmBtnRef199 = { el: null };
+    function updateConfirmBtnState199() {
+      if (!confirmBtnRef199.el) return;
+      var has = selectedRefs199.length > 0;
+      confirmBtnRef199.el.disabled = !has;
+      confirmBtnRef199.el.style.opacity = has ? '1' : '0.5';
+      confirmBtnRef199.el.style.cursor = has ? 'pointer' : 'not-allowed';
+    }
     if (axisResult.evidenceUsed && axisResult.evidenceUsed.length > 0) {
       detail.appendChild(_kcvSectionLabel('採用根拠'));
-      axisResult.evidenceUsed.forEach(function (ev) { _kcvRenderEvidenceRow(detail, ev, ctx); });
+      axisResult.evidenceUsed.forEach(function (ev) {
+        var toggle199 = (ev.selectable === true) ? {
+          onToggle: function (checked) {
+            var key199 = ev.source + '\u0001' + (ev.source === 'klog' ? ev.entryId : ev.field);
+            var idx199 = -1;
+            for (var si = 0; si < selectedRefs199.length; si++) { if (selectedRefs199[si].key === key199) { idx199 = si; break; } }
+            if (checked) { if (idx199 === -1) selectedRefs199.push({ key: key199, ref: _kcvBuildEvidenceRef(ev) }); }
+            else if (idx199 !== -1) { selectedRefs199.splice(idx199, 1); }
+            updateConfirmBtnState199();
+          }
+        } : null;
+        _kcvRenderEvidenceRow(detail, ev, ctx, toggle199);
+      });
     }
     if (axisResult.missing && axisResult.missing.length > 0) {
       detail.appendChild(_kcvSectionLabel('不足'));
@@ -7619,6 +8028,73 @@ window.handleAiPaste = handleAiPaste;
     if ((!axisResult.reasons || axisResult.reasons.length === 0) && (!axisResult.evidenceUsed || axisResult.evidenceUsed.length === 0)) {
       detail.appendChild(_kcvEl('div', { text: 'この軸に該当する記録はまだありません。', style: { fontSize: '12px', color: '#a0aec0' } }));
     }
+    _kcvRenderConfirmationControls(detail, axisResult, ctx, selectedRefs199, confirmBtnRef199, updateConfirmBtnState199);
+  }
+
+  // 第199弾C7: 確認ピン操作UI（確定・取消）。lazy-buildされる軸詳細内だけに配置する。
+  // selectable行が1件も無く、かつ既存pinも無い場合は何も描画しない。
+  function _kcvRenderConfirmationControls(detail, axisResult, ctx, selectedRefs, confirmBtnRef, updateConfirmBtnState) {
+    var hasSelectable = false;
+    (axisResult.evidenceUsed || []).forEach(function (e) { if (e.selectable === true) hasSelectable = true; });
+    if (!hasSelectable && !axisResult.confirmation) return;
+
+    detail.appendChild(_kcvSectionLabel('確認'));
+    var errBox199 = _kcvEl('div', { style: { fontSize: '11px', color: '#c53030', marginBottom: '4px', display: 'none' } });
+    function showErr199(msg) { errBox199.textContent = msg; errBox199.style.display = 'block'; }
+    function clearErr199() { errBox199.textContent = ''; errBox199.style.display = 'none'; }
+
+    if (axisResult.confirmation) {
+      var isConfirmed199 = axisResult.confirmation.state === 'confirmed';
+      detail.appendChild(_kcvEl('div', {
+        text: isConfirmed199 ? ('\u2713 確認済み ' + _kcvDateOnly(axisResult.confirmation.confirmedAt)) : '\u26a0 過去に確認済み・再確認が必要',
+        style: { fontSize: '12px', fontWeight: '700', color: isConfirmed199 ? '#2f855a' : '#c53030', marginBottom: '4px' }
+      }));
+      detail.appendChild(_kcvEl('button', {
+        text: '確認を取り消す', attrs: { type: 'button' },
+        style: { fontSize: '11px', padding: '4px 9px', border: '1px solid #cbd5e0', borderRadius: '4px', background: 'white', cursor: 'pointer', fontFamily: 'inherit', marginRight: '6px', marginBottom: '6px' },
+        onclick: function () {
+          clearErr199();
+          var _kcvDoRevoke199 = function () {
+            if (_kcvCurrentCustomerId() !== ctx.customerId) { showErr199('顧客が一致しないため取り消せませんでした。'); return; }
+            var res199;
+            try {
+              res199 = window.klogCapturePaste.confirmationApplyV1({ action: 'revoke', customerId: ctx.customerId, axisKey: axisResult.key, evidenceRefs: [], correctsId: axisResult.confirmation.pinId });
+            } catch (_eRevoke199) { res199 = { ok: false }; }
+            if (res199 && res199.ok) { _kcvRenderMain(); } else { showErr199('確認の取り消しに失敗しました。'); }
+          };
+          // 第199弾是正: aibisConfirmはwindow.confirm型の同期boolean戻り値ではなく、
+          // onYesコールバックを受け取り非同期に呼び出す（既存family_modal.js等と同型）。
+          if (typeof aibisConfirm === 'function') { aibisConfirm(axisResult.label + 'の確認を取り消しますか？', _kcvDoRevoke199, '取り消す', 'やめる'); }
+          else { _kcvDoRevoke199(); }
+        }
+      }));
+    }
+
+    if (hasSelectable) {
+      var confirmBtn199 = _kcvEl('button', {
+        text: 'この根拠で確認済みにする', attrs: { type: 'button' },
+        style: { fontSize: '11px', padding: '4px 9px', border: '1px solid #2f855a', borderRadius: '4px', background: '#2f855a', color: 'white', cursor: 'not-allowed', fontFamily: 'inherit', opacity: '0.5' },
+        onclick: function () {
+          clearErr199();
+          if (selectedRefs.length < 1) return;
+          var _kcvDoConfirm199 = function () {
+            if (_kcvCurrentCustomerId() !== ctx.customerId) { showErr199('顧客が一致しないため確認できませんでした。'); return; }
+            var res199b;
+            try {
+              res199b = window.klogCapturePaste.confirmationApplyV1({ action: 'confirm', customerId: ctx.customerId, axisKey: axisResult.key, evidenceRefs: selectedRefs.map(function (s) { return s.ref; }) });
+            } catch (_eConfirm199) { res199b = { ok: false }; }
+            if (res199b && res199b.ok) { _kcvRenderMain(); } else { showErr199('確認の保存に失敗しました。'); }
+          };
+          if (typeof aibisConfirm === 'function') { aibisConfirm(axisResult.label + '（' + selectedRefs.length + '件の根拠）を確認済みにしますか？', _kcvDoConfirm199, '確認済みにする', 'やめる'); }
+          else { _kcvDoConfirm199(); }
+        }
+      });
+      confirmBtn199.disabled = true;
+      confirmBtnRef.el = confirmBtn199;
+      detail.appendChild(confirmBtn199);
+      updateConfirmBtnState();
+    }
+    detail.appendChild(errBox199);
   }
 
   var OBSTACLE_TEXT = {
