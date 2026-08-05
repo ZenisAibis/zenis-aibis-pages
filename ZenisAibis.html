@@ -2558,7 +2558,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.97";
+var APP_VERSION = "v10.98";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -7697,6 +7697,16 @@ window.handleAiPaste = handleAiPaste;
   var _kcvOverlay = null;
   var _kcvKeydownHandler = null;
 
+  // 第199弾hotfix(実機受入NG是正・2026-08-05 C3): 確認ピンのUI選択上限。
+  // API契約（source/main/core/knowledge_log.js 1330行の
+  // _klogValidateConfirmationEvidenceRefs(evidenceRefs, 1, 6)）と値6を同期させるための
+  // 意図的な二重定義。knowledge_log.jsは変更禁止のため、UI側でこの定数を保持し、
+  // 両者の一致は tools/check.js の第199弾ブロックで検査する。
+  var KCV_CONFIRM_MAX_199 = 6;
+  // confirmボタンの防御ガード(C1)とAPI invalid_argument時の表示分類(C2)は同一文言のため
+  // 定数化して重複と表記ゆれを避ける。
+  var KCV_LIMIT_MSG_199 = '選択内容を確認してください。根拠は1\u301c6件まで選べます。';
+
   var LEVEL_COLOR = { '未着手': '#a0aec0', '断片': '#d69e2e', '把握': '#2f855a' };
   var FRESH_LABEL = { fresh: '新しい', stale: '古い', '要再確認': '要再確認', '鮮度不明': '鮮度不明' };
   var FRESH_COLOR = { fresh: '#2f855a', stale: '#d69e2e', '要再確認': '#c53030', '鮮度不明': '#a0aec0' };
@@ -7900,10 +7910,16 @@ window.handleAiPaste = handleAiPaste;
         attrs: { role: 'checkbox', 'aria-checked': 'false', tabindex: '0' },
         style: { display: 'inline-block', fontSize: '11px', color: '#2b6cb0', cursor: 'pointer', marginBottom: '4px', userSelect: 'none' },
         onclick: function () {
-          checked199 = !checked199;
+          // 第199弾hotfix(C1・pre-visual guard): 視覚状態(checked199・textContent・
+          // aria-checked)は、toggle側が次状態を受理した場合だけ変更する。
+          // 上限超過等でtoggle.onToggle()がfalseを返した場合はここでreturnし、
+          // 見た目・ARIA・checked199を一切変更しない（拒否時は選択前の状態のまま）。
+          var nextChecked199 = !checked199;
+          var accepted199 = toggle.onToggle(nextChecked199);
+          if (accepted199 === false) return;
+          checked199 = nextChecked199;
           cb199.textContent = (checked199 ? '\u2611' : '\u2610') + ' この根拠を選択';
           cb199.setAttribute('aria-checked', checked199 ? 'true' : 'false');
-          toggle.onToggle(checked199);
         }
       });
       row.appendChild(cb199);
@@ -7988,21 +8004,41 @@ window.handleAiPaste = handleAiPaste;
       confirmBtnRef199.el.style.opacity = has ? '1' : '0.5';
       confirmBtnRef199.el.style.cursor = has ? 'pointer' : 'not-allowed';
     }
+    // 第199弾hotfix(C1): 選択上限(KCV_CONFIRM_MAX_199)超過のinline通知。この軸detail内の
+    // 全checkboxで共有する（行ごとの個別メッセージにはしない）。selectable行が無い軸では
+    // 未使用のまま（DOMへ追加しない＝空要素を増やさない）。
+    var limitErrBox199 = _kcvEl('div', { style: { fontSize: '11px', color: '#c53030', margin: '2px 0 6px', display: 'none' } });
+    function showLimitErr199() {
+      limitErrBox199.textContent = '根拠は' + KCV_CONFIRM_MAX_199 + '件まで選択できます。1件解除してから選択してください。';
+      limitErrBox199.style.display = 'block';
+    }
+    function clearLimitErr199() { limitErrBox199.textContent = ''; limitErrBox199.style.display = 'none'; }
     if (axisResult.evidenceUsed && axisResult.evidenceUsed.length > 0) {
       detail.appendChild(_kcvSectionLabel('採用根拠'));
       axisResult.evidenceUsed.forEach(function (ev) {
         var toggle199 = (ev.selectable === true) ? {
+          // 第199弾hotfix(C1): 戻り値でtoggle受理／拒否を呼出元(checkbox onclick)へ伝える。
+          // true=受理（配列更新済み）、false=拒否（配列・状態は無変更）。
           onToggle: function (checked) {
             var key199 = ev.source + '\u0001' + (ev.source === 'klog' ? ev.entryId : ev.field);
             var idx199 = -1;
             for (var si = 0; si < selectedRefs199.length; si++) { if (selectedRefs199[si].key === key199) { idx199 = si; break; } }
-            if (checked) { if (idx199 === -1) selectedRefs199.push({ key: key199, ref: _kcvBuildEvidenceRef(ev) }); }
-            else if (idx199 !== -1) { selectedRefs199.splice(idx199, 1); }
+            if (checked) {
+              if (idx199 === -1) {
+                if (selectedRefs199.length >= KCV_CONFIRM_MAX_199) { showLimitErr199(); return false; }
+                selectedRefs199.push({ key: key199, ref: _kcvBuildEvidenceRef(ev) });
+              }
+            } else if (idx199 !== -1) {
+              selectedRefs199.splice(idx199, 1);
+            }
+            clearLimitErr199();
             updateConfirmBtnState199();
+            return true;
           }
         } : null;
         _kcvRenderEvidenceRow(detail, ev, ctx, toggle199);
       });
+      detail.appendChild(limitErrBox199);
     }
     if (axisResult.missing && axisResult.missing.length > 0) {
       detail.appendChild(_kcvSectionLabel('不足'));
@@ -8029,6 +8065,24 @@ window.handleAiPaste = handleAiPaste;
       detail.appendChild(_kcvEl('div', { text: 'この軸に該当する記録はまだありません。', style: { fontSize: '12px', color: '#a0aec0' } }));
     }
     _kcvRenderConfirmationControls(detail, axisResult, ctx, selectedRefs199, confirmBtnRef199, updateConfirmBtnState199);
+  }
+
+  // 第199弾hotfix(C2): confirm API失敗時のres.codeを利用者向け表示文言へ分類する純粋関数。
+  // 副作用・DOM操作なし。write_failed/quota_suppressedの文言は、既存E2E test3
+  // （write_failed injection→overlay内『失敗』を検証）との既存契約と両立させるため、
+  // 既存の一般失敗文言「確認の保存に失敗しました。」を保持したまま保存領域確認の案内を
+  // 付加する（ChatGPT設計裁定の分類ロジック・対象codeはそのまま採用し、文言のみ調整）。
+  // 未知code・res自体がfalsy（例外捕捉時等）は既存の一般文言のまま。
+  function _kcvConfirmFailMsg199(res) {
+    var code = res && res.code;
+    if (code === 'write_failed' || code === 'quota_suppressed') {
+      return '確認の保存に失敗しました。端末の保存領域を確認して、もう一度お試しください。';
+    }
+    if (code === 'source_read_failed' || code === 'source_invalid_store') {
+      return '確認元の知識ログを読み取れませんでした。バックアップを確認してください。';
+    }
+    if (code === 'invalid_argument') { return KCV_LIMIT_MSG_199; }
+    return '確認の保存に失敗しました。';
   }
 
   // 第199弾C7: 確認ピン操作UI（確定・取消）。lazy-buildされる軸詳細内だけに配置する。
@@ -8077,13 +8131,17 @@ window.handleAiPaste = handleAiPaste;
         onclick: function () {
           clearErr199();
           if (selectedRefs.length < 1) return;
+          // 第199弾hotfix(C1・button防御ガード): checkbox側pre-visual guardにより
+          // 6件超は通常成立しないが、confirm onclickにも同じ上限の防御ガードを置く。
+          // 拒否時はconfirmationApplyV1を一切呼ばない（API呼出0）。
+          if (selectedRefs.length > KCV_CONFIRM_MAX_199) { showErr199(KCV_LIMIT_MSG_199); return; }
           var _kcvDoConfirm199 = function () {
             if (_kcvCurrentCustomerId() !== ctx.customerId) { showErr199('顧客が一致しないため確認できませんでした。'); return; }
             var res199b;
             try {
               res199b = window.klogCapturePaste.confirmationApplyV1({ action: 'confirm', customerId: ctx.customerId, axisKey: axisResult.key, evidenceRefs: selectedRefs.map(function (s) { return s.ref; }) });
             } catch (_eConfirm199) { res199b = { ok: false }; }
-            if (res199b && res199b.ok) { _kcvRenderMain(); } else { showErr199('確認の保存に失敗しました。'); }
+            if (res199b && res199b.ok) { _kcvRenderMain(); } else { showErr199(_kcvConfirmFailMsg199(res199b)); }
           };
           if (typeof aibisConfirm === 'function') { aibisConfirm(axisResult.label + '（' + selectedRefs.length + '件の根拠）を確認済みにしますか？', _kcvDoConfirm199, '確認済みにする', 'やめる'); }
           else { _kcvDoConfirm199(); }
