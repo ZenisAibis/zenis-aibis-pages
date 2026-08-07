@@ -1716,6 +1716,7 @@ body.is-mob .mob-menu{display:inline-block}
             <button onclick="openCopilot()" style="background:#0078d4;color:white;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit">🤖 AI分析</button>
             <button onclick="showAnalysisPaste()" class="analysis-paste-btn" style="background:#276749;color:white;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">💭 結果貼り付け</button>
             <button onclick="printDashboardReport()" class="no-print analysis-print-btn" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit">🖨 レポート印刷</button>
+            <button id="managerCrossviewOpenBtn" class="no-print" style="background:#2b6cb0;color:white;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit">🧭 ナレッジ横断</button>
             
           </div>
         </div>
@@ -2558,7 +2559,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.98";
+var APP_VERSION = "v10.99";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -5817,6 +5818,214 @@ function doSaveCards(cb) {
       }
     }
   }catch(_eDefine){ /* 非throw: 付与できない場合は何もしない */ }
+})();
+
+// ===== 第200弾: manager-knowledge-crossview-readonly（営業知識OS 弾7・core集約層） =====
+// 目的：管理職解錠済み利用者が、保存済みcards[]全件を横断し、顧客ごとに次を読取専用で
+// 把握できるようにする：6軸のlevel/freshness、confirmationの確認済み軸数／再確認必要軸数、
+// 未解決(obstacles)件数、要確認軸、次回行動axisのlevel/freshness、有効な次回予定日、
+// klog読取不可の有無。DAN200_FABLE5_MANAGER_CROSSVIEW_DESIGN_AUDIT_REPORT_20260806.mdの
+// CONDITIONAL GOと、それをChatGPTが統合したDAN200実装プロンプトを正本とする。
+//
+// 契約（§6）：
+//   - 同期・非throw・読取専用。setItem/removeItem/clear 0回。DOM/toast/console非依存。
+//   - 内部でknowledgeReadV1（対象顧客localStorageを読む）を呼ぶため数学的な純関数ではない。
+//     「同期・非throw・読取専用・setItem/removeItem/clear 0回・DOM/toast/console非依存・
+//     nowIso注入で派生判定を決定的・入力cardsを変更しない」という表現に契約を固定する。
+//   - 1カードにつき (1) knowledgeReadV1(customerId) (2) deriveCardKnowledgeV1(card, readResult,
+//     nowIso) (3) row整形、の順序を固定する。他のklog API（hygiene／appEvent／backup／
+//     confirmationApplyV1）は一切呼ばない。次回行動の日付は_kdCurrentPursuit等のprivate
+//     ロジックを複製せず、deriveCardKnowledgeV1が返すaxis6のevidenceUsedから、
+//     source==='card' かつ field==='revisits.date/pursuits.next_appo_date(current)' かつ
+//     occurredAtがstrict YYYY-MM-DDである既存evidenceだけを読む。
+//   - 新規windowグローバルは0件。既存window.klogCapturePaste（第194弾契約）だけを維持し、
+//     本弾の1API(knowledgeCrossviewV1)は同関数オブジェクトへ非列挙・非書換・非構成可能
+//     propertyとして付与する（11件目）。呼出元はsource/main/ui/manager_crossview.jsだけ。
+//   - 顧客IDはcardがobjectでない、またはidがnull／undefined／空文字の場合だけexcludedとする。
+//     有効IDはString(card.id)をそのまま使い、sanitize・trim変換・正規化はしない。
+//   - 入力全体の契約違反（cards非配列・nowIso不正）以外で1顧客の処理が失敗しても、
+//     他顧客の集約を継続する（読取失敗行をexcludedにしない。rowを残しreadOk:false／
+//     readCodeで表示する）。
+(function () {
+  'use strict';
+
+  // 私設ヘルパー: plain object判定（配列・nullを除外）。既存_kdIsPlainObject／
+  // _klogIsPlainObjectと同一idiomで統一する。
+  function _kcxIsPlainObject(v) {
+    return !!v && typeof v === 'object' && !Array.isArray(v);
+  }
+  // 私設ヘルパー: strict ISO UTC判定（knowledge_derive.jsの_kdStrictIsoUtcと同一契約）。
+  function _kcxStrictIsoUtc(v) {
+    if (typeof v !== 'string' || v.length === 0) return false;
+    var d = new Date(v);
+    if (isNaN(d.getTime())) return false;
+    try { return d.toISOString() === v; } catch (_e) { return false; }
+  }
+  // 私設ヘルパー: strict date-only(YYYY-MM-DD)判定。§2.2補正Cの日付抽出だけに用いる。
+  function _kcxStrictDateOnly(v) {
+    return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  }
+  // 私設ヘルパー: trim後空ならfallbackを返す（name/manager表示名の既定値処理）。
+  function _kcxTrimOr(v, fallback) {
+    var s = (typeof v === 'string') ? v.trim() : '';
+    return s.length > 0 ? s : fallback;
+  }
+
+  function _kcxEmptyResult(code) {
+    return { ok: false, code: code, rows: [], excluded: [], totalCards: 0 };
+  }
+
+  // §6.4: read失敗またはderive失敗時のrow雛形（readOk:false・axes:[]・count類0・
+  // nextAction:{level:'',freshness:'',date:null}）。カード自体を一覧から消さない。
+  function _kcxEmptyRow(customerId, name, manager, readCode) {
+    return {
+      customerId: customerId, name: name, manager: manager,
+      readOk: false, readCode: readCode,
+      axes: [],
+      confirmedAxisCount: 0, reconfirmAxisCount: 0,
+      reviewAxisCount: 0, reviewAxisLabels: [],
+      obstacleCount: 0,
+      nextAction: { level: '', freshness: '', date: null },
+      truncated: false
+    };
+  }
+
+  // §2.2補正C: 次回行動の「有効な次回予定日」は、axis6(nextaction)のevidenceUsedのうち
+  // source==='card' かつ field==='revisits.date/pursuits.next_appo_date(current)' かつ
+  // occurredAtがstrict YYYY-MM-DDである既存evidenceだけから読む。current pursuit判定等の
+  // private実装（_kdCurrentPursuit等）は複製しない。該当が無ければnullを返す（表示側は「―」）。
+  function _kcxExtractNextActionDate(nextAxis) {
+    if (!_kcxIsPlainObject(nextAxis) || !Array.isArray(nextAxis.evidenceUsed)) return null;
+    for (var i = 0; i < nextAxis.evidenceUsed.length; i++) {
+      var ev = nextAxis.evidenceUsed[i];
+      if (!_kcxIsPlainObject(ev)) continue;
+      if (ev.source === 'card' &&
+          ev.field === 'revisits.date/pursuits.next_appo_date(current)' &&
+          _kcxStrictDateOnly(ev.occurredAt)) {
+        return ev.occurredAt;
+      }
+    }
+    return null;
+  }
+
+  // 1カード分の行を組み立てる。呼出順序固定：knowledgeReadV1 → deriveCardKnowledgeV1 → row整形。
+  function _kcxRowFromCard(card, nowIso) {
+    var customerId = String(card.id);
+    var name = _kcxTrimOr(card.name, '氏名未入力');
+    var manager = _kcxTrimOr(card.manager, '担当未設定');
+
+    var readResult;
+    try {
+      readResult = window.klogCapturePaste.knowledgeReadV1(customerId);
+    } catch (_eRead) {
+      readResult = null;
+    }
+    if (!_kcxIsPlainObject(readResult) || readResult.ok !== true) {
+      var readCode = (_kcxIsPlainObject(readResult) && typeof readResult.code === 'string') ? readResult.code : 'invalid_store';
+      return _kcxEmptyRow(customerId, name, manager, readCode);
+    }
+
+    var deriveResult;
+    try {
+      deriveResult = window.klogCapturePaste.deriveCardKnowledgeV1(card, readResult, nowIso);
+    } catch (_eDerive) {
+      deriveResult = null;
+    }
+    if (!_kcxIsPlainObject(deriveResult) || deriveResult.ok !== true) {
+      var deriveCode = (_kcxIsPlainObject(deriveResult) && typeof deriveResult.code === 'string') ? deriveResult.code : 'derive_error';
+      return _kcxEmptyRow(customerId, name, manager, deriveCode);
+    }
+
+    var axes = [];
+    var confirmedAxisCount = 0, reconfirmAxisCount = 0;
+    var reviewAxisCount = 0, reviewAxisLabels = [];
+    var nextAxisRaw = null;
+
+    var derivedAxes = Array.isArray(deriveResult.axes) ? deriveResult.axes : [];
+    for (var i = 0; i < derivedAxes.length; i++) {
+      var ax = derivedAxes[i];
+      if (!_kcxIsPlainObject(ax)) continue;
+
+      var confirmationState = 'none';
+      if (_kcxIsPlainObject(ax.confirmation)) {
+        if (ax.confirmation.state === 'confirmed') { confirmationState = 'confirmed'; confirmedAxisCount++; }
+        else if (ax.confirmation.state === 'reconfirm_needed') { confirmationState = 'reconfirm_needed'; reconfirmAxisCount++; }
+      }
+
+      // reviewAxisCount/reviewAxisLabelsは軸単位で重複なく数える
+      // （freshness==='要再確認' or confirmationState==='reconfirm_needed'のいずれかで1回だけ計上）。
+      if (ax.freshness === '\u8981\u518d\u78ba\u8a8d' || confirmationState === 'reconfirm_needed') {
+        reviewAxisCount++;
+        reviewAxisLabels.push(ax.label);
+      }
+
+      axes.push({ key: ax.key, label: ax.label, level: ax.level, freshness: ax.freshness, confirmationState: confirmationState });
+      if (ax.key === 'nextaction') nextAxisRaw = ax;
+    }
+
+    var obstacleCount = Array.isArray(deriveResult.obstacles) ? deriveResult.obstacles.length : 0;
+    var nextAction = {
+      level: nextAxisRaw ? nextAxisRaw.level : '',
+      freshness: nextAxisRaw ? nextAxisRaw.freshness : '',
+      date: _kcxExtractNextActionDate(nextAxisRaw)
+    };
+
+    return {
+      customerId: customerId, name: name, manager: manager,
+      readOk: true, readCode: 'ok',
+      axes: axes,
+      confirmedAxisCount: confirmedAxisCount, reconfirmAxisCount: reconfirmAxisCount,
+      reviewAxisCount: reviewAxisCount, reviewAxisLabels: reviewAxisLabels,
+      obstacleCount: obstacleCount,
+      nextAction: nextAction,
+      truncated: !!deriveResult.truncated
+    };
+  }
+
+  // knowledgeCrossviewV1(cards, nowIso): §6契約を参照。同期・非throw・読取専用。
+  function knowledgeCrossviewV1(cards, nowIso) {
+    try {
+      if (!Array.isArray(cards)) return _kcxEmptyResult('invalid_argument');
+      if (!_kcxStrictIsoUtc(nowIso)) return _kcxEmptyResult('invalid_now');
+
+      var rows = [];
+      var excluded = [];
+
+      for (var i = 0; i < cards.length; i++) {
+        var card = cards[i];
+        if (!_kcxIsPlainObject(card) || card.id === null || card.id === undefined || String(card.id).length === 0) {
+          excluded.push({ index: i, code: 'missing_customer_id' });
+          continue;
+        }
+        try {
+          rows.push(_kcxRowFromCard(card, nowIso));
+        } catch (_ePerCard) {
+          // 入力全体の契約違反以外で1顧客失敗が起きても他顧客処理を継続する（全体catchで
+          // 処理済み行を偽って成功にはしない。当該行だけread_failed同等として残す）。
+          var fbName = _kcxTrimOr(card.name, '氏名未入力');
+          var fbManager = _kcxTrimOr(card.manager, '担当未設定');
+          rows.push(_kcxEmptyRow(String(card.id), fbName, fbManager, 'row_error'));
+        }
+      }
+
+      return { ok: true, code: 'ok', rows: rows, excluded: excluded, totalCards: cards.length };
+    } catch (_eAll) {
+      // 全体catch時もthrowしない。既に積んだ行があっても、この分岐に来る時点でcards走査
+      // そのものが破綻しているため、契約どおりinvalid_argumentの空結果を返す。
+      return _kcxEmptyResult('invalid_argument');
+    }
+  }
+
+  try {
+    if (typeof window !== 'undefined' && typeof window.klogCapturePaste === 'function' &&
+        typeof window.klogCapturePaste.knowledgeReadV1 === 'function' &&
+        typeof window.klogCapturePaste.deriveCardKnowledgeV1 === 'function' &&
+        !Object.prototype.hasOwnProperty.call(window.klogCapturePaste, 'knowledgeCrossviewV1')) {
+      Object.defineProperty(window.klogCapturePaste, 'knowledgeCrossviewV1', {
+        value: knowledgeCrossviewV1, enumerable: false, writable: false, configurable: false
+      });
+    }
+  } catch (_eDefine) { /* 非throw: 付与できない場合は何もしない */ }
 })();
 
 
@@ -14964,6 +15173,301 @@ function printDashboard(hostId,title){
   setTimeout(function(){ try{ w.focus(); w.print(); setTimeout(function(){ try{ if(!w.closed) w.close(); }catch(e){} }, 1500); }catch(ex){} }, 600);
 }
 window.printDashboard=printDashboard;
+// ===== 第200弾: manager-knowledge-crossview-readonly（営業知識OS 弾7・UI層） =====
+// 目的：管理職解錠済み利用者が、保存済みcards[]全件を横断し、顧客ごとに6軸level/freshness・
+// confirmation確認状況・未解決件数・要確認軸・次回行動・有効な次回予定日・klog読取可否を
+// 読取専用overlayで把握できるようにする。本ファイルはUI専任であり、
+// source/main/core/knowledge_crossview.jsのknowledgeCrossviewV1だけを呼ぶ
+// （read/derive/write APIを直接呼ばない）。DAN200実装プロンプトを正本とする。
+// IIFE内に全状態と関数を閉じ、windowへ関数を公開しない。localStorage直接操作0・
+// innerHTML 0・input/textarea生成0（select生成は並び順／担当者／全軸未着手フィルタ／
+// 要再確認フィルタの4個だけ）。書込、score、ranking、進捗率、AI推奨、指導問答、
+// confirm/revoke操作は追加しない。対象はcards[]の保存済み正本だけ（open中のcur未保存編集は
+// 含めない）。
+(function () {
+  'use strict';
+
+  var MCV_BTN_ID = 'managerCrossviewOpenBtn';
+  var MCV_OVERLAY_ID = 'managerCrossviewOverlay';
+  var _mcvBound = false;
+  var _mcvOverlay = null;
+  var _mcvKeydownHandler = null;
+
+  // セッション状態（IIFE閉包に保持・永続化しない）。openのたびにrowsは再集約するが、
+  // 以下の選択状態は維持する（§7.3）。
+  var _mcvSort = 'priority';
+  var _mcvManagerFilter = 'all';
+  var _mcvStartedFilter = 'all';
+  var _mcvReviewFilter = 'all';
+
+  var MCV_FRESH_LABEL = { fresh: '\u65b0\u3057\u3044', stale: '\u53e4\u3044', '\u8981\u518d\u78ba\u8a8d': '\u8981\u518d\u78ba\u8a8d', '\u9bae\u5ea6\u4e0d\u660e': '\u9bae\u5ea6\u4e0d\u660e' };
+
+  // ---- 安全なDOM構築ヘルパー（innerHTMLは一切使わない・knowledge_card_view.js _kcvEl と同型） ----
+  function _mcvEl(tag, opts) {
+    var el = document.createElement(tag);
+    opts = opts || {};
+    if (opts.className) el.className = opts.className;
+    if (opts.text !== undefined) el.textContent = opts.text;
+    if (opts.style) { for (var k in opts.style) { if (Object.prototype.hasOwnProperty.call(opts.style, k)) el.style[k] = opts.style[k]; } }
+    if (opts.attrs) { for (var a in opts.attrs) { if (Object.prototype.hasOwnProperty.call(opts.attrs, a)) el.setAttribute(a, opts.attrs[a]); } }
+    if (opts.onclick) el.addEventListener('click', opts.onclick);
+    return el;
+  }
+
+  function _mcvCloseOverlay() {
+    if (_mcvOverlay && _mcvOverlay.parentNode) { _mcvOverlay.parentNode.removeChild(_mcvOverlay); }
+    _mcvOverlay = null;
+    if (_mcvKeydownHandler) { document.removeEventListener('keydown', _mcvKeydownHandler); _mcvKeydownHandler = null; }
+  }
+
+  // ---- 並び順（§7.4）----
+  function _mcvCmpNameJa(a, b) {
+    var c = String(a.name).localeCompare(String(b.name), 'ja');
+    if (c !== 0) return c;
+    return String(a.customerId).localeCompare(String(b.customerId));
+  }
+  function _mcvCompareByPriority(a, b) {
+    var aFail = a.readOk === false, bFail = b.readOk === false;
+    if (aFail !== bFail) return aFail ? -1 : 1; // 1) read不可を先頭
+    if (a.reviewAxisCount !== b.reviewAxisCount) return b.reviewAxisCount - a.reviewAxisCount; // 2) desc
+    if (a.obstacleCount !== b.obstacleCount) return b.obstacleCount - a.obstacleCount; // 3) desc
+    return _mcvCmpNameJa(a, b); // 4) name → 5) customerId
+  }
+  function _mcvCompareByName(a, b) { return _mcvCmpNameJa(a, b); }
+  function _mcvCompareByManager(a, b) {
+    var c = String(a.manager).localeCompare(String(b.manager), 'ja');
+    if (c !== 0) return c;
+    return _mcvCmpNameJa(a, b);
+  }
+  function _mcvCompareByNextDate(a, b) {
+    var aDate = (a.nextAction && typeof a.nextAction.date === 'string') ? a.nextAction.date : null;
+    var bDate = (b.nextAction && typeof b.nextAction.date === 'string') ? b.nextAction.date : null;
+    var aHas = !!aDate, bHas = !!bDate;
+    if (aHas !== bHas) return aHas ? -1 : 1; // 日付なしは末尾
+    if (aHas && bHas && aDate !== bDate) return aDate < bDate ? -1 : 1; // strict日付asc
+    return _mcvCmpNameJa(a, b); // 同値は氏名→ID
+  }
+  var MCV_COMPARATORS = { priority: _mcvCompareByPriority, name: _mcvCompareByName, manager: _mcvCompareByManager, nextdate: _mcvCompareByNextDate };
+
+  // ---- フィルタ（§7.5）----
+  function _mcvApplyFilters(rows) {
+    return rows.filter(function (row) {
+      if (_mcvManagerFilter !== 'all' && row.manager !== _mcvManagerFilter) return false;
+      if (row.readOk === false) return true; // 読取不可rowは担当者filter以外で隠さない
+      if (_mcvStartedFilter === 'exclude') {
+        var allNotStarted = Array.isArray(row.axes) && row.axes.length === 6 && row.axes.every(function (ax) { return ax.level === '\u672a\u7740\u624b'; });
+        if (allNotStarted) return false;
+      }
+      if (_mcvReviewFilter === 'review_only' && !(row.reviewAxisCount > 0)) return false;
+      return true;
+    });
+  }
+
+  function _mcvDistinctManagers(rows) {
+    var seen = Object.create(null);
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      var m = rows[i].manager;
+      if (typeof m === 'string' && m.length > 0 && !seen[m]) { seen[m] = true; out.push(m); }
+    }
+    out.sort(function (x, y) { return String(x).localeCompare(String(y), 'ja'); });
+    return out;
+  }
+
+  // ---- 1行分のDOM構築（§7.6） ----
+  function _mcvAxisChip(ax) {
+    var freshLabel = MCV_FRESH_LABEL[ax.freshness] || ax.freshness || '';
+    var chip = _mcvEl('div', {
+      text: ax.label.charAt(0) + ' ' + ax.level + '/' + freshLabel,
+      attrs: { title: ax.label + '\uff1a' + ax.level + '\uff0f' + freshLabel },
+      style: { display: 'inline-block', fontSize: '11px', padding: '2px 6px', margin: '0 4px 4px 0', borderRadius: '10px', background: '#edf2f7', color: '#2d3748', border: '1px solid #e2e8f0' }
+    });
+    return chip;
+  }
+
+  function _mcvRenderRow(listBox, row) {
+    var rowEl = _mcvEl('div', {
+      attrs: { role: 'button', tabindex: '0' },
+      style: { padding: '10px 8px', borderBottom: '1px solid #edf2f7', cursor: 'pointer' }
+    });
+    rowEl.addEventListener('click', function () { _mcvGoToCard(row.customerId); });
+    rowEl.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); _mcvGoToCard(row.customerId); } });
+
+    var head = _mcvEl('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' } });
+    head.appendChild(_mcvEl('span', { text: row.name, style: { fontWeight: '700', fontSize: '13px', color: '#2d3748' } }));
+    head.appendChild(_mcvEl('span', { text: row.manager, style: { fontSize: '11px', color: '#718096' } }));
+    rowEl.appendChild(head);
+
+    if (row.readOk === false) {
+      rowEl.appendChild(_mcvEl('div', {
+        text: '\u8aad\u53d6\u4e0d\u53ef\uff08' + row.readCode + '\uff09',
+        style: { fontSize: '12px', color: '#c53030', marginTop: '4px' }
+      }));
+      listBox.appendChild(rowEl);
+      return;
+    }
+
+    var chipsBox = _mcvEl('div', { style: { marginTop: '4px' } });
+    (row.axes || []).forEach(function (ax) { chipsBox.appendChild(_mcvAxisChip(ax)); });
+    rowEl.appendChild(chipsBox);
+
+    var statLine = '\u78ba\u8a8d\u6e08 ' + row.confirmedAxisCount + '/6\u3000\u518d\u78ba\u8a8d ' + row.reconfirmAxisCount + '\u3000\u672a\u89e3\u6c7a ' + row.obstacleCount + '\u4ef6';
+    rowEl.appendChild(_mcvEl('div', { text: statLine, style: { fontSize: '11px', color: '#4a5568', marginTop: '2px' } }));
+
+    if (Array.isArray(row.reviewAxisLabels) && row.reviewAxisLabels.length > 0) {
+      rowEl.appendChild(_mcvEl('div', {
+        text: '\u8981\u78ba\u8a8d\uff1a' + row.reviewAxisLabels.join('\u30fb'),
+        style: { fontSize: '11px', color: '#c05621', marginTop: '2px' }
+      }));
+    }
+
+    var na = row.nextAction || { level: '', freshness: '', date: null };
+    var naFresh = MCV_FRESH_LABEL[na.freshness] || na.freshness || '';
+    var naDate = (typeof na.date === 'string' && na.date.length > 0) ? na.date : '\u2014';
+    rowEl.appendChild(_mcvEl('div', {
+      text: '\u6b21\u56de\u884c\u52d5\uff1a' + (na.level || '\u2014') + '\uff0f' + (naFresh || '\u2014') + '\uff0f' + naDate,
+      style: { fontSize: '11px', color: '#4a5568', marginTop: '2px' }
+    }));
+
+    if (row.truncated) {
+      rowEl.appendChild(_mcvEl('div', { text: '\u203b\u76f4\u8fd1200\u4ef6\u5224\u5b9a', style: { fontSize: '10px', color: '#a0aec0', marginTop: '2px' } }));
+    }
+
+    listBox.appendChild(rowEl);
+  }
+
+  // §7.7: row選択時はcrossview overlayを閉じ、既存closeAnalysis()を呼んでからopenCard(customerId)を呼ぶ。
+  // openCard/closeAnalysisは呼ぶだけで定義元を変更しない。
+  function _mcvGoToCard(customerId) {
+    _mcvCloseOverlay();
+    try { if (typeof closeAnalysis === 'function') closeAnalysis(); } catch (_e1) {}
+    if (typeof openCard === 'function') {
+      try { openCard(customerId); } catch (_e2) {}
+    }
+  }
+
+  // ---- コントロール4個（並び順／担当者／全軸未着手フィルタ／要再確認フィルタ）----
+  function _mcvSelect(opts, currentValue, onChange) {
+    var sel = document.createElement('select');
+    sel.style.fontSize = '12px'; sel.style.padding = '4px 8px'; sel.style.border = '1px solid #e2e8f0'; sel.style.borderRadius = '6px'; sel.style.marginRight = '6px'; sel.style.fontFamily = 'inherit';
+    var hasCurrent = false;
+    opts.forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o.value; op.textContent = o.label;
+      if (o.value === currentValue) { op.selected = true; hasCurrent = true; }
+      sel.appendChild(op);
+    });
+    if (!hasCurrent) {
+      var extra = document.createElement('option');
+      extra.value = currentValue; extra.textContent = currentValue; extra.selected = true;
+      sel.appendChild(extra);
+    }
+    sel.addEventListener('change', function () { onChange(sel.value); });
+    return sel;
+  }
+
+  function _mcvRenderControls(container, rows) {
+    var bar = _mcvEl('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' } });
+
+    bar.appendChild(_mcvSelect([
+      { value: 'priority', label: '\u4e26\u3073\u9806\uff1a\u512a\u5148\u5ea6' },
+      { value: 'name', label: '\u4e26\u3073\u9806\uff1a\u6c0f\u540d' },
+      { value: 'manager', label: '\u4e26\u3073\u9806\uff1a\u62c5\u5f53\u8005' },
+      { value: 'nextdate', label: '\u4e26\u3073\u9806\uff1a\u6b21\u56de\u4e88\u5b9a\u65e5' }
+    ], _mcvSort, function (v) { _mcvSort = v; _mcvRenderMain(); }));
+
+    var managerOpts = [{ value: 'all', label: '\u5168\u62c5\u5f53' }].concat(
+      _mcvDistinctManagers(rows).map(function (m) { return { value: m, label: m }; })
+    );
+    bar.appendChild(_mcvSelect(managerOpts, _mcvManagerFilter, function (v) { _mcvManagerFilter = v; _mcvRenderMain(); }));
+
+    bar.appendChild(_mcvSelect([
+      { value: 'all', label: '\u5168\u8ef8\u8868\u793a' },
+      { value: 'exclude', label: '\u5168\u8ef8\u672a\u7740\u624b\u3092\u9664\u304f' }
+    ], _mcvStartedFilter, function (v) { _mcvStartedFilter = v; _mcvRenderMain(); }));
+
+    bar.appendChild(_mcvSelect([
+      { value: 'all', label: '\u5168\u4ef6' },
+      { value: 'review_only', label: '\u8981\u518d\u78ba\u8a8d\u3042\u308a\u306e\u307f' }
+    ], _mcvReviewFilter, function (v) { _mcvReviewFilter = v; _mcvRenderMain(); }));
+
+    container.appendChild(bar);
+  }
+
+  // ---- overlay骨格（§7.2）: 既存overlayがあれば除去してから再構築する ----
+  function _mcvBuildShell() {
+    _mcvCloseOverlay();
+    var overlay = _mcvEl('div', {
+      attrs: { id: MCV_OVERLAY_ID },
+      style: { position: 'fixed', left: '0', top: '0', right: '0', bottom: '0', background: 'rgba(0,0,0,0.45)', zIndex: '9999', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }
+    });
+    var card = _mcvEl('div', { style: { background: 'white', borderRadius: '10px', maxWidth: '640px', width: '100%', maxHeight: '88vh', overflowY: 'auto', padding: '14px', boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontFamily: 'inherit' } });
+    var head = _mcvEl('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } });
+    head.appendChild(_mcvEl('div', { text: '\ud83e\udded \u7ba1\u7406\u8077\u5411\u3051\u30ca\u30ec\u30c3\u30b8\u6a2a\u65ad', style: { fontSize: '15px', fontWeight: '700', color: '#2d3748' } }));
+    head.appendChild(_mcvEl('button', { text: '\u2715', attrs: { type: 'button', 'aria-label': '\u9589\u3058\u308b' }, style: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#718096' }, onclick: _mcvCloseOverlay }));
+    card.appendChild(head);
+    var body = _mcvEl('div', {});
+    card.appendChild(body);
+    overlay.appendChild(card);
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) _mcvCloseOverlay(); });
+    document.body.appendChild(overlay);
+    _mcvOverlay = overlay;
+    _mcvKeydownHandler = function (ev) { if (ev.key === 'Escape') _mcvCloseOverlay(); };
+    document.addEventListener('keydown', _mcvKeydownHandler);
+    return body;
+  }
+
+  // §7.1: open処理の最初に必ずisMgrUnlocked()を検査する。不成立時はoverlay生成0・DOM変更0・
+  // toast/alert 0・throw 0（no-op）。
+  function _mcvRenderMain() {
+    if (typeof isMgrUnlocked !== 'function' || isMgrUnlocked() !== true) return;
+
+    var body = _mcvBuildShell();
+
+    var crossResult;
+    try {
+      crossResult = window.klogCapturePaste.knowledgeCrossviewV1(cards, new Date().toISOString());
+    } catch (_eCall) {
+      crossResult = { ok: false, code: 'invalid_argument', rows: [], excluded: [], totalCards: 0 };
+    }
+
+    if (!crossResult || crossResult.ok !== true) {
+      body.appendChild(_mcvEl('div', { text: '\u4e00\u89a7\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002', style: { fontSize: '13px', color: '#c53030' } }));
+      return;
+    }
+
+    _mcvRenderControls(body, crossResult.rows);
+
+    var visible = _mcvApplyFilters(crossResult.rows);
+    var comparator = MCV_COMPARATORS[_mcvSort] || _mcvCompareByPriority;
+    var sorted = visible.slice().sort(comparator); // §7.4: 必ずcopy上でsort、core返却rowsを変更しない
+
+    body.appendChild(_mcvEl('div', { text: sorted.length + '\u4ef6\u8868\u793a', style: { fontSize: '11px', color: '#a0aec0', marginBottom: '4px' } }));
+
+    var listBox = _mcvEl('div', {});
+    if (sorted.length === 0) {
+      listBox.appendChild(_mcvEl('div', { text: '\u8a72\u5f53\u3059\u308b\u9867\u5ba2\u304c\u3042\u308a\u307e\u305b\u3093\u3002', style: { fontSize: '12px', color: '#a0aec0', padding: '10px 0' } }));
+    } else {
+      sorted.forEach(function (row) { _mcvRenderRow(listBox, row); });
+    }
+    body.appendChild(listBox);
+  }
+
+  function _mcvOnButtonClick() { _mcvRenderMain(); }
+  function _mcvBindButton() {
+    if (_mcvBound) return;
+    var btn = document.getElementById(MCV_BTN_ID);
+    if (!btn) return;
+    btn.addEventListener('click', _mcvOnButtonClick);
+    _mcvBound = true;
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _mcvBindButton);
+  } else {
+    _mcvBindButton();
+  }
+})();
+
 /* ===== ショットガングループ（第161弾で card.sg 方式へ全面移行） =====
  * 第160弾のshotgun_ids直接操作API（sgAdd/sgRemove/sgGroupOf・片方向保存＋連結成分展開）は、
  * 第161弾Phase2〜4でcard.sg方式（sggCreate/sggAddMember/sggRemoveMember/sggOf等）に完全に
