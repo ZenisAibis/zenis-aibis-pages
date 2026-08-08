@@ -2195,6 +2195,7 @@ body.is-mob .mob-menu{display:inline-block}
         <button class="bp" onclick="setupChooseSave()" style="font-size:13px;padding:10px 16px">💾 自動保存先を設定</button>
         <button class="bc" onclick="setupChooseCopy()" style="font-size:13px;padding:10px 16px">📋 コピー保存先を指定</button>
       </div>
+      <button type="button" id="setupSaveDiagOpenBtn" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:none;border:1px dashed #a0aec0;color:#4a5568;border-radius:6px;padding:9px 12px;font-size:12px;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 保存できないとき／自己診断</button>
       <div style="padding:10px;background:#fff8e1;border-left:3px solid #ffd54f;border-radius:4px;font-size:12px;line-height:1.8;margin-bottom:8px">
         <strong style="color:#e65100">初めての方へ：</strong><br>
         【自動保存先】① ボタンを押すと案内が表示されます<br>
@@ -2248,6 +2249,18 @@ body.is-mob .mob-menu{display:inline-block}
     </div>
   </div>
 </div>
+<!-- ▼▼ 第201弾 save-self-diagnostic-wizard START（source/main/ui/save_diagnostic_wizard.jsが描画を担当。本ファイルは容れ物のみ） ▼▼ -->
+<div id="zsdOverlay" style="display:none;position:fixed;inset:0;background:rgba(26,32,44,.55);z-index:100000;align-items:center;justify-content:center;padding:16px">
+  <div id="zsdCard" role="dialog" aria-modal="true" aria-labelledby="zsdTitle" style="background:#ffffff;border-radius:14px;max-width:440px;width:100%;max-height:84vh;overflow-y:auto;padding:16px 16px 14px;box-shadow:0 10px 34px rgba(0,0,0,.28);font-family:inherit">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div id="zsdTitle" style="font-size:15px;font-weight:800;color:#2c5282">🩺 保存できないとき／自己診断</div>
+      <button type="button" id="zsdCloseBtn" aria-label="閉じる" style="background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#a0aec0;padding:2px 6px">✕</button>
+    </div>
+    <div id="zsdBody" style="font-size:13px;line-height:1.7;color:#2d3748"></div>
+  </div>
+</div>
+<!-- ▲▲ 第201弾 save-self-diagnostic-wizard END ▲▲ -->
+
 
 <div class="toast" id="toast"></div>
 
@@ -2559,7 +2572,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.99";
+var APP_VERSION = "v10.100";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6228,6 +6241,11 @@ var AIBIS_FAQ=[
   {q:'初期設定を変えたい',a:function(){return isMob?'⋮その他→⚙初期設定から変更できるよ！名前・メールアドレス・役職・課名を確認してね。':'ヘッダーの⚙ボタンまたは⋮その他→⚙初期設定から変更できるよ！異動時はここで支店・課名を変更してね。';}},
   {q:'全データを消したい',a:function(){return isMob?'⋮その他→🗑全データをクリアで消せるよ。消す前にバックアップを取っておいてね！':'⋮その他→🗑全データをクリアで消せるよ。ファイル（OneDrive）には残るから読込で戻せるよ。';}},
   {q:'自動保存先って何？',a:'PC版でOneDriveに設定する主ファイルのことだよ！保存するたびに自動で書き込まれるよ。<br><br>初期設定の「💾 自動保存先を設定」から設定できるよ。ファイル名はz-aibis_氏名.jsonで自動入力されるから変更不要！<br><br>⚠ このファイルを削除すると全データが消えるから絶対に削除しないでね！'},
+  {q:'保存できないときは？',a:function(){
+    return isMob
+      ? 'スマホ・タブレットではPCの自動保存先設定は対象外だよ。データは端末内（ブラウザ）に保存されるから、定期的に「📧 PCへ」でPCに控えを取っておいてね😊'
+      : '自動保存先への書き込みがうまくいかないときは、下のボタンから自己診断できるよ！原因の可能性を確認して、再設定などの復旧操作にそのまま進めるよ🩺<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 自己診断を開く</button>';
+  }},
   {q:'データが消えた！',a:'落ち着いて！まず確認してみてね😊<br><br>【まず試す】⋮その他→⏪1つ前に戻す　で直前の保存状態に復元できるよ！<br><br>【PC版】OneDriveのz-aibis_氏名.jsonが残っていないか確認。コピー保存先も確認してみて。<br>【スマホ版】PCにバックアップ（📧 PCへ）が残っていないか確認。<br><br>これからはPC版でコピー保存先も設定しておくと二重に守れるよ！'},
   {q:'1つ前に戻すって何？',a:'⏪1つ前に戻すは、直前の保存状態に復元する機能だよ！<br><br>保存するたびに、その直前のデータが自動でバックアップされてるよ。<br><br>誤ってカードを消した・上書きしてしまった・読み込みミスをした、そんなときに⋮その他→⏪1つ前に戻すで復活できるよ😊<br><br>※もう一度押すと、戻す前の状態に戻せるよ（行ったり来たり）。ただし2つ前より前には戻れないから注意してね！'},
   {q:'検索ってどう使うの？',a:'名前や住所を入れるだけ！スペース区切りで複数キーワードも使えるよ🔍<br>並び替えは最新・再訪・ジャッジ・住所・スコア・心理・会話・ランク・遅れ・初訪・土地・顧客から選べるよ！'},
@@ -12557,8 +12575,14 @@ function chooseSave(){
 }
 function doChooseSave(){
   window.showSaveFilePicker({suggestedName:'z-aibis_'+(uName||'担当者')+'.json',startIn:'documents',types:[{description:'z.Aibis データファイル',accept:{'application/json':['.json']}}]}).then(function(handle){
-    fHandle=handle; saveHandle(handle);
-    writeFile(handle,function(){ updateFileDisp(); toast('✅ 保存先を設定しました: '+handle.name); });
+    writeFile(handle,function(ok){
+      if(ok){
+        fHandle=handle; saveHandle(handle);
+        updateFileDisp(); toast('✅ 保存先を設定しました: '+handle.name);
+      } else {
+        aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
+      }
+    });
   }).catch(function(ex){ if(ex.name!=='AbortError') toast('ファイル選択エラー'); });
 }
 
@@ -14227,8 +14251,14 @@ function setupChooseSave(){
       startIn: 'documents',
       types:[{description:'z.Aibis データファイル',accept:{'application/json':['.json']}}]
     }).then(function(handle){
-      fHandle=handle; saveHandle(handle);
-      writeFile(handle, function(){ updateSetupFileDisp(); updateFileDisp(); toast('✅ 自動保存先設定完了: '+handle.name); });
+      writeFile(handle, function(ok){
+        if(ok){
+          fHandle=handle; saveHandle(handle);
+          updateSetupFileDisp(); updateFileDisp(); toast('✅ 自動保存先設定完了: '+handle.name);
+        } else {
+          aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
+        }
+      });
     }).catch(function(ex){ if(ex.name!=='AbortError') toast('ファイル選択エラー'); });
   };
 }
@@ -14244,12 +14274,227 @@ function setupChooseCopy(){
       startIn: 'documents',
       types:[{description:'z.Aibis コピーファイル',accept:{'application/json':['.json']}}]
     }).then(function(handle){
-      copyHandle=handle; saveCopyHandle(handle);
-      writeFile(handle, function(){ updateSetupFileDisp(); toast('✅ コピー保存先設定完了: '+handle.name); });
+      writeFile(handle, function(ok){
+        if(ok){
+          copyHandle=handle; saveCopyHandle(handle);
+          updateSetupFileDisp(); toast('✅ コピー保存先設定完了: '+handle.name);
+        } else {
+          aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
+        }
+      });
     }).catch(function(ex){ if(ex.name!=='AbortError') toast('ファイル選択エラー'); });
   };
 }
 window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
+
+// ===== 第201弾: 保存できないとき／自己診断ウィザード =====
+// 方針：open経路はread-only（許可APIのみ）。復旧操作は全てユーザーclick起点・自動retry 0。
+// 新規window export 0／innerHTML代入0／localStorage直接操作0／永続化0（開くたびに再診断）。
+(function(){
+  'use strict';
+
+  var OPEN_ATTR = 'data-zsd-open';
+
+  // ---- DOM構築ヘルパー（innerHTML代入は一切行わない。createElement/textContentのみ）----
+  function zel(tag, opts, kids){
+    var n = document.createElement(tag);
+    opts = opts || {};
+    if (opts.text != null) n.textContent = opts.text;
+    if (opts.id) n.id = opts.id;
+    if (opts.style) n.style.cssText = opts.style;
+    if (opts.type) n.setAttribute('type', opts.type);
+    if (opts.aria) n.setAttribute('aria-label', opts.aria);
+    if (opts.onclick) n.addEventListener('click', opts.onclick);
+    (kids || []).forEach(function(k){ if (k) n.appendChild(k); });
+    return n;
+  }
+  function zclear(node){ while (node && node.firstChild) node.removeChild(node.firstChild); }
+
+  var BTN_PRIMARY = 'display:block;width:100%;text-align:center;box-sizing:border-box;padding:10px 12px;margin-top:8px;background:#2c5282;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit';
+  var BTN_SECOND  = 'display:block;width:100%;text-align:center;box-sizing:border-box;padding:9px 12px;margin-top:8px;background:#ebf4ff;color:#2c5282;border:1px solid #90cdf4;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit';
+  var BOX_INFO  = 'padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:12px;line-height:1.7';
+  var BOX_WARN  = 'padding:10px;background:#fff8e1;border-left:3px solid #ffd54f;border-radius:4px;font-size:12px;line-height:1.7';
+  var BOX_OK    = 'padding:10px;background:#f0fff4;border-left:3px solid #38a169;border-radius:4px;font-size:12px;line-height:1.7';
+
+  var ZSD_TEXT = {
+    S1: 'このスマホ・タブレットでは、PCの自動保存先設定は対象外です。データは端末内（ブラウザ）に保存されます。定期的に「📧 PCへ」でPCに控えを取っておくと安心です。',
+    S2: '自動保存先が現在有効になっていません。',
+    S3: 'この端末に保存先の記憶が残っていません。',
+    S4: 'アクセス許可の再確認が必要です。',
+    S5: 'アクセスがブロックされています。',
+    S6: '保存先ファイルに到達できません。移動・削除・同期中などの可能性があります（断定はできません）。',
+    S7: 'ファイルはありますが、現行形式として読み取れません。ブラウザ内のデータが正しい可能性があります。むやみに上書きしないでください。',
+    S8: '保存先は正常に読めています。'
+  };
+
+  // ---- open時read-only診断 ----
+  // 許可API: loadHandleCb / handle.queryPermission / (granted時のみ)handle.getFile / file.text() / JSON.parse / Array.isArray
+  // 禁止: checkPerm, requestPermission, readFile, readLS, writeFile, saveLS, doSaveCards, saveHandle, saveCopyHandle,
+  //       localStorage書込, createWritable。診断はローカル変数のみで完結する。
+  function zsdDiagnose(done){
+    if (isMob || !hasFSA) { done({ state: 'S1' }); return; }
+    if (!fHandle) {
+      loadHandleCb(function(mainH, copyH){
+        done({ state: 'S2', copyLive: !!copyHandle, copyIdb: !!copyH });
+      });
+      return;
+    }
+    loadHandleCb(function(mainH, copyH){
+      var copyLive = !!copyHandle, copyIdb = !!copyH;
+      if (!mainH) { done({ state: 'S3', copyLive: copyLive, copyIdb: copyIdb }); return; }
+      var qp;
+      try { qp = fHandle.queryPermission({ mode: 'readwrite' }); } catch (ex) { qp = null; }
+      if (!qp || typeof qp.then !== 'function') { done({ state: 'S6', copyLive: copyLive, copyIdb: copyIdb }); return; }
+      qp.then(function(perm){
+        if (perm === 'prompt') { done({ state: 'S4', copyLive: copyLive, copyIdb: copyIdb }); return; }
+        if (perm === 'denied') { done({ state: 'S5', copyLive: copyLive, copyIdb: copyIdb }); return; }
+        fHandle.getFile().then(function(file){
+          file.text().then(function(txt){
+            var parsed;
+            try { parsed = JSON.parse(txt); } catch (ex2) { parsed = undefined; }
+            if (Array.isArray(parsed)) {
+              done({ state: 'S8', count: parsed.length, copyLive: copyLive, copyIdb: copyIdb });
+            } else {
+              done({ state: 'S7', copyLive: copyLive, copyIdb: copyIdb });
+            }
+          }).catch(function(){ done({ state: 'S6', copyLive: copyLive, copyIdb: copyIdb }); });
+        }).catch(function(){ done({ state: 'S6', copyLive: copyLive, copyIdb: copyIdb }); });
+      }).catch(function(){ done({ state: 'S6', copyLive: copyLive, copyIdb: copyIdb }); });
+    });
+  }
+
+  // ---- 明示復旧アクション（すべてユーザーclick起点・1clickにつき最大1回・自動retry 0）----
+  function zsdCheckPermission(noteHost){
+    return function(ev){
+      var btn = ev.currentTarget; if (btn) btn.disabled = true;
+      checkPerm(fHandle, function(ok){
+        if (btn) btn.disabled = false;
+        if (ok) { zsdOpen(); return; } // 許可取得→再診断
+        zclear(noteHost);
+        noteHost.appendChild(zel('div', { text: '許可が確認できませんでした。保存先の再設定もお試しください。', style: 'margin-top:8px;color:#c53030;font-size:12px' }));
+      });
+    };
+  }
+  function zsdResetupMain(){ zsdClose(); showSetup(); setupChooseSave(); }
+  function zsdResetupCopy(){ zsdClose(); showSetup(); setupChooseCopy(); }
+  function zsdGoFullBackup(){ zsdClose(); fullBackupCreate(); }
+
+  function zsdRunSaveTest(host){
+    return function(){
+      zclear(host);
+      if (typeof doSaveCards !== 'undefined' && doSaveCards._busy === true) {
+        host.appendChild(zel('div', { text: '保存処理が進行中です。少し待ってからもう一度お試しください。', style: 'margin-top:8px;color:#dd6b20;font-size:12px' }));
+        return;
+      }
+      host.appendChild(zel('div', { text: 'テスト書込み中…', style: 'margin-top:8px;color:#718096;font-size:12px' }));
+      writeFile(fHandle, function(ok){
+        zclear(host);
+        if (ok) {
+          host.appendChild(zel('div', { text: '✅ 書込成功：' + fHandle.name, style: 'margin-top:8px;color:#276749;font-size:12px;font-weight:700' }));
+        } else {
+          host.appendChild(zel('div', { text: '書込経路で一時的な競合・同期・ロック等が発生している可能性があります。', style: 'margin-top:8px;color:#c53030;font-size:12px' }));
+        }
+      });
+    };
+  }
+
+  // ---- 描画 ----
+  function zsdCopyInfoNode(r){
+    var t = '📋 コピー保存先：' + (r.copyLive ? '有効' : '未設定') + '／この端末の記憶：' + (r.copyIdb ? 'あり' : 'なし');
+    return zel('div', { text: t, style: 'margin-top:10px;padding:8px 10px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#4a5568' });
+  }
+  function zsdActionsNode(noteHost){
+    var wrap = zel('div', { style: 'margin-top:2px' });
+    wrap.appendChild(zel('button', { text: '💾 自動保存先を再設定する', type: 'button', style: BTN_SECOND, onclick: zsdResetupMain }));
+    wrap.appendChild(zel('button', { text: '📋 コピー保存先を再設定', type: 'button', style: BTN_SECOND, onclick: zsdResetupCopy }));
+    wrap.appendChild(zel('button', { text: '📦 フルバックアップを作成', type: 'button', style: BTN_SECOND, onclick: zsdGoFullBackup }));
+    return wrap;
+  }
+
+  function zsdRender(r){
+    if (!zsdEls()) return;
+    zclear(zsdBodyEl);
+
+    if (r.state === 'S1') {
+      zsdBodyEl.appendChild(zel('div', { text: ZSD_TEXT.S1, style: BOX_INFO }));
+      return;
+    }
+
+    var boxStyle = (r.state === 'S8') ? BOX_OK : (r.state === 'S7' ? BOX_WARN : BOX_INFO);
+    var mainMsg = ZSD_TEXT[r.state] || '';
+    if (r.state === 'S8') { mainMsg = '✅ ' + ZSD_TEXT.S8 + '（' + r.count + '件）'; }
+    zsdBodyEl.appendChild(zel('div', { text: mainMsg, style: boxStyle }));
+
+    var noteHost = zel('div', {});
+    if (r.state === 'S4' || r.state === 'S5') {
+      zsdBodyEl.appendChild(zel('button', { text: '🔓 アクセス許可を確認する', type: 'button', style: BTN_PRIMARY, onclick: zsdCheckPermission(noteHost) }));
+    }
+    zsdBodyEl.appendChild(noteHost);
+
+    if (r.state === 'S8') {
+      var testHost = zel('div', {});
+      zsdBodyEl.appendChild(zel('button', { text: '🧪 保存テストを実行', type: 'button', style: BTN_PRIMARY, onclick: zsdRunSaveTest(testHost) }));
+      zsdBodyEl.appendChild(testHost);
+    }
+
+    zsdBodyEl.appendChild(zsdActionsNode(noteHost));
+    zsdBodyEl.appendChild(zsdCopyInfoNode(r));
+  }
+
+  // ---- overlay開閉 ----
+  var zsdOverlayEl, zsdBodyEl, zsdCloseBtnEl;
+  function zsdEls(){
+    if (!zsdOverlayEl) zsdOverlayEl = document.getElementById('zsdOverlay');
+    if (!zsdBodyEl) zsdBodyEl = document.getElementById('zsdBody');
+    if (!zsdCloseBtnEl) zsdCloseBtnEl = document.getElementById('zsdCloseBtn');
+    return !!(zsdOverlayEl && zsdBodyEl);
+  }
+  function zsdEscHandler(ev){ if (ev.key === 'Escape') zsdClose(); }
+  function zsdOverlayClickHandler(ev){ if (ev.target === zsdOverlayEl) zsdClose(); }
+
+  function zsdClose(){
+    if (!zsdEls()) return;
+    zsdOverlayEl.style.display = 'none';
+    document.removeEventListener('keydown', zsdEscHandler);
+  }
+  function zsdOpen(){
+    if (!zsdEls()) return;
+    zsdOverlayEl.style.display = 'flex';
+    zclear(zsdBodyEl);
+    zsdBodyEl.appendChild(zel('div', { text: '診断しています…', style: 'color:#718096;font-size:12px' }));
+    document.addEventListener('keydown', zsdEscHandler);
+    zsdDiagnose(zsdRender);
+  }
+
+  // ---- バインド（inline onclick禁止。id経由でaddEventListener）----
+  // save_diagnostic_view.html・setup_view.htmlはいずれも本scriptより前にinclude・parseされるため、
+  // 要素は既にDOM上に存在する。
+  if (zsdEls() && zsdCloseBtnEl) {
+    zsdCloseBtnEl.addEventListener('click', zsdClose);
+    zsdOverlayEl.addEventListener('click', zsdOverlayClickHandler);
+  }
+  // setup入口（静的ボタン）はdata-zsd-open属性を持たせず、id経由で直接bindする。
+  // delegated listener（後述）はQ&A／aibisAlert内の動的ボタン専用とし、setup入口はここでの
+  // 直接addEventListenerだけで受ける（1clickにつきzsdOpenはちょうど1回）。
+  var zsdSetupBtnEl = document.getElementById('setupSaveDiagOpenBtn');
+  if (zsdSetupBtnEl) { zsdSetupBtnEl.addEventListener('click', zsdOpen); }
+
+  // ---- Q&A／aibisAlert内の動的ボタンを1本のdelegated listenerで受ける ----
+  // 既存aibisAlertが前面に残ったままwizardが背面に隠れる事故を防ぐため、closeAibisAlertが
+  // 存在すれば先に閉じてからzsdOpenする。closeAibisAlert未定義（＝aibisAlert非表示中を含む）
+  // でも例外にしない。
+  document.addEventListener('click', function(ev){
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    var trigger = t.closest('[' + OPEN_ATTR + '="1"]');
+    if (trigger) {
+      if (typeof closeAibisAlert === 'function') { closeAibisAlert(); }
+      zsdOpen();
+    }
+  });
+
+})();
+
 
 // ===== 音声入力 =====
 var micRec=null, micBtn=null, micTA=null, micBase='', micActive=false;
