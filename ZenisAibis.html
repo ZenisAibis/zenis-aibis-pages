@@ -2572,7 +2572,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.100";
+var APP_VERSION = "v10.101";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -15429,6 +15429,15 @@ window.printDashboard=printDashboard;
 // 要再確認フィルタの4個だけ）。書込、score、ranking、進捗率、AI推奨、指導問答、
 // confirm/revoke操作は追加しない。対象はcards[]の保存済み正本だけ（open中のcur未保存編集は
 // 含めない）。
+//
+// ===== 第202弾追補: manager-six-axis-progress-readonly =====
+// 既存knowledgeCrossviewV1() rowsだけを入力に、6軸summary（軸別 把握/断片/未着手件数・
+// 確認済/再確認件数）とrow側の「把握x/6・断片y・未着手z」を追加。単一score・進捗率・%・
+// 順位・担当者比較ランキングは追加しない。confirmationは「確認済」「再確認」の語のみを用い、
+// freshnessの正式語「要再確認」をsummary列名・件数名に使わない（confirmationとlevelは非混同）。
+// summaryはbutton/select/tabindex/addEventListener 0の非対話table semantics。DAN202_FABLE5_
+// MANAGER_SIX_AXIS_PROGRESS_DESIGN_AUDIT_REPORT_20260808.md（CONDITIONAL GO・M1〜M4/m1〜m5）を
+// 正本とする。
 (function () {
   'use strict';
 
@@ -15556,6 +15565,13 @@ window.printDashboard=printDashboard;
     (row.axes || []).forEach(function (ax) { chipsBox.appendChild(_mcvAxisChip(ax)); });
     rowEl.appendChild(chipsBox);
 
+    // 第202弾§11: 既存chipと既存statLineの間へ「把握x/6・断片y・未着手z」を追加（3値常時同時表示）。
+    var lvlCounts = _mcvRowLevelCounts(row);
+    rowEl.appendChild(_mcvEl('div', {
+      text: '\u628a\u63e1' + lvlCounts.grasp + '/6\u30fb\u65ad\u7247' + lvlCounts.fragment + '\u30fb\u672a\u7740\u624b' + lvlCounts.notstarted,
+      style: { fontSize: '11px', color: '#4a5568', marginTop: '2px' }
+    }));
+
     var statLine = '\u78ba\u8a8d\u6e08 ' + row.confirmedAxisCount + '/6\u3000\u518d\u78ba\u8a8d ' + row.reconfirmAxisCount + '\u3000\u672a\u89e3\u6c7a ' + row.obstacleCount + '\u4ef6';
     rowEl.appendChild(_mcvEl('div', { text: statLine, style: { fontSize: '11px', color: '#4a5568', marginTop: '2px' } }));
 
@@ -15579,6 +15595,20 @@ window.printDashboard=printDashboard;
     }
 
     listBox.appendChild(rowEl);
+  }
+
+  // ==== 第202弾: manager-six-axis-progress-readonly（管理職向け6軸summary・row進捗表示） ====
+  // §11: readOk:true rowだけに、既存6軸chipと既存statLine（確認済/再確認/未解決）の間へ
+  // 「把握x/6・断片y・未着手z」を1行追加する。row.axesをkeyではなくlevel値そのもので集計する
+  // （levelは未着手／断片／把握の3値固定・第199弾恒久契約2）。合成値（進捗率等）は算出しない。
+  function _mcvRowLevelCounts(row) {
+    var grasp = 0, fragment = 0, notstarted = 0;
+    (row.axes || []).forEach(function (ax) {
+      if (ax.level === '\u628a\u63e1') grasp++;
+      else if (ax.level === '\u65ad\u7247') fragment++;
+      else if (ax.level === '\u672a\u7740\u624b') notstarted++;
+    });
+    return { grasp: grasp, fragment: fragment, notstarted: notstarted };
   }
 
   // §7.7: row選択時はcrossview overlayを閉じ、既存closeAnalysis()を呼んでからopenCard(customerId)を呼ぶ。
@@ -15662,6 +15692,131 @@ window.printDashboard=printDashboard;
     return body;
   }
 
+  // ==== 第202弾: 6軸summary（M3母集団・単一render契約） ====
+  // 対象6軸固定順。labelはknowledge_derive.js/knowledge_crossview.jsのax.labelと同一文字列
+  // （key照合の防御的フォールバック表示用。row.axesの実データはkeyで照合し、配列indexは信用しない）。
+  var MCV_AXIS_ORDER = [
+    { key: 'contact', label: '\u63a5\u89e6\u30fb\u95a2\u4fc2' },
+    { key: 'family', label: '\u5bb6\u65cf\u30fb\u610f\u601d\u6c7a\u5b9a\u8005' },
+    { key: 'asset', label: '\u76f8\u7d9a\u30fb\u8cc7\u7523\u8ab2\u984c' },
+    { key: 'motivation', label: '\u52d5\u6a5f\u30fb\u5fc3\u7406' },
+    { key: 'proposal', label: '\u63d0\u6848\u6e96\u5099' },
+    { key: 'nextaction', label: '\u6b21\u56de\u884c\u52d5' }
+  ];
+
+  // M3: summary用の再集約・再filter・別時刻nowIsoでの再計算は行わない。呼出元が渡す`visible`
+  // （knowledgeCrossviewV1 1回→既存_mcvApplyFilters 1回適用後の結果）だけを単一走査するO(n)関数。
+  // 集計対象A=visibleのreadOk:true（truncated含む）。読取不可B=visibleのreadOk:false件数。
+  function _mcvComputeSummary(visible) {
+    var axisStats = Object.create(null);
+    MCV_AXIS_ORDER.forEach(function (a) {
+      axisStats[a.key] = { grasp: 0, fragment: 0, notstarted: 0, confirmed: 0, reconfirm: 0 };
+    });
+    var aCount = 0, bCount = 0, truncatedCount = 0;
+    for (var i = 0; i < visible.length; i++) {
+      var row = visible[i];
+      if (row.readOk !== true) { bCount++; continue; }
+      aCount++;
+      if (row.truncated) truncatedCount++;
+      // key照合（配列indexを無条件信用しない）。契約上6軸存在するが、万一欠落してもその軸へ加算0。
+      var byKey = Object.create(null);
+      (row.axes || []).forEach(function (ax) { if (ax && typeof ax.key === 'string') byKey[ax.key] = ax; });
+      for (var j = 0; j < MCV_AXIS_ORDER.length; j++) {
+        var axKey = MCV_AXIS_ORDER[j].key;
+        var ax2 = byKey[axKey];
+        if (!ax2) continue; // 新状態を発明しない：欠落時は加算0
+        var st = axisStats[axKey];
+        if (ax2.level === '\u628a\u63e1') st.grasp++;
+        else if (ax2.level === '\u65ad\u7247') st.fragment++;
+        else if (ax2.level === '\u672a\u7740\u624b') st.notstarted++;
+        if (ax2.confirmationState === 'confirmed') st.confirmed++;
+        else if (ax2.confirmationState === 'reconfirm_needed') st.reconfirm++;
+      }
+    }
+    return { A: aCount, B: bCount, truncatedCount: truncatedCount, axisStats: axisStats };
+  }
+
+  // §7/M1/M2/m3/m4/m5: 6軸summary描画。非対話（button/select/tabindex/addEventListener 0）・
+  // table semantics・色非依存・件数のみ（%・進捗率・合成値・順位は一切算出しない）。
+  // A===0のときはtable自体を描画しない（既存row一覧側の「該当する顧客がありません。」は不変）。
+  function _mcvRenderSummary(container, visible, excludedArr) {
+    var summary = _mcvComputeSummary(visible);
+    var cCount = Array.isArray(excludedArr) ? excludedArr.length : 0;
+
+    var wrap = _mcvEl('div', { style: { marginBottom: '8px' } });
+    wrap.appendChild(_mcvEl('div', {
+      text: '6\u8ef8\u30b5\u30de\u30ea\u30fc\uff08\u73fe\u5728\u306e\u7d5e\u308a\u8fbc\u307f\u9069\u7528\u5f8c\uff09\u3000\u96c6\u8a08\u5bfe\u8c61 ' + summary.A + '\u4ef6\u3000\u8aad\u53d6\u4e0d\u53ef ' + summary.B + '\u4ef6',
+      style: { fontSize: '11px', fontWeight: '700', color: '#2d3748', marginBottom: '4px' }
+    }));
+
+    if (summary.A > 0) {
+      var table = document.createElement('table');
+      table.setAttribute('aria-label', '6\u8ef8\u30b5\u30de\u30ea\u30fc\uff08\u73fe\u5728\u306e\u7d5e\u308a\u8fbc\u307f\u9069\u7528\u5f8c\uff09');
+      table.style.borderCollapse = 'collapse';
+      table.style.fontSize = '11px';
+      table.style.tableLayout = 'auto';
+
+      var thead = document.createElement('thead');
+      var headRow = document.createElement('tr');
+      var colLabels = ['\u8ef8', '\u628a\u63e1', '\u65ad\u7247', '\u672a\u7740\u624b', '\u78ba\u8a8d\u6e08', '\u518d\u78ba\u8a8d'];
+      colLabels.forEach(function (label, idx) {
+        var th = document.createElement('th');
+        th.setAttribute('scope', 'col');
+        th.textContent = label;
+        th.style.textAlign = idx === 0 ? 'left' : 'right';
+        th.style.padding = '2px 4px';
+        th.style.color = '#2d3748';
+        th.style.fontWeight = '700';
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      MCV_AXIS_ORDER.forEach(function (a) {
+        var st = summary.axisStats[a.key];
+        var tr = document.createElement('tr');
+        var rowTh = document.createElement('th');
+        rowTh.setAttribute('scope', 'row');
+        rowTh.textContent = a.label;
+        rowTh.setAttribute('title', a.label);
+        rowTh.style.textAlign = 'left';
+        rowTh.style.fontWeight = '400';
+        rowTh.style.padding = '2px 4px';
+        rowTh.style.color = '#2d3748';
+        tr.appendChild(rowTh);
+        [st.grasp, st.fragment, st.notstarted, st.confirmed, st.reconfirm].forEach(function (v) {
+          var td = document.createElement('td');
+          td.textContent = String(v);
+          td.style.textAlign = 'right';
+          td.style.padding = '2px 4px';
+          td.style.color = '#2d3748';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+    }
+
+    // m1: truncatedは正常母集団(A)へ含めたまま、M>0のときだけ注記する（第3母集団は作らない）。
+    if (summary.truncatedCount > 0) {
+      wrap.appendChild(_mcvEl('div', {
+        text: '\u203b\u76f4\u8fd1200\u4ef6\u5224\u5b9a ' + summary.truncatedCount + '\u4ef6\u3092\u542b\u3080',
+        style: { fontSize: '10px', color: '#a0aec0', marginTop: '2px' }
+      }));
+    }
+    // m2: ID欠落はfilter非依存（crossResult.excludedそのもの）。C>0のときだけ注記する。
+    if (cCount > 0) {
+      wrap.appendChild(_mcvEl('div', {
+        text: 'ID\u6b20\u843d ' + cCount + '\u4ef6\uff08\u4e00\u89a7\u5bfe\u8c61\u5916\uff09',
+        style: { fontSize: '10px', color: '#a0aec0', marginTop: '2px' }
+      }));
+    }
+
+    container.appendChild(wrap);
+  }
+
   // §7.1: open処理の最初に必ずisMgrUnlocked()を検査する。不成立時はoverlay生成0・DOM変更0・
   // toast/alert 0・throw 0（no-op）。
   function _mcvRenderMain() {
@@ -15686,6 +15841,10 @@ window.printDashboard=printDashboard;
     var visible = _mcvApplyFilters(crossResult.rows);
     var comparator = MCV_COMPARATORS[_mcvSort] || _mcvCompareByPriority;
     var sorted = visible.slice().sort(comparator); // §7.4: 必ずcopy上でsort、core返却rowsを変更しない
+
+    // 第202弾: 6軸summary。既存4selectの直下・既存「N件表示」の上に配置。sortはsummary値を
+    // 変えないため、sort前のvisibleをそのまま渡す（sortedではなくvisibleを入力とする）。
+    _mcvRenderSummary(body, visible, crossResult.excluded);
 
     body.appendChild(_mcvEl('div', { text: sorted.length + '\u4ef6\u8868\u793a', style: { fontSize: '11px', color: '#a0aec0', marginBottom: '4px' } }));
 
