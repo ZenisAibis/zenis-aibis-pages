@@ -1467,6 +1467,13 @@ body.is-mob .mob-menu{display:inline-block}
 .ai-url-ref-chip:hover{background:#ebf8ff}
 .ai-url-organize-btn{margin-top:6px;font-size:11px;padding:4px 10px;border:1px solid #90cdf4;border-radius:4px;background:white;color:#2b6cb0;cursor:pointer;font-family:inherit}
 
+/* ===== 第205弾: 戦略協議1往復統合UX（strategy-onepass-current-nav）最小style ===== */
+#ta details{border:1px solid #e2e8f0;border-radius:6px;padding:0 10px}
+#ta details summary{list-style:none;outline:none}
+#ta details summary::-webkit-details-marker{display:none}
+#ta details[open] summary{margin-bottom:4px}
+#zStratStrip{transition:opacity .15s ease}
+
 </style>
 </head>
 <body>
@@ -2572,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.00";
+var APP_VERSION = "v11.02";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -4325,6 +4332,8 @@ function doSaveCards(cb) {
   function _klogProjectPasteCapture198(e){
     var out = { id:e.id, kind:e.kind, theme:e.theme, occurredAt:e.occurredAt, recordedAt:e.recordedAt, status:e.status, rawText:e.rawText };
     if(Object.prototype.hasOwnProperty.call(e, 'links') && e.links) out.links = e.links;
+    // 第205弾: sessionId射影を加算（旧entry/undefinedはnullへ正規化）。read-only・既存7field/順序/cap/active計算は無改変。
+    out.sessionId = (typeof e.sessionId === 'string' && e.sessionId) ? e.sessionId : null;
     return out;
   }
   // 私設ヘルパー: app_eventエントリの読取専用射影。
@@ -7576,6 +7585,404 @@ function handleAiPaste(event){
 }
 window.handleAiPaste = handleAiPaste;
 
+// ===== 第205弾: 戦略協議1往復統合UX（strategy-onepass-current-nav） =====
+// 正本: DAN205_FABLE5_STRATEGY_ONEPASS_CURRENT_NAV_FINAL_DESIGN_AUDIT_REPORT_20260810.md §4〜15
+//       ＋ ChatGPT必須補正 C-G1〜C-G4（本ファイルコメント中で個別に参照）。
+// 目的: 8往復のAI貼付を「1回抽出→外部AIへ1回→f_ai_generalへ1回貼付」に圧縮する。
+// 固定見出し（【AIBIS:xxx】行）で応答をパースし、既存8テーマklog/textareaへ機械分配する。
+//
+// 本ファイルはIIFEでラップしない（ai_paste.js／strategy_tabs.jsと同じ慣行）。
+// index.template.htmlの共通<script>（外側IIFE）内でconcatenateされるため、ここで宣言する
+// トップレベルfunction/varは、strategy_current_nav.js（同一外側IIFE内・本ファイルより後にinclude）
+// からも関数宣言hoistingにより直接呼べる。C-G1「同一parserを二重実装しない」はこれで満たす。
+// 新規window global export = 0（本ファイル内でwindowオブジェクトへ関数やプロパティを
+// 代入する記述は一切書かない。ev.clipboardData||window.clipboardDataのような既存プロパティの
+// 読取参照のみ許容する）。
+//
+// denylist: ai_paste.js／strategy_tabs.js／rank_judge.js／judgment.js／knowledge_derive.js／
+//           knowledge_card_view.js／knowledge_crossview.js／manager_crossview.js／ai_detect.js／
+//           aibis_comment.js はbyte不変（本ファイルは既存関数を呼ぶだけで、それらを編集しない）。
+
+// ───────────────────────────────────────────
+// §9 marker語彙（恒久・11件）。大小文字/全半角の補正は行わない（勝手な補正禁止）。
+// ───────────────────────────────────────────
+var ONEPASS_KNOWN_RE = /^【AIBIS:(GENERAL|NEXT_VISIT|MOTIVATION|PERSONALITY|OBJECTION|HEARING|TRAINING|INHERITANCE|OPTIONS|MISSING|CAUTION)】$/;
+var ONEPASS_SHAPE_RE = /^【AIBIS:[^】\n]*】$/;
+// GENERAL区画へ内包する副見出し（独立themeにしない。klog新themeを増やさない）。
+var ONEPASS_GENERAL_SUB = { OPTIONS: 1, MISSING: 1, CAUTION: 1 };
+// 8テーマmarker→STRATEGY_THEMESキーの対応（strategy_tabs.js・不可触のSTRATEGY_THEMESと同じ8値）。
+var ONEPASS_THEME_KEY = {
+  GENERAL: 'general', NEXT_VISIT: 'next_visit', MOTIVATION: 'motivation',
+  PERSONALITY: 'personality', OBJECTION: 'objection', HEARING: 'hearing',
+  TRAINING: 'training', INHERITANCE: 'inheritance'
+};
+// 1区画（marker行＋本文）あたりの上限。knowledge_log.js の KLOG_MAX_CHARS と同値仕様
+// （本ファイルはknowledge_log.js内部変数に依存しないよう独立定義。値の一致はVM/check.jsで検証する）。
+var ONEPASS_MAX_SECTION_CHARS = 100000;
+
+// ───────────────────────────────────────────
+// 純関数: パーサー本体。
+// 戻り値:
+//  成功: { ok:true, preface:'', sections:[{marker,key,index,raw,body}] }
+//  失敗: { ok:false, reason:'no_marker'|'general_missing'|'duplicate_known'|'unknown_key'|'section_too_large' }
+//  ('no_marker'は「①plain legacy」判定専用。fallbackではなく素通し対象。)
+// 呼出前提: cleanText は normalizeAiPasteText 済み（本関数はそれ以上の正規化を行わない）。
+// strategy_current_nav.js からも同一parserを利用する（C-G1: 二重実装しない）。
+// ───────────────────────────────────────────
+function onepassParse(cleanText){
+  var lines = (typeof cleanText === 'string' ? cleanText : '').split('\n');
+  var markerLines = []; // {index, known, key} 行形状一致（既知/未知問わず）
+  for(var i=0;i<lines.length;i++){
+    if(ONEPASS_SHAPE_RE.test(lines[i])){
+      var km = ONEPASS_KNOWN_RE.exec(lines[i]);
+      markerLines.push({ index:i, known: !!km, key: km ? km[1] : null });
+    }
+  }
+  if(markerLines.length === 0){
+    return { ok:false, reason:'no_marker' };
+  }
+  for(var u=0;u<markerLines.length;u++){
+    if(!markerLines[u].known) return { ok:false, reason:'unknown_key' };
+  }
+  var seen = {};
+  for(var d=0;d<markerLines.length;d++){
+    var k = markerLines[d].key;
+    if(seen[k]) return { ok:false, reason:'duplicate_known' };
+    seen[k] = true;
+  }
+  if(!seen.GENERAL) return { ok:false, reason:'general_missing' };
+
+  var sections = [];
+  for(var s=0;s<markerLines.length;s++){
+    var startIdx = markerLines[s].index;
+    var endIdx = (s+1 < markerLines.length) ? markerLines[s+1].index : lines.length;
+    var bodyLines = lines.slice(startIdx+1, endIdx);
+    var body = bodyLines.join('\n');
+    var raw = [lines[startIdx]].concat(bodyLines).join('\n');
+    if(raw.length > ONEPASS_MAX_SECTION_CHARS) return { ok:false, reason:'section_too_large' };
+    sections.push({ marker: markerLines[s].key, key: ONEPASS_THEME_KEY[markerLines[s].key] || null, index: startIdx, raw: raw, body: body });
+  }
+  var preface = lines.slice(0, markerLines[0].index).join('\n');
+
+  // GENERAL集約分（preface＋GENERAL＋OPTIONS＋MISSING＋CAUTION）はklog側で1entryへ結合されるため、
+  // 結合後の合計もここで検査する（個々のraw自体は上のloopで既に検査済み・ここは結合分のみ追加検査）。
+  var genParts = sections.filter(function(sec){ return sec.marker==='GENERAL' || ONEPASS_GENERAL_SUB[sec.marker]; });
+  var genLen = preface.length + genParts.reduce(function(n,sec){ return n + sec.raw.length + 1; }, 0);
+  if(genLen > ONEPASS_MAX_SECTION_CHARS) return { ok:false, reason:'section_too_large' };
+
+  return { ok:true, preface:preface, sections:sections };
+}
+
+// ───────────────────────────────────────────
+// 純関数: GENERAL用の統合rawText（klog保存用）とbody（textarea表示用）を組み立てる。
+// 「受領順」= 元テキスト内の出現位置（markerのindex）昇順。
+// ───────────────────────────────────────────
+function onepassBuildGeneral(parseResult){
+  var special = parseResult.sections.filter(function(sec){
+    return sec.marker === 'GENERAL' || ONEPASS_GENERAL_SUB[sec.marker];
+  }).slice().sort(function(a,b){ return a.index - b.index; });
+  var rawParts = [];
+  if(parseResult.preface) rawParts.push(parseResult.preface);
+  special.forEach(function(sec){ rawParts.push(sec.raw); });
+  var klogRaw = rawParts.join('\n');
+  var bodyParts = [];
+  if(parseResult.preface) bodyParts.push(parseResult.preface);
+  special.forEach(function(sec){ if(sec.body) bodyParts.push(sec.body); });
+  var displayBody = bodyParts.join('\n\n');
+  return { klogRaw: klogRaw, displayBody: displayBody };
+}
+
+// ───────────────────────────────────────────
+// 純関数: 8テーマの呼出順（分配・klog記録の順序）を返す。
+// STRATEGY_THEMES順（generalを除く7テーマ）→ generalを最後（§18）。
+// strategy_tabs.js（不可触）のSTRATEGY_THEMES自体はここでは変更しない。参照のみ。
+// ───────────────────────────────────────────
+function onepassCallOrder(){
+  var themes = (typeof STRATEGY_THEMES !== 'undefined' && Array.isArray(STRATEGY_THEMES))
+    ? STRATEGY_THEMES
+    : ['general','next_visit','motivation','personality','objection','hearing','training','inheritance'];
+  var nonGeneral = themes.filter(function(t){ return t !== 'general'; });
+  return nonGeneral.concat(['general']);
+}
+
+// ───────────────────────────────────────────
+// C-G1: 「協議済み」＝統合協議entry の厳密判定（marker存在だけで判定しない）。
+// strategy_current_nav.js から呼ばれる純関数。5条件すべてを満たすgeneral entryだけをtrueとする:
+//  1) theme==='general' の active paste_capture
+//  2) sessionIdが非空string
+//  3) rawTextを同一pure parser(onepassParse)で再評価し parse成功
+//  4) parse結果にGENERAL・OPTIONSの両markerが存在
+//  5) 同一sessionIdを持つtheme!=='general'のactive paste_capture siblingが最低1件存在する
+// ───────────────────────────────────────────
+function onepassIsIntegratedCouncilEntry(entry, allActiveEntries){
+  if(!entry || entry.theme !== 'general' || entry.kind !== 'paste_capture') return false;
+  if(typeof entry.sessionId !== 'string' || !entry.sessionId) return false;
+  var pr = onepassParse(String(entry.rawText || ''));
+  if(!pr.ok) return false;
+  var hasGeneral = pr.sections.some(function(sec){ return sec.marker === 'GENERAL'; });
+  var hasOptions = pr.sections.some(function(sec){ return sec.marker === 'OPTIONS'; });
+  if(!hasGeneral || !hasOptions) return false;
+  var list = Array.isArray(allActiveEntries) ? allActiveEntries : [];
+  var hasSibling = list.some(function(e){
+    return e && e.sessionId === entry.sessionId && e.theme !== 'general' && e.kind === 'paste_capture';
+  });
+  return hasSibling;
+}
+
+// ───────────────────────────────────────────
+// capture listener 本体。
+// 対象: event.target.id==='f_ai_general' の paste イベントのみ。capture=true。
+// 3分類: plain legacy(素通し) / valid integrated(分配) / malformed candidate(安全fallback)。
+// ───────────────────────────────────────────
+function onepassOnPasteCapture(ev){
+  if(!ev || !ev.target || ev.target.id !== 'f_ai_general') return;
+  var target = ev.target;
+  var cd = ev.clipboardData || window.clipboardData;
+  if(!cd) return; // 非対応環境は既定動作へ委ねる（既存handleAiPasteと同方針）
+  var rawOriginal;
+  try{ rawOriginal = cd.getData('text/plain'); }catch(_e){ return; }
+  if(!rawOriginal) return;
+
+  var clean = (typeof normalizeAiPasteText === 'function') ? normalizeAiPasteText(rawOriginal) : rawOriginal;
+  var parsed = onepassParse(clean);
+
+  if(!parsed.ok && parsed.reason === 'no_marker'){
+    return; // ①plain legacy: 素通し。既存handleAiPasteへ完全委譲（byte同等）。
+  }
+
+  // ここから②valid integrated／③malformed candidate。いずれもf_ai_general以外へは非介入。
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  var val = target.value;
+  var selStart = (typeof target.selectionStart === 'number') ? target.selectionStart : val.length;
+  var selEnd = (typeof target.selectionEnd === 'number') ? target.selectionEnd : val.length;
+
+  if(!parsed.ok){
+    onepassSafeGeneralFallback(target, val, selStart, selEnd, clean, rawOriginal, parsed.reason);
+    return;
+  }
+
+  onepassDistribute(parsed, target, val, selStart, selEnd);
+}
+
+// ───────────────────────────────────────────
+// ③ malformed candidate: 既存general貼付相当の安全fallback。
+// 本文を1文字も失わない（marker行込みでそのままf_ai_generalへ挿入。marker行を特別扱いしない）。
+// klogへは「clipboardの元raw全文」（正規化前）を渡す＝既存handleAiPasteと同じ契約（C-G4）。
+// ───────────────────────────────────────────
+function onepassSafeGeneralFallback(target, val, selStart, selEnd, clean, rawOriginal, reason){
+  var prevUrls = (typeof cur !== 'undefined' && cur && cur.theme_urls && Array.isArray(cur.theme_urls.general))
+    ? cur.theme_urls.general : [];
+  var result = (typeof rebuildThemeRefs === 'function')
+    ? rebuildThemeRefs(val, selStart, selEnd, clean, prevUrls, {})
+    : { text: val.slice(0,selStart)+clean+val.slice(selEnd), urls: prevUrls.slice(), caret: selStart+clean.length, failClosed:true, toast:null };
+
+  target.value = result.text;
+  if(typeof target.selectionStart === 'number'){ target.selectionStart = result.caret; target.selectionEnd = result.caret; }
+  if(!result.failClosed && typeof cur !== 'undefined' && cur){
+    cur.theme_urls = cur.theme_urls || {};
+    cur.theme_urls.general = result.urls;
+  }
+  if(typeof refreshAiUrlRefs === 'function') refreshAiUrlRefs('general', result.failClosed ? prevUrls : result.urls);
+  if(result.failClosed && result.toast && typeof toast === 'function') toast(result.toast);
+
+  // klog: theme='general'・raw=clipboardの元raw全文（正規化前）・sessionId新規1件（既存契約と同型）。
+  var sid = 'ps_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+  if(typeof klogCapturePaste === 'function' && typeof cur !== 'undefined' && cur){
+    try{ klogCapturePaste('general', rawOriginal, cur, sid); }catch(_eKlog){}
+  }
+
+  // 絶対実行禁止: autoDetectJudge。明示呼出のみ（scheduleAibisCommentは呼ばない方を優先・§18）。
+  if(typeof autoDetectSummary === 'function') autoDetectSummary(target.value);
+  if(typeof autoDetectJob9 === 'function') autoDetectJob9(target.value);
+  if(typeof setDirty === 'function') setDirty(true);
+  if(typeof scheduleDraftSave === 'function') scheduleDraftSave();
+
+  var reasonMsg = {
+    general_missing: 'GENERAL見出しなしのため全文を総合分析へ1件保存しました',
+    duplicate_known: '見出し重複のため全文を総合分析へ1件保存しました',
+    unknown_key: '未知の見出しのため全文を総合分析へ1件保存しました',
+    section_too_large: '区画が長すぎるため全文を総合分析へ1件保存しました'
+  }[reason] || '統合形式を認識できなかったため全文を総合分析へ1件保存しました';
+  if(typeof toast === 'function') toast('📋 ' + reasonMsg);
+
+  if(typeof zStratStripRender === 'function' && typeof cur !== 'undefined' && cur){
+    try{ zStratStripRender(cur); }catch(_eStrip){}
+  }
+}
+
+// ───────────────────────────────────────────
+// ② valid integrated: 8テーマへ機械分配する。
+// ───────────────────────────────────────────
+function onepassDistribute(parsed, generalTarget, generalVal, generalSelStart, generalSelEnd){
+  var sessionId = 'ps_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+  var order = onepassCallOrder();
+  var byKey = {};
+  parsed.sections.forEach(function(sec){ if(sec.key) byKey[sec.key] = sec; });
+  var generalAssembled = onepassBuildGeneral(parsed);
+  var generalFinalValue = generalVal;
+
+  order.forEach(function(themeKey){
+    if(themeKey === 'general'){
+      var prevUrlsG = (typeof cur !== 'undefined' && cur && cur.theme_urls && Array.isArray(cur.theme_urls.general))
+        ? cur.theme_urls.general : [];
+      var resG = (typeof rebuildThemeRefs === 'function')
+        ? rebuildThemeRefs(generalVal, generalSelStart, generalSelEnd, generalAssembled.displayBody, prevUrlsG, {})
+        : { text: generalVal.slice(0,generalSelStart)+generalAssembled.displayBody+generalVal.slice(generalSelEnd), urls: prevUrlsG.slice(), caret:0, failClosed:true, toast:null };
+      generalTarget.value = resG.text;
+      generalFinalValue = resG.text;
+      if(typeof generalTarget.selectionStart === 'number'){ generalTarget.selectionStart = resG.caret; generalTarget.selectionEnd = resG.caret; }
+      if(!resG.failClosed && typeof cur !== 'undefined' && cur){
+        cur.theme_urls = cur.theme_urls || {};
+        cur.theme_urls.general = resG.urls;
+      }
+      if(typeof refreshAiUrlRefs === 'function') refreshAiUrlRefs('general', resG.failClosed ? prevUrlsG : resG.urls);
+      if(resG.failClosed && resG.toast && typeof toast === 'function') toast(resG.toast);
+      if(typeof klogCapturePaste === 'function' && typeof cur !== 'undefined' && cur){
+        try{ klogCapturePaste('general', generalAssembled.klogRaw, cur, sessionId); }catch(_eKlog){}
+      }
+      // generalはinput dispatchしない（autoDetectJudge回避・C-G4／§9-2）。
+      return;
+    }
+
+    var sec = byKey[themeKey];
+    if(!sec) return; // known theme一部欠落: 更新しない
+
+    var ta = document.getElementById('f_ai_' + themeKey);
+    if(!ta) return;
+    var prevVal = ta.value;
+    var prevUrls = (typeof cur !== 'undefined' && cur && cur.theme_urls && Array.isArray(cur.theme_urls[themeKey]))
+      ? cur.theme_urls[themeKey] : [];
+    var res = (typeof rebuildThemeRefs === 'function')
+      ? rebuildThemeRefs(prevVal, 0, prevVal.length, sec.body, prevUrls, {})
+      : { text: sec.body, urls: prevUrls.slice(), caret: sec.body.length, failClosed:true, toast:null };
+    ta.value = res.text;
+    if(!res.failClosed && typeof cur !== 'undefined' && cur){
+      cur.theme_urls = cur.theme_urls || {};
+      cur.theme_urls[themeKey] = res.urls;
+    }
+    if(typeof refreshAiUrlRefs === 'function') refreshAiUrlRefs(themeKey, res.failClosed ? prevUrls : res.urls);
+    if(res.failClosed && res.toast && typeof toast === 'function') toast(res.toast);
+    if(typeof klogCapturePaste === 'function' && typeof cur !== 'undefined' && cur){
+      try{ klogCapturePaste(themeKey, sec.raw, cur, sessionId); }catch(_eKlog){}
+    }
+    // 非generalは既存input dispatchを維持（scheduleAibisComment(theme)・setDirty・ai_<theme>_atが
+    // 既存document listener/inline oninputで自然に成立する。§18）。
+    ta.dispatchEvent(new Event('input',{bubbles:true}));
+  });
+
+  // general側明示処理（§9-2/§18・入力dispatchの代替）。
+  if(typeof autoDetectSummary === 'function') autoDetectSummary(generalFinalValue);
+  if(typeof autoDetectJob9 === 'function') autoDetectJob9(generalFinalValue);
+
+  // C-G2: GENERAL単独（非general 0件）でもdirty/autosaveを失わない。全DOM更新後に必ず1回。
+  if(typeof setDirty === 'function') setDirty(true);
+  if(typeof scheduleDraftSave === 'function') scheduleDraftSave();
+
+  if(typeof toast === 'function') toast('✅ 統合回答を8テーマへ反映しました');
+
+  if(typeof zStratStripRender === 'function' && typeof cur !== 'undefined' && cur){
+    try{ zStratStripRender(cur); }catch(_eStrip){}
+  }
+}
+
+// ───────────────────────────────────────────
+// capture listenerのbind（DOMContentLoaded安全・idempotent。knowledge_card_view.js内
+// _kcvBindButtonと同一慣行）。#ta（戦略協議panel）が適切な親。documentへの無差別bindはしない。
+// ───────────────────────────────────────────
+var _onepassCaptureBound = false;
+function onepassBindCaptureListener(){
+  if(_onepassCaptureBound) return;
+  var panel = document.getElementById('ta');
+  if(!panel) return;
+  panel.addEventListener('paste', onepassOnPasteCapture, true);
+  _onepassCaptureBound = true;
+}
+
+// ───────────────────────────────────────────
+// C-G3: 「個別テーマを深掘り」<details>の開閉とpromptPreset(technical hidden general option)の
+// 同期。新規window export 0。既存switchStrategyTab（strategy_tabs.js・不可触）をそのまま利用する。
+// ───────────────────────────────────────────
+var _onepassDetailsBound = false;
+function onepassBindDetailsToggle(){
+  if(_onepassDetailsBound) return;
+  var det = document.getElementById('onepassDeepDetails');
+  var sel = document.getElementById('promptPreset');
+  if(!det || !sel) return;
+  det.addEventListener('toggle', function(){
+    if(det.open){
+      if(sel.value === 'general'){
+        sel.value = 'next_visit';
+        if(typeof switchStrategyTab === 'function') switchStrategyTab('next_visit');
+      }
+    } else {
+      sel.value = 'general';
+      if(typeof switchStrategyTab === 'function') switchStrategyTab('general');
+    }
+  });
+  _onepassDetailsBound = true;
+}
+
+// ───────────────────────────────────────────
+// DAN205 Private CI hotfix bridge。
+// 正本: DAN205 Private CI Failure Hotfix 設計裁定 §7〜§9。
+// 背景: 第205弾で既存8テーマpanelを<details id="onepassDeepDetails">内へ収納したため、
+// switchStrategyTab(theme)（strategy_tabs.js・不可触、display切替のみ）を外部から
+// 直接呼んでも親detailsが閉じたままで実画面にhiddenとなる回帰が生じた。
+// strategy_tabs.js／ai_paste.js（denylist）は一切編集せず、本ファイル側のbridgeだけで
+// 外部switchStrategyTab(theme)呼出時にonepassDeepDetails open/close・promptPreset同期・
+// 元switchStrategyTabへの委譲を成立させる。
+// 許可されるwindow代入は既存export名window.switchStrategyTabの差替1件のみ
+// （新規window API追加ではない。新規window global export=0の原意を保持）。
+// 二重wrap防止: switchStrategyTabが既にbridge済み（__onepassBridged===trueでマーキング）
+// であれば再wrapしない。マーキングはbridge関数自身のプロパティであり、新規window代入ではない。
+// ───────────────────────────────────────────
+if(typeof switchStrategyTab === 'function' && !switchStrategyTab.__onepassBridged){
+  var _onepassOrigSwitchStrategyTab = switchStrategyTab;
+
+  var onepassSwitchStrategyTabBridged = function onepassSwitchStrategyTabBridged(key){
+    var det = document.getElementById('onepassDeepDetails');
+    var sel = document.getElementById('promptPreset');
+
+    if(
+      det &&
+      sel &&
+      typeof STRATEGY_THEMES !== 'undefined' &&
+      STRATEGY_THEMES.indexOf(key) >= 0
+    ){
+      if(key === 'general'){
+        if(sel.value !== 'general') sel.value = 'general';
+        if(det.open) det.open = false;
+      }else{
+        // 順序重要:
+        // selectを先に同期してからdetailsをopenする
+        if(sel.value !== key) sel.value = key;
+        if(!det.open) det.open = true;
+      }
+    }
+
+    // 未知theme・det/sel不在時は、副作用を一切加えずoriginalへそのまま委譲する
+    // （元関数の戻り値・副作用を維持。§7）。
+    return _onepassOrigSwitchStrategyTab(key);
+  };
+
+  onepassSwitchStrategyTabBridged.__onepassBridged = true;
+
+  switchStrategyTab = onepassSwitchStrategyTabBridged;
+  window.switchStrategyTab = onepassSwitchStrategyTabBridged;
+}
+
+function onepassBindAll(){
+  onepassBindCaptureListener();
+  onepassBindDetailsToggle();
+}
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', onepassBindAll);
+} else {
+  onepassBindAll();
+}
+
 // ===== 第196弾: 営業知識OS 弾3（knowledge-log-data-hygiene） =====
 // 目的：戦略協議8テーマへ捕捉済みの営業知識ログについて、重複・内容誤り・別顧客への誤貼付を
 // 利用者が安全に訂正できるようにする。本ファイルはUI専任であり、次だけを担当する。
@@ -8545,6 +8952,245 @@ window.handleAiPaste = handleAiPaste;
     _kcvBindButton();
   }
 })();
+
+// ===== 第205弾: 個別カード現在地ナビ（strategy-onepass-current-nav） =====
+// 正本: DAN205_FABLE5_STRATEGY_ONEPASS_CURRENT_NAV_FINAL_DESIGN_AUDIT_REPORT_20260810.md §6〜9,§10(L1)
+// 本ファイルもstrategy_onepass.js同様IIFEでラップしない（トップレベルprivate function慣行）。
+// onepassParse／onepassIsIntegratedCouncilEntry（strategy_onepass.js・本ファイルより前にinclude）を
+// 直接呼ぶ。新規window global export = 0。knowledge_card_view.js（byte不変）は変更しない。
+
+var ZSTRAT_GATE_AXES = ['contact','family','asset','motivation'];
+var ZSTRAT_APP_EVENT_FIELDS = { stage:1, revisit_judge:1, pursuit_judge_sel:1, proposal_req:1 };
+var ZSTRAT_LEVEL_RANK = { '未着手':0, '断片':1, '把握':2 };
+
+function _zStratLevelAtLeast(level, threshold){
+  return (ZSTRAT_LEVEL_RANK[level]||0) >= (ZSTRAT_LEVEL_RANK[threshold]||0);
+}
+
+// ───────────────────────────────────────────
+// 材料ゲート（§6・較正済み・表示専用）: contact=把握 AND family>=断片 AND (asset>=断片 OR motivation>=断片)
+// ───────────────────────────────────────────
+function zStratGateOk(axes){
+  var byKey = {};
+  (axes||[]).forEach(function(ax){ if(ax && ax.key) byKey[ax.key] = ax; });
+  var c = byKey.contact, f = byKey.family, a = byKey.asset, m = byKey.motivation;
+  if(!c || !f) return false;
+  var cOk = c.level === '把握';
+  var fOk = _zStratLevelAtLeast(f.level, '断片');
+  var aOk = a ? _zStratLevelAtLeast(a.level, '断片') : false;
+  var mOk = m ? _zStratLevelAtLeast(m.level, '断片') : false;
+  return cOk && fOk && (aOk || mOk);
+}
+
+// ───────────────────────────────────────────
+// §8: council より後の「新情報」有無を判定（fail-closed）。
+// ───────────────────────────────────────────
+function zStratHasNewInfoAfterCouncil(council, readResult, card){
+  var entries = (readResult && Array.isArray(readResult.entries)) ? readResult.entries : null;
+  if(!entries) return false; // fail-closed（readResult不正はここに来る前に呼出元でC/D非主張済み想定だが二重防御）
+  for(var i=0;i<entries.length;i++){
+    var e = entries[i];
+    if(!e || !(e.occurredAt > council.occurredAt)) continue;
+    if(e.kind === 'paste_capture'){
+      if(e.sessionId !== council.sessionId) return true;
+    } else if(e.kind === 'app_event'){
+      if(e.field && ZSTRAT_APP_EVENT_FIELDS[e.field]) return true;
+    }
+  }
+  var pins = (readResult && Array.isArray(readResult.pins)) ? readResult.pins : [];
+  for(var p=0;p<pins.length;p++){
+    if(pins[p] && pins[p].occurredAt > council.occurredAt) return true;
+  }
+  if(card && typeof card.analog_memo_at === 'string' && card.analog_memo_at > council.occurredAt) return true;
+  return false;
+}
+
+// ───────────────────────────────────────────
+// 状態derive本体（純関数寄り。klogCapturePaste.knowledgeReadV1／.deriveCardKnowledgeV1という
+// 既存read-only APIだけを呼ぶ）。fail-closed: 判定不能なら状態は{state:null}を返し、
+// 呼出元（render）は非表示または「—」にする。
+// ───────────────────────────────────────────
+function zStratDeriveState(card){
+  try{
+    if(!card || !card.id || typeof klogCapturePaste === 'undefined' || typeof klogCapturePaste.knowledgeReadV1 !== 'function' || typeof klogCapturePaste.deriveCardKnowledgeV1 !== 'function'){
+      return { state:null };
+    }
+    var readResult = klogCapturePaste.knowledgeReadV1(card.id);
+    if(!readResult || !readResult.ok) return { state:null };
+    var deriveResult = klogCapturePaste.deriveCardKnowledgeV1(card, readResult, new Date().toISOString());
+    if(!deriveResult || !deriveResult.ok) return { state:null };
+
+    var entries = Array.isArray(readResult.entries) ? readResult.entries : [];
+    var council = null;
+    for(var i=0;i<entries.length;i++){
+      if(onepassIsIntegratedCouncilEntry(entries[i], entries)){ council = entries[i]; break; } // 既にoccurredAt降順
+    }
+
+    if(!council){
+      var gate = zStratGateOk(deriveResult.axes);
+      if(gate) return { state:'B', axes: deriveResult.axes };
+      var missing = [];
+      ZSTRAT_GATE_AXES.forEach(function(key){
+        var ax = deriveResult.axes.filter(function(a){ return a.key===key; })[0];
+        if(ax && Array.isArray(ax.missing)) missing = missing.concat(ax.missing);
+      });
+      return { state:'A', missing: missing };
+    }
+
+    var hasNew = zStratHasNewInfoAfterCouncil(council, readResult, card);
+    var optionLine = zStratExtractOptionLine(council);
+    var dateMD = zStratFmtMD(council.occurredAt);
+    return { state: hasNew ? 'C' : 'D', council: council, optionLine: optionLine, dateMD: dateMD };
+  }catch(_eAll){
+    return { state:null }; // fail-closed: 例外時はC/Dは主張しない
+  }
+}
+
+// OPTIONS区画の先頭の非空行を抽出する（textContentで描画される前提の純文字列）。
+function zStratExtractOptionLine(council){
+  try{
+    var pr = onepassParse(String((council && council.rawText) || ''));
+    if(!pr.ok) return '';
+    var optSec = pr.sections.filter(function(sec){ return sec.marker==='OPTIONS'; })[0];
+    if(!optSec) return '';
+    var lines = optSec.body.split('\n');
+    for(var i=0;i<lines.length;i++){
+      var t = lines[i].trim();
+      if(t) return t.length>60 ? (t.slice(0,60)+'…') : t;
+    }
+    return '';
+  }catch(_e){ return ''; }
+}
+
+// §10④: OPTIONS/MISSING/CAUTION区画の本文全体（複数行・trimのみ）を抽出する。
+// council rawTextを都度再parseするのみで新規保存schemaは持たない。パース失敗時は空文字（非表示）。
+function zStratExtractSectionBody(council, marker){
+  try{
+    var pr = onepassParse(String((council && council.rawText) || ''));
+    if(!pr.ok) return '';
+    var sec = pr.sections.filter(function(s){ return s.marker===marker; })[0];
+    if(!sec) return '';
+    return String(sec.body||'').trim();
+  }catch(_e){ return ''; }
+}
+
+function zStratFmtMD(iso){
+  try{
+    var d = new Date(iso);
+    if(isNaN(d)) return '';
+    return (d.getMonth()+1)+'/'+d.getDate();
+  }catch(_e){ return ''; }
+}
+
+// ───────────────────────────────────────────
+// §10④: strategy_panel.html内 #onepassCandidateBox（OPTIONS/MISSING/CAUTION整理表示）の描画。
+// council（統合協議entry）がある時（状態C/D）だけ表示。textContentのみで描画（innerHTML不使用）。
+// 新規保存schemaは持たない（render時にcouncil rawTextから毎回再抽出するだけ）。
+// ───────────────────────────────────────────
+function zStratRenderCandidateBox(d){
+  var box = document.getElementById('onepassCandidateBox');
+  if(!box) return; // strategy_panel.html未反映環境（VM試験等）では何もしない
+  var optEl = document.getElementById('onepassOptionsText');
+  var missEl = document.getElementById('onepassMissingText');
+  var cautEl = document.getElementById('onepassCautionText');
+  if(optEl) optEl.textContent = '';
+  if(missEl) missEl.textContent = '';
+  if(cautEl) cautEl.textContent = '';
+
+  if(!d || (d.state !== 'C' && d.state !== 'D') || !d.council){ box.style.display = 'none'; return; }
+  var optionsBody = zStratExtractSectionBody(d.council, 'OPTIONS');
+  var missingBody = zStratExtractSectionBody(d.council, 'MISSING');
+  var cautionBody = zStratExtractSectionBody(d.council, 'CAUTION');
+  if(!optionsBody && !missingBody && !cautionBody){ box.style.display = 'none'; return; } // パース失敗等は非表示
+
+  box.style.display = '';
+  if(optEl) optEl.textContent = optionsBody;
+  if(missEl) missEl.textContent = missingBody ? ('不足: ' + missingBody) : '';
+  if(cautEl) cautEl.textContent = cautionBody ? ('注意: ' + cautionBody) : '';
+}
+
+// ───────────────────────────────────────────
+// L1 strip render（トップレベル・window export 0）。edit_shell.htmlのcardNav直下・tabs直上
+// #zStratStripコンテナへ描画する。数値%・score・順位・自動popup・督促通知は一切出さない。
+// AI由来テキスト（optionLine）はtextContentのみで描画する（innerHTML不使用）。
+// §10④のonepassCandidateBox（panel内フル表示）も同一呼出内で合成描画する（呼出元の
+// 呼出回数を増やさないため。form_core.js／strategy_onepass.jsは従来どおりzStratStripRenderを
+// 1回呼ぶだけでよい）。
+// ───────────────────────────────────────────
+var ZSTRAT_STATE_STYLE = {
+  A: { dot:'🟡', label:'材料あつめ中' },
+  B: { dot:'🔵', label:'戦略協議の材料が揃っています' },
+  C: { dot:'🟠', label:'協議後に新しい情報' },
+  D: { dot:'🟢', label:'前回協議の有力候補' }
+};
+
+function _zStratEl(tag, opts){
+  var el = document.createElement(tag);
+  opts = opts || {};
+  if(opts.className) el.className = opts.className;
+  if(opts.text != null) el.textContent = opts.text;
+  if(opts.style){ Object.keys(opts.style).forEach(function(k){ el.style[k] = opts.style[k]; }); }
+  if(opts.title) el.title = opts.title;
+  return el;
+}
+
+function zStratStripRender(card){
+  var box = document.getElementById('zStratStrip');
+  if(!card || !card.id){
+    if(box){ box.style.display = 'none'; }
+    var emptyBox = document.getElementById('onepassCandidateBox');
+    if(emptyBox) emptyBox.style.display = 'none';
+    return;
+  }
+  var d = zStratDeriveState(card);
+  zStratRenderCandidateBox(d); // §10④: 状態に関わらず常に再描画（fail-closedはbox内部で処理）
+
+  if(!box) return;
+  while(box.firstChild) box.removeChild(box.firstChild);
+  if(!d || !d.state){ box.style.display = 'none'; return; } // fail-closed: 非表示
+
+  var st = ZSTRAT_STATE_STYLE[d.state];
+  box.style.display = 'flex';
+  box.style.alignItems = 'center';
+  box.style.gap = '6px';
+  box.style.cursor = 'pointer';
+  box.setAttribute('role','button');
+  box.setAttribute('aria-label','現状ナレッジを開く');
+
+  box.appendChild(_zStratEl('span', { text: st.dot, style:{ fontSize:'13px', flexShrink:'0' } }));
+  var labelWrap = _zStratEl('span', { style:{ fontSize:'11px', fontWeight:'700', color:'#4a5568', whiteSpace:'nowrap' } });
+  labelWrap.textContent = st.label;
+  box.appendChild(labelWrap);
+
+  if(d.state === 'A' && Array.isArray(d.missing) && d.missing.length){
+    var head = d.missing.slice(0,2);
+    var rest = d.missing.length - head.length;
+    head.forEach(function(m){
+      box.appendChild(_zStratEl('span', {
+        text: '次に聞く: ' + (m.length>16 ? m.slice(0,16)+'…' : m),
+        style:{ fontSize:'10px', color:'#975a16', background:'#fffbeb', border:'1px solid #f6e05e', borderRadius:'10px', padding:'2px 8px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'40vw' }
+      }));
+    });
+    if(rest>0) box.appendChild(_zStratEl('span', { text:'ほか'+rest, style:{ fontSize:'10px', color:'#a0aec0' } }));
+  }
+
+  if((d.state === 'C' || d.state === 'D') && (d.optionLine || d.dateMD)){
+    if(d.optionLine){
+      box.appendChild(_zStratEl('span', {
+        text: '有力候補（AI）: ' + d.optionLine,
+        style:{ fontSize:'10px', color:'#4a5568', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'45vw' }
+      }));
+    }
+    if(d.dateMD){
+      box.appendChild(_zStratEl('span', { text:'協議 '+d.dateMD, style:{ fontSize:'10px', color:'#a0aec0', flexShrink:'0' } }));
+    }
+  }
+
+  box.onclick = function(){
+    var btn = document.getElementById('kcvOpenBtn');
+    if(btn) btn.click();
+  };
+}
 
 // マニュアルのdetails開閉をJS制御（Android対応）
 document.querySelectorAll('.help-details').forEach(function(d){
@@ -11488,6 +12134,10 @@ function fillForm(c) {
   updTsubo(); updChiku(); updateFamHeadcountBtn(); updateDoukouBtn(); if(window.updateCustBtn) updateCustBtn(); if(window.updateEkitohoBtn) updateEkitohoBtn(); if(window.updateProposalReqBtn) updateProposalReqBtn(); if(window.updateRyokuchiBtn) window.updateRyokuchiBtn(); if(window.applyAssetSeal) applyAssetSeal(); if(window.updateTabProgress) updateTabProgress(); if(window.updatePlanSvBtn) updatePlanSvBtn(); if(window.AibisVoice) window.AibisVoice.refresh();
   var _pqEl=document.getElementById('f_proposal_quality'); if(_pqEl)_pqEl.value=c.proposal_req_quality||'';
   var _ppEl=document.getElementById('f_post_proposal'); if(_ppEl)_ppEl.value=c.post_proposal_status||'';
+  // 第205弾: 個別カード現在地ナビ（strip）のrender。新規window export無し・guard付き1呼出のみ。
+  if(typeof zStratStripRender==='function'){
+    try{ zStratStripRender(c); }catch(_eStrat){}
+  }
 }
 
 function collectForm() {
@@ -13699,6 +14349,9 @@ function genPrompt(anon){
     avgInterval='平均'+avg+'日間隔';
   }
 
+  // 第205弾限定是正: general(onepass)だけ旧AI追客rank決定命令を遮断する。
+  // 個別7テーマは従来契約を維持するため、presetを共通prompt構築前に確定する。
+  var preset=document.getElementById('promptPreset')?.value||'general';
   var lines=[];
   lines.push('あなたは土地活用営業のトップ営業マンであり、相続コンサルタント課長です。');
   lines.push('以下の見込み客カードを読み、部下が明日すぐ動ける営業戦略のアドバイスをしてください。');
@@ -13707,7 +14360,7 @@ function genPrompt(anon){
   lines.push('・前置き・あいさつ・お礼・「了解しました」等の確認文は書かない。いきなり本編から始める。');
   lines.push('・依頼が長くても、分割提案や「一括で作成しますか？」等の確認質問は一切しない。質問せず、そのまま最後まで一気に出力する。');
   lines.push('・添付ファイルがある場合も同様に、確認せずファイル内の指示どおり即座に実行する。');
-  lines.push('・総合分析のときは、回答の1行目を必ず「判定：X」（Xは半角の S/A/B/C/D/E/X のいずれか1文字）から書き始める。その前に何も置かない。');
+  if(preset!=='general') lines.push('・総合分析のときは、回答の1行目を必ず「判定：X」（Xは半角の S/A/B/C/D/E/X のいずれか1文字）から書き始める。その前に何も置かない。');
   lines.push('');
   lines.push('【この営業組織の哲学・判断軸】');
   lines.push('◆【営業アイデンティティ＝最重要前提】私たちは「建てましょう」と迫る建築営業ではない。相続・承継の相談相手として、お客様の潜在的な不安や悩みに寄り添うコンサルタントである。ゴールは契約そのものではなく、ご本人とご家族それぞれのネガティブをポジティブに変え、「なるほどね」という納得を積み重ね、ご家族みんなが「建築に進んでよかった」「この会社に託してよかった」と思える合意形成。したがって：焦らせる表現・期限やキャンペーンで煽るトーク・ステージを飛ばしたクロージングは一切提案しないこと。すべての提案はこの前提に沿って行う');
@@ -13732,13 +14385,15 @@ function genPrompt(anon){
     7:'今は「7決心」。契約・申込が取れた段階。事例化と次の関係構築へ。'
   };
   if(c.stage!==''&&c.stage!=null && _stageTone[+c.stage]) lines.push('■ ステージ別トーン指示\n  '+_stageTone[+c.stage]);
-  lines.push('◆【問答無用のE】間口9m以下、または土地面積150㎡以下は、他条件に優先して必ずE（初期除外）。ただし間口・面積が未入力、またはアセット系の場合は適用しない。E＝「この土地では計画が成り立たない」の機械的判定であり打切ではない。E判定時は「他に所有地がないか」の確認を必ず次アクションに挙げる（他の土地があれば別途再評価）');
-  lines.push('◆ 追客判定は慎重に。A・Sは本当に可能性が高い案件のみ。【A・Sの最低条件】「土地資産規模」が入力済み かつ「家族人数把握」がコンプリート。どちらか未達ならA・SにせずB以下とし、不足項目を挙げて次に何を確認すべきかを促す');
-  lines.push('◆【B/Cの境目】B（継続追客）にできるのは、担当者個人が受け入れられ、こちらの褒めに相手が会話で応じ、相手のネガティブを引き出して「確かにそうですね」と返せる関係（＝1注意喚起の段階に到達）まで育っていること。インターホン（ピンポン）止まりで顔も見せてもらえず、まだ自分・会社を受け入れてもらえていない段階はBにせずC以下とし、まずは自分（特に担当個人）と会社を受け入れてもらう関係づくりを促す');
-  lines.push('◆【Dの定義＝時期待ち・定点観測】D＝動機の種はあるが、外部イベントが起きるまで動けない客。例：相続の発生待ち／高齢で意思決定が次世代に移るのを待つ／テナント・借家人の契約満了待ち／資金の時期待ち（定期満期・他物件売却）／家族の合意形成待ち・係争中／生産緑地・農地転用等の期限待ち。Dと判定する場合は「何を待っているか（トリガー）」を必ず1つ明記すること。トリガーを特定できない場合はDにせずC（動機不足）とする。Dの訪問目的は売り込みではなく、状況変化の定点観測と「イベント発生時に最初に相談される関係」の維持');
-  lines.push('◆【降格シグナル必読】直近の再訪・追撃・録音要約に次の内容がある場合、他の好材料より優先して判定を下げる：明確な断り・他社で成約/着工→X／時期未到来・相続待ち等トリガーが明確→D（トリガー明記）／反応が薄い・動機不足のまま→C。前向きな事実が記録に無い限りBに留めない。S〜Xは訪問記録の事実ベースで判定し、全体をA・Bに寄せない。ただし次項の顕在化シグナルがある場合は降格しない');
-  lines.push('◆【顕在化シグナル＝攻め時】次の兆候が記録にあれば、相続・土地の問題が「自分ごと」になっている顕在客。降格要因にせず、むしろ攻め時として扱う：他社・競合の検討や相見積り（→ステージ5比較として比較優位の整理と決めにいく提案を。他社で成約・着工済みのみX）／税理士・銀行・士業への相談／相続税額・評価額を具体的に気にする発言／家族内で話し合った形跡／資料を自分から求める・保管している／固定資産税・空室・修繕など具体的な悩み／身近な相続トラブルへの強い反応／セミナー参加・書籍等の自己学習。総合分析では冒頭に「顕在化シグナル：あり（根拠1行）／なし」を必ず明記すること');
-  lines.push('◆【情報不足の扱い】初訪内容が「（未入力）」・録音要約が無い・基本入力率が60%以下のカードは“情報不足”。安易にB以上にせず、C以下に置いた上で、不足項目と次に確認すべきことを具体的に挙げる（情報不足を理由にDとはしない。Dは時期待ちの判定）');
+  if(preset!=='general'){
+    lines.push('◆【問答無用のE】間口9m以下、または土地面積150㎡以下は、他条件に優先して必ずE（初期除外）。ただし間口・面積が未入力、またはアセット系の場合は適用しない。E＝「この土地では計画が成り立たない」の機械的判定であり打切ではない。E判定時は「他に所有地がないか」の確認を必ず次アクションに挙げる（他の土地があれば別途再評価）');
+    lines.push('◆ 追客判定は慎重に。A・Sは本当に可能性が高い案件のみ。【A・Sの最低条件】「土地資産規模」が入力済み かつ「家族人数把握」がコンプリート。どちらか未達ならA・SにせずB以下とし、不足項目を挙げて次に何を確認すべきかを促す');
+    lines.push('◆【B/Cの境目】B（継続追客）にできるのは、担当者個人が受け入れられ、こちらの褒めに相手が会話で応じ、相手のネガティブを引き出して「確かにそうですね」と返せる関係（＝1注意喚起の段階に到達）まで育っていること。インターホン（ピンポン）止まりで顔も見せてもらえず、まだ自分・会社を受け入れてもらえていない段階はBにせずC以下とし、まずは自分（特に担当個人）と会社を受け入れてもらう関係づくりを促す');
+    lines.push('◆【Dの定義＝時期待ち・定点観測】D＝動機の種はあるが、外部イベントが起きるまで動けない客。例：相続の発生待ち／高齢で意思決定が次世代に移るのを待つ／テナント・借家人の契約満了待ち／資金の時期待ち（定期満期・他物件売却）／家族の合意形成待ち・係争中／生産緑地・農地転用等の期限待ち。Dと判定する場合は「何を待っているか（トリガー）」を必ず1つ明記すること。トリガーを特定できない場合はDにせずC（動機不足）とする。Dの訪問目的は売り込みではなく、状況変化の定点観測と「イベント発生時に最初に相談される関係」の維持');
+    lines.push('◆【降格シグナル必読】直近の再訪・追撃・録音要約に次の内容がある場合、他の好材料より優先して判定を下げる：明確な断り・他社で成約/着工→X／時期未到来・相続待ち等トリガーが明確→D（トリガー明記）／反応が薄い・動機不足のまま→C。前向きな事実が記録に無い限りBに留めない。S〜Xは訪問記録の事実ベースで判定し、全体をA・Bに寄せない。ただし次項の顕在化シグナルがある場合は降格しない');
+    lines.push('◆【顕在化シグナル＝攻め時】次の兆候が記録にあれば、相続・土地の問題が「自分ごと」になっている顕在客。降格要因にせず、むしろ攻め時として扱う：他社・競合の検討や相見積り（→ステージ5比較として比較優位の整理と決めにいく提案を。他社で成約・着工済みのみX）／税理士・銀行・士業への相談／相続税額・評価額を具体的に気にする発言／家族内で話し合った形跡／資料を自分から求める・保管している／固定資産税・空室・修繕など具体的な悩み／身近な相続トラブルへの強い反応／セミナー参加・書籍等の自己学習。総合分析では冒頭に「顕在化シグナル：あり（根拠1行）／なし」を必ず明記すること');
+    lines.push('◆【情報不足の扱い】初訪内容が「（未入力）」・録音要約が無い・基本入力率が60%以下のカードは“情報不足”。安易にB以上にせず、C以下に置いた上で、不足項目と次に確認すべきことを具体的に挙げる（情報不足を理由にDとはしない。Dは時期待ちの判定）');
+  }
   lines.push('');
   if(anon) lines.push('※ 簡易匿名化済み：氏名・住所・電話・郵便番号・メール・家族名は自動マスク。自由記述内の固有名詞は残る場合があります');
   lines.push('');
@@ -13877,12 +14532,13 @@ function genPrompt(anon){
     lines.push('');
   }
   if((c.revisit_4eyes&&String(c.revisit_4eyes).trim())||(c.pursuit_4eyes&&String(c.pursuit_4eyes).trim())){
-    lines.push('※ 上記の協議内容は「担当者と課長が戦略を擦り合わせた社内協議の記録」です。顧客の温度そのものではなく、組織的に検討された前向きな材料として重視し、次の一手・判定の根拠に反映してください。');
+    lines.push(preset==='general'
+      ? '※ 上記の協議内容は「担当者と課長が戦略を擦り合わせた社内協議の記録」です。顧客の温度そのものではなく、組織的に検討された前向きな材料として重視し、次の一手・仮説・注意点の根拠に反映してください。'
+      : '※ 上記の協議内容は「担当者と課長が戦略を擦り合わせた社内協議の記録」です。顧客の温度そのものではなく、組織的に検討された前向きな材料として重視し、次の一手・判定の根拠に反映してください。');
     lines.push('');
   }
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   lines.push('■ 分析依頼');
-  var preset=document.getElementById('promptPreset')?.value||'general';
   if(preset==='next_visit'){
     lines.push('【次回作戦】次の訪問で何をすべきか具体的に教えてください。');
     lines.push('※ 録音要約・訪問履歴・家族構成・前回サマリーをすべて踏まえて回答してください。');
@@ -13993,73 +14649,62 @@ function genPrompt(anon){
     ]);
     _pushPromptGoodBadContract(lines,'① ロールプレイ');
   } else {
-    // general（総合分析）
-    lines.push('【総合分析】以下6点について具体的かつ実践的に回答してください。');
-    lines.push('※ 課長との協議内容（フォーアイズ/シックスアイズ）が記録されている場合は、組織的に検討された前向き材料として判定根拠に反映してください。');
+    // general（第205弾: 戦略協議1往復統合onepass。8テーマ+OPTIONS/MISSING/CAUTIONを固定見出しで
+    // 1回のAI回答へ集約する。既存7テーマ分岐(next_visit〜inheritance)は意味変更しない。
+    lines.push('【総合戦略協議｜1回の回答で8項目すべてに答えてください】');
+    lines.push('以下、固定の見出し行（【AIBIS:xxx】）ごとに区切って、8つの分析テーマ＋補助3項目、合計11区画すべてに回答してください。');
+    lines.push('※ 課長との協議内容（フォーアイズ/シックスアイズ）が記録されている場合は、組織的に検討された前向き材料として反映してください。');
     lines.push('');
-    lines.push('① 追客可否判定（S〜EとXの7段階）');
-    lines.push('   S=積極提案　お客様主体で動いている・クロージング射程内（2日に1回〜毎日）');
-    lines.push('   A=積極追客　動機醸成が見えてきた・本物の提案依頼が取れそう（週1回・7日以内）');
-    lines.push('   B=継続追客　ヒアリング途中・注意喚起や興味喚起がまだ必要（14日に1回）');
-    lines.push('   C=染み込み　提案orTC試みたが動機不足・低頻度で顔出し継続（30日に1回）');
-    lines.push('   D=状況確認　時期待ちの定点観測・トリガー明記必須（60日・2ヶ月に1回）');
-    lines.push('   E=初期除外　敷地・間口・資金・人柄等で初期判断除外');
-    lines.push('   X=追客打切　追客したが最終的に見込みなし');
-    lines.push('   ⚠【最優先・問答無用のE】「間口」が9m以下、または「土地面積（敷地）」が150㎡以下なら、他のどの条件よりも優先して必ずE（初期除外）とする。※ただし間口・面積が「未」（未入力）の場合、またはアセット系（土地情報が対象外）の場合は適用しない');
-    lines.push('   ⚠ AとSは本当に可能性が高い案件のみ。迷ったらBを選んでください');
-    lines.push('   ⚠【A・Sの最低条件】「土地資産規模」が入力済み（＝「未確認」でない）かつ「家族人数把握」がコンプリートのときだけA・S可。どちらか未達ならA・SにせずB以下にし、不足している項目（土地資産規模／家族人数）を名指しで挙げ、「ここまで条件は揃っているので、あとは◯◯を確認・ヒアリングできればA/Sが狙える」と次の一手を具体的に促すこと');
-    lines.push('   ⚠【B/Cの境目】Bにしてよいのは、担当者個人が受け入れられ、褒めに相手が乗ってくる／相手のネガティブを引き出して「確かにそうですね」と返せる関係（＝1注意喚起の段階に到達）まで育っているとき。インターホン（ピンポン）止まり・まだ受け入れてもらえていない段階はBにせずC以下とし、まずは自分（特に担当個人）と会社を受け入れてもらう関係づくりを促すこと');
-    lines.push('   ⚠【情報不足の扱い】初訪内容が「（未入力）」、録音要約なし、会話メモが空、または上の「基本入力率」が60%以下のカードは、安易に上位判定にせずC以下とし、不足項目と次のヒアリングを具体的に促すこと。情報不足を理由にDとしない（Dは待ちトリガーを明記できる場合のみ）。');
-    lines.push('   → ランクと理由を2〜3文で');
-    lines.push('   ⚠ 回答の最初の1行目に必ず「判定：X」（Xはアルファベット1文字）とだけ書いてください');
-    lines.push('   　 例：判定：B');
+    lines.push('【厳守・出力形式】');
+    lines.push('・各区画は見出し行だけを単独の行に書き、装飾・番号付け・改変（全角化や記号追加など）をしないこと。見出し行の直後から本文を書く。');
+    lines.push('・見出しの出力順は自由（前後してよい）。ただし11見出しすべてを漏れなく出力すること。');
+    lines.push('・見出し行自体の前後に空行や説明を挟んでもよいが、見出し文字列そのものは変更しない。');
+    lines.push('・回答のどこにも「判定：」という表記や、S/A/B/C/D/E/Xの追客ランク記号は出力しないでください（ランクは人間が別途判断します）。');
     lines.push('');
-    lines.push('② 訪問ペース評価と次回推奨タイミング');
-    lines.push('   現在の訪問間隔を追客ランクの推奨ペースと照らし合わせて評価');
-    lines.push('   → 間隔が長すぎる・短すぎる・適切 を明記し、次回訪問の推奨日数を示す');
-    lines.push('   → 力の入れどころ・抜きどころも明記（例：今は熱を入れる時期/一旦間隔を空けて良い時期）');
-    lines.push('');
-    lines.push('③ 次回訪問トーク・質問提案（5項目）');
-    lines.push('   現ステージ「'+stg+'」から次へ進める問いかけ');
-    lines.push('   ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせたトーンで');
-    lines.push('   「連想3段階で提案依頼を取得する」思想を意識して');
-    lines.push('');
-    lines.push('④ ヒアリング不足項目（3〜5項目）');
-    lines.push('   ■項目名：理由 の形式で');
-    lines.push('');
-    lines.push('⑤ テストクロージング可否');
-    lines.push('   ▶ 可能 ／ 時期尚早 ／ 不可　を冒頭に明記し、理由を2〜3文で');
-    lines.push('');
-    lines.push('⑥ 最優先事項サマリー（1行・40文字以内）');
-    lines.push('   動機・問題点・解決ポイント・相続税の有無を含めて簡潔に');
-    lines.push('   例：「相続税あり・長男KP未面談・TC可能・建替え急務」');
-    lines.push('   → 必ず「サマリー：〇〇」の形式で出力してください');
-    lines.push('');
-    lines.push('【良い回答例（この粒度・具体性で）】');
-    lines.push('判定：B');
-    lines.push('ステージ2興味で所有者の父とは面談済みだが、長男KPが未面談・土地活用にネガティブ。');
-    lines.push('家族の反対材料がまだ揃っておらず結論を出せる段階ではない。継続ヒアリングが必要。');
-    lines.push('②訪問ペース：前回から28日空いており、ランクBの推奨（14日に1回）に対し2倍の遅れ。次回は今週中に。今は関係構築に力を入れる時期。');
-    lines.push('…（以下、各項目を具体的に）');
-    lines.push('サマリー：長男KP未面談・父はネガ・相続発生前・建替え動機弱め');
-    lines.push('');
-    /* 第175弾: 4NG契約（①〜⑥の番号外・必須ブロック。トーク節より前、#ZX9#ブロックより前） */
-    _pushPromptNgContract(lines,'総合分析',[
+    lines.push('【AIBIS:GENERAL】');
+    lines.push('この見込み客カード全体の総合所見を書いてください。現在の状況、家族関係、資産・相続の論点、動機の強さ、次の一手の方向性を3〜6文でまとめる。');
+    lines.push('現ステージ「'+stg+'」を踏まえ、力の入れどころ・抜きどころも明記する（例：今は関係構築に力を入れる時期／一旦間隔を空けて良い時期）。');
+    lines.push('最後に必ず「サマリー：〇〇」（40文字以内。動機・問題点・解決ポイント・相続税の有無を含めて簡潔に）の1行を書くこと。');
+    lines.push('例：サマリー：長男KP未面談・父はネガ・相続発生前・建替え動機弱め');
+    _pushPromptNgContract(lines,'総合戦略協議',[
       '焦らせる期限・キャンペーン煽り',
       'ステージ飛ばしのクロージング'
     ]);
     lines.push('');
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('🗣 トークスクリプト');
-    lines.push('上記③の提案をもとに、実際に話す言葉をそのまま書いてください。');
-    lines.push('ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせたトーンで。');
-    lines.push('玄関先で使える自然な会話の流れで、3〜5ターン分。');
-    /* 第175弾: 良悪例契約（対象=トークスクリプト。#ZX9#最終行ブロックより前） */
-    _pushPromptGoodBadContract(lines,'トークスクリプト');
+    lines.push('【AIBIS:NEXT_VISIT】');
+    lines.push('次の訪問で何をすべきか、①訪問タイミング ②最初の一言 ③会話の流れ(3〜5ステップ) ④想定される反応と切り返し ⑤次回アポへの繋ぎ方 の順で具体的に。');
+    lines.push('ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせ、玄関先で実際に使える自然な会話（3〜5ターン分）も含めること。');
     lines.push('');
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('【最終行・集計用コード（必ず回答の一番最後に1行だけ出力）】');
-    lines.push('この担当者の営業力を9つの観点でS/A/B/C/D/−の6段階評価し、下記の固定順で記号だけを並べた行を、回答の最後に必ず出力してください。説明・理由・見出しは一切付けないこと。');
+    lines.push('【AIBIS:MOTIVATION】');
+    lines.push('このお客様の背中を押す動機について、①潜在的な不安・悩み・ニーズの推定 ②踏み出せない理由の推定 ③動機を引き出す質問(3〜5個) ④家族それぞれが抱きそうな不安とポジティブに変える一言 の順で。煽らず寄り添う言葉で。');
+    lines.push('');
+    lines.push('【AIBIS:PERSONALITY】');
+    lines.push('ソーシャルスタイル「'+(c.social||'未判定')+'」の特徴と接し方、効果的なコミュニケーション方法、信頼関係を築く具体的アクションを書いてください。');
+    lines.push('');
+    lines.push('【AIBIS:OBJECTION】');
+    lines.push('このお客様が言いそうな断り文句トップ3〜5と、それぞれへの切り返しトークを書いてください。「受け止め→真因確認→許可を得て補足→引く判断」の順で設計し、明確な拒否・終了意思がある場合は深追いせず関係維持を優先すること。');
+    lines.push('');
+    lines.push('【AIBIS:HEARING】');
+    lines.push('まだ聞けていない重要項目を5〜7項目挙げ、それぞれを自然に聞き出す質問例と推奨順序を書いてください。家族・資産・相続の質問は困りごと→家族→資産規模→相続の順を原則とする。');
+    lines.push('');
+    lines.push('【AIBIS:TRAINING】');
+    lines.push('実際の訪問を想定した会話練習用スクリプトを書いてください。玄関先での自然な会話（5〜8ターン）、相手の反応別の分岐（前向き／中立／消極）、ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせたトーンで。新人営業マンでも使える言葉で。');
+    lines.push('');
+    lines.push('【AIBIS:INHERITANCE】');
+    lines.push('家族構成・資産情報から相続の論点を整理してください。①推定相続人とキーパーソン ②資産側の論点 ③最も刺さるリスク1つと根拠 ④気づきの一言 ⑤次の一手。税額は断定せず概算・幅で示し「詳細は税理士確認」と添えること。');
+    lines.push('');
+    lines.push('【AIBIS:OPTIONS】');
+    lines.push('次の一手の有力候補を2〜3案、それぞれ理由つきで書いてください。断定はせず「まず確認したいこと」「様子を見る」等の含みを持たせてよい。これは人間が選ぶための材料であり、AIが決定するものではない。');
+    lines.push('');
+    lines.push('【AIBIS:MISSING】');
+    lines.push('現時点でヒアリング・確認が不足している項目を2〜3件、簡潔に挙げてください。');
+    lines.push('');
+    lines.push('【AIBIS:CAUTION】');
+    lines.push('今はしない方がよいこと・急がない方がよい理由を書いてください。断定的な禁止命令ではなく助言のトーンで。');
+    _pushPromptGoodBadContract(lines,'AIBIS:OBJECTIONの切り返し');
+    lines.push('');
+    lines.push('【最終行・集計用コード（必ずCAUTION区画の最後に1行だけ出力）】');
+    lines.push('この担当者の営業力を9つの観点でS/A/B/C/D/−の6段階評価し、下記の固定順で記号だけを並べた行を出力してください。説明・理由・見出しは一切付けないこと。');
     lines.push('評価の観点（順番厳守）：①現地と土地の把握 ②相続・権利・資産背景の把握 ③本音や動機の聞き取り ④信頼関係・家族や関係者の巻き込み ⑤追客の継続性 ⑥提案化・案件化 ⑦次の一手・作戦設計 ⑧記録の充実 ⑨行動量');
     lines.push('評価基準：S=その観点をほぼ完璧に押さえている／A=明確な強み／B=一人前／C=平均的／D=着手はしている／−=その話題に一切触れていない（例：相続の話が全く出ていなければ②は−）');
     lines.push('出力形式（この形のみ。各記号は半角スペース区切り）：');
@@ -20025,6 +20670,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       <span id="cardNavPos" style="font-size:12px;font-weight:700;color:#5a6b85;white-space:nowrap">- / -</span>
       <button id="cardNavNext" onclick="navCard(1)" style="background:#fff;border:1px solid #b9cce8;color:#2c5282;border-radius:8px;font-size:13px;font-weight:700;padding:8px 18px;min-height:38px;cursor:pointer;font-family:inherit">次 ›</button>
     </div>
+    <div id="zStratStrip" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
   <div class="tabs no-print">
     <div class="tab active" data-tab="ti" onclick="clickCardTab('ti')" style="color:#2c5282;font-size:15px;font-weight:700"><span class="ic">📋</span>初訪</div>
     <div class="tab" data-tab="tr" onclick="clickCardTab('tr')" style="color:#276749;font-size:15px;font-weight:700"><span class="ic">🔁</span>再訪</div>
@@ -20602,23 +21248,10 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
   <!-- AI分析 -->
   <div class="panel tc" id="ta" style="display:none">
     <h2>💭 戦略協議</h2>
+    <!-- 第205弾: ①ランク箱（既存のまま・分析テーマ選択は⑤深掘りへ移設） -->
     <div style="display:flex;gap:8px;align-items:stretch;margin-bottom:10px">
-      <!-- 分析テーマ（左） -->
-      <div style="flex:1;background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px">
-        <label style="font-size:11px;color:#553c9a;font-weight:600;margin-bottom:4px;display:block">📋 分析テーマ</label>
-        <select id="promptPreset" style="font-size:13px;width:100%" onchange="switchStrategyTab(this.value)">
-          <option value="general">総合分析</option>
-          <option value="next_visit">次回作戦</option>
-          <option value="motivation">動機引揚</option>
-          <option value="personality">性格応対</option>
-          <option value="objection">反論対応</option>
-          <option value="hearing">聞取補充</option>
-          <option value="training">会話訓練</option>
-          <option value="inheritance">相続シナリオ</option>
-        </select>
-      </div>
-      <!-- 追客ランク（右：AI分析＋協議を併記） -->
-      <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;min-width:130px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <!-- 追客ランク（AI分析＋協議を併記） -->
+      <div style="flex:1;background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;display:flex;flex-direction:column;align-items:center;justify-content:center">
         <div style="display:flex;gap:8px;align-items:stretch;justify-content:center;width:100%">
           <div style="flex:1;text-align:center">
             <div style="font-size:9px;color:#718096;font-weight:600;margin-bottom:2px">🤖 AI分析</div>
@@ -20635,26 +21268,139 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         <div id="aiPaceDisp" style="font-size:10px;font-weight:700;margin-top:6px;padding:3px 8px;border-radius:10px;display:none"></div>
       </div>
     </div>
-    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-      <button type="button" id="klogHygieneOpenBtn" style="padding:8px 12px;font-size:12px;background:#718096;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">🧹 貼付履歴を訂正</button>
+    <!-- 第205弾: ②主ボタン1行（抽出30%｜AI分析70%。ファイルで抽出／貼付履歴訂正は⑦保守へ移設） -->
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button type="button" style="flex:3;padding:11px;font-size:13px;background:#2d3748;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="copyPromptAnon()">🤖 分析用に抽出</button>
+      <button type="button" style="flex:7;padding:11px;font-size:13px;background:#0078d4;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:500" onclick="openCopilot()">🤖 AI分析</button>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-      <button type="button" style="padding:11px;font-size:13px;background:#2d3748;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="copyPromptAnon()">🤖 分析用に抽出</button>
-      <button type="button" style="padding:11px;font-size:13px;background:#553c9a;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="promptToFile()">📎 ファイルで抽出</button>
-      <button type="button" style="grid-column:1/3;padding:11px;font-size:13px;background:#0078d4;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:500" onclick="openCopilot()">🤖 AI分析</button>
+    <!-- 第205弾: ③総合戦略協議（既存f_ai_generalブロックを主役として上段へ。id/属性は1文字も変更しない） -->
+    <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:12px;font-weight:700;color:#553c9a">💭 総合戦略協議 − 貼り付け欄</div>
+        <span id="at_ai_general" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_general')" style="font-size:11px;padding:3px 10px;border:1px solid #e2e8f0;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+      </div>
+      <textarea id="f_ai_general" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('general');autoDetectJudge(this.value);autoDetectSummary(this.value);autoDetectJob9(this.value)" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_general" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_general" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('general')">🔗 URLを整理</button>
+      <div id="ac_general" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
     </div>
-    <div id="strategyTabs">
-      <div id="st_general" class="st-panel">
-        <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:700;color:#553c9a">💭 総合分析 − 貼り付け欄</div>
-            <span id="at_ai_general" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_general')" style="font-size:11px;padding:3px 10px;border:1px solid #e2e8f0;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+    <!-- 第205弾: ④OPTIONS/MISSING/CAUTION整理表示（render時にcouncil rawTextから再parse。新規保存schema無し） -->
+    <div id="onepassCandidateBox" style="display:none;background:#f0fff4;border:1px solid #9ae6b4;border-radius:6px;padding:10px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:700;color:#276749;margin-bottom:4px">有力候補（AI）</div>
+      <div id="onepassOptionsText" style="font-size:12px;color:#2d3748;white-space:pre-wrap"></div>
+      <div id="onepassMissingText" style="font-size:11px;color:#a0623a;margin-top:6px;white-space:pre-wrap"></div>
+      <div id="onepassCautionText" style="font-size:11px;color:#975a16;margin-top:6px;white-space:pre-wrap"></div>
+    </div>
+    <!-- 第205弾: ⑤<details>個別テーマを深掘り（promptPreset＋既存strategyTabsをここへ格納。
+         st_generalは空stub。技術上のvalue="general" optionは残すがhidden。） -->
+    <details id="onepassDeepDetails" style="margin-bottom:10px">
+      <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#553c9a;padding:6px 0">🔍 個別テーマを深掘り</summary>
+      <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;margin:8px 0">
+        <label style="font-size:11px;color:#553c9a;font-weight:600;margin-bottom:4px;display:block">📋 分析テーマ</label>
+        <select id="promptPreset" style="font-size:13px;width:100%" onchange="switchStrategyTab(this.value)">
+          <option value="general" hidden>総合分析</option>
+          <option value="next_visit">次回作戦</option>
+          <option value="motivation">動機引揚</option>
+          <option value="personality">性格応対</option>
+          <option value="objection">反論対応</option>
+          <option value="hearing">聞取補充</option>
+          <option value="training">会話訓練</option>
+          <option value="inheritance">相続シナリオ</option>
+        </select>
+      </div>
+      <div id="strategyTabs">
+        <div id="st_general" class="st-panel"></div>
+        <div id="st_next_visit" class="st-panel" style="display:none">
+          <div style="background:#ebf8ff;border:1px solid #bee3f8;border-radius:6px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:12px;font-weight:700;color:#2b6cb0">🎯 次回作戦 − 貼り付け欄</div>
+              <span id="at_ai_next_visit" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_next_visit')" style="font-size:11px;padding:3px 10px;border:1px solid #bee3f8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+            </div>
+            <textarea id="f_ai_next_visit" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('next_visit')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_next_visit" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_next_visit" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('next_visit')">🔗 URLを整理</button>
+            <div id="ac_next_visit" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
           </div>
-          <textarea id="f_ai_general" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('general');autoDetectJudge(this.value);autoDetectSummary(this.value);autoDetectJob9(this.value)" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_general" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_general" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('general')">🔗 URLを整理</button>
-          <div id="ac_general" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
         </div>
+        <div id="st_motivation" class="st-panel" style="display:none">
+          <div style="background:#fff5f5;border:1px solid #fed7d7;border-radius:6px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:12px;font-weight:700;color:#c53030">🔥 動機引揚 − 貼り付け欄</div>
+              <span id="at_ai_motivation" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_motivation')" style="font-size:11px;padding:3px 10px;border:1px solid #fed7d7;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+            </div>
+            <textarea id="f_ai_motivation" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('motivation')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_motivation" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_motivation" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('motivation')">🔗 URLを整理</button>
+            <div id="ac_motivation" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
+          </div>
+        </div>
+        <div id="st_personality" class="st-panel" style="display:none">
+          <div style="background:#faf5ff;border:1px solid #e9d8fd;border-radius:6px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:12px;font-weight:700;color:#6b46c1">🧠 性格応対 − 貼り付け欄</div>
+              <span id="at_ai_personality" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_personality')" style="font-size:11px;padding:3px 10px;border:1px solid #e9d8fd;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+            </div>
+            <textarea id="f_ai_personality" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('personality')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_personality" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_personality" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('personality')">🔗 URLを整理</button>
+            <div id="ac_personality" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
+          </div>
+        </div>
+        <div id="st_objection" class="st-panel" style="display:none">
+          <div style="background:#fffaf0;border:1px solid #fbd38d;border-radius:6px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:12px;font-weight:700;color:#c05621">🛡 反論対応 − 貼り付け欄</div>
+              <span id="at_ai_objection" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_objection')" style="font-size:11px;padding:3px 10px;border:1px solid #fbd38d;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+            </div>
+            <textarea id="f_ai_objection" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('objection')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_objection" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_objection" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('objection')">🔗 URLを整理</button>
+            <div id="ac_objection" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
+          </div>
+        </div>
+        <div id="st_hearing" class="st-panel" style="display:none">
+          <div style="background:#f0fff4;border:1px solid #c6f6d5;border-radius:6px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:12px;font-weight:700;color:#276749">👂 聞取補充 − 貼り付け欄</div>
+              <span id="at_ai_hearing" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_hearing')" style="font-size:11px;padding:3px 10px;border:1px solid #c6f6d5;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+            </div>
+            <textarea id="f_ai_hearing" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('hearing')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_hearing" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_hearing" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('hearing')">🔗 URLを整理</button>
+            <div id="ac_hearing" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
+          </div>
+        </div>
+        <div id="st_training" class="st-panel" style="display:none">
+          <div style="background:#ebf4ff;border:1px solid #bee3f8;border-radius:6px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:12px;font-weight:700;color:#2c5282">📝 会話訓練 − 貼り付け欄</div>
+              <span id="at_ai_training" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_training')" style="font-size:11px;padding:3px 10px;border:1px solid #bee3f8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+            </div>
+            <textarea id="f_ai_training" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('training')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_training" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_training" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('training')">🔗 URLを整理</button>
+            <div id="ac_training" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
+          </div>
+        </div>
+        <div id="st_inheritance" class="st-panel" style="display:none">
+          <div style="background:#faf5ff;border:1px solid #d6bcfa;border-radius:6px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:12px;font-weight:700;color:#6B46C1">🏛 相続シナリオ − 貼り付け欄</div>
+              <span id="at_ai_inheritance" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_inheritance')" style="font-size:11px;padding:3px 10px;border:1px solid #d6bcfa;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+            </div>
+            <textarea id="f_ai_inheritance" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('inheritance')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_inheritance" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_inheritance" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('inheritance')">🔗 URLを整理</button>
+            <div id="ac_inheritance" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
+          </div>
+        </div>
+      </div>
+    </details>
+    <!-- 第205弾: ⑥アナログ協議（既存のまま） -->
+    <div style="background:#fffff0;border:1px solid #fefcbf;border-radius:6px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:12px;font-weight:700;color:#744210">✍️ アナログ協議</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button type="button" class="mic-btn" onclick="micStart('f_analog',this)">🎤</button>
+          <button type="button" onclick="clearStrategyField('f_analog')" style="font-size:11px;padding:3px 10px;border:1px solid #fefcbf;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+        </div>
+      </div>
+      <textarea id="f_analog" rows="6" placeholder="課長との対面協議メモ・ホワイトボード内容などを記録" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:100px"></textarea><div id="analog_at" class="paste-at"></div>
+    </div>
+    <!-- 第205弾: ⑦<details>…保守（貼付履歴を訂正／ファイルで抽出／最優先事項を格下げ収納） -->
+    <details id="onepassMaintenanceDetails" style="margin-bottom:8px">
+      <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#718096;padding:6px 0">⋯ 保守</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <div style="display:flex;justify-content:flex-end">
+          <button type="button" id="klogHygieneOpenBtn" style="padding:8px 12px;font-size:12px;background:#718096;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">🧹 貼付履歴を訂正</button>
+        </div>
+        <button type="button" style="padding:11px;font-size:13px;background:#553c9a;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="promptToFile()">📎 ファイルで抽出</button>
         <!-- 最優先事項 -->
-        <div style="background:#fff8f0;border:1px solid #fbd38d;border-radius:6px;padding:10px;margin-bottom:8px">
+        <div style="background:#fff8f0;border:1px solid #fbd38d;border-radius:6px;padding:10px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:12px;font-weight:700;color:#c05621">📌 最優先事項</div>
             <div style="font-size:10px;color:#a0aec0">自動検出 / 手修正可</div>
@@ -20670,88 +21416,9 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
           </div>
         </div>
       </div>
-      <div id="st_next_visit" class="st-panel" style="display:none">
-        <div style="background:#ebf8ff;border:1px solid #bee3f8;border-radius:6px;padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:700;color:#2b6cb0">🎯 次回作戦 − 貼り付け欄</div>
-            <span id="at_ai_next_visit" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_next_visit')" style="font-size:11px;padding:3px 10px;border:1px solid #bee3f8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
-          </div>
-          <textarea id="f_ai_next_visit" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('next_visit')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_next_visit" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_next_visit" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('next_visit')">🔗 URLを整理</button>
-          <div id="ac_next_visit" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
-        </div>
-      </div>
-      <div id="st_motivation" class="st-panel" style="display:none">
-        <div style="background:#fff5f5;border:1px solid #fed7d7;border-radius:6px;padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:700;color:#c53030">🔥 動機引揚 − 貼り付け欄</div>
-            <span id="at_ai_motivation" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_motivation')" style="font-size:11px;padding:3px 10px;border:1px solid #fed7d7;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
-          </div>
-          <textarea id="f_ai_motivation" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('motivation')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_motivation" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_motivation" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('motivation')">🔗 URLを整理</button>
-          <div id="ac_motivation" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
-        </div>
-      </div>
-      <div id="st_personality" class="st-panel" style="display:none">
-        <div style="background:#faf5ff;border:1px solid #e9d8fd;border-radius:6px;padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:700;color:#6b46c1">🧠 性格応対 − 貼り付け欄</div>
-            <span id="at_ai_personality" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_personality')" style="font-size:11px;padding:3px 10px;border:1px solid #e9d8fd;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
-          </div>
-          <textarea id="f_ai_personality" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('personality')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_personality" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_personality" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('personality')">🔗 URLを整理</button>
-          <div id="ac_personality" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
-        </div>
-      </div>
-      <div id="st_objection" class="st-panel" style="display:none">
-        <div style="background:#fffaf0;border:1px solid #fbd38d;border-radius:6px;padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:700;color:#c05621">🛡 反論対応 − 貼り付け欄</div>
-            <span id="at_ai_objection" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_objection')" style="font-size:11px;padding:3px 10px;border:1px solid #fbd38d;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
-          </div>
-          <textarea id="f_ai_objection" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('objection')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_objection" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_objection" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('objection')">🔗 URLを整理</button>
-          <div id="ac_objection" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
-        </div>
-      </div>
-      <div id="st_hearing" class="st-panel" style="display:none">
-        <div style="background:#f0fff4;border:1px solid #c6f6d5;border-radius:6px;padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:700;color:#276749">👂 聞取補充 − 貼り付け欄</div>
-            <span id="at_ai_hearing" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_hearing')" style="font-size:11px;padding:3px 10px;border:1px solid #c6f6d5;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
-          </div>
-          <textarea id="f_ai_hearing" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('hearing')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_hearing" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_hearing" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('hearing')">🔗 URLを整理</button>
-          <div id="ac_hearing" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
-        </div>
-      </div>
-      <div id="st_training" class="st-panel" style="display:none">
-        <div style="background:#ebf4ff;border:1px solid #bee3f8;border-radius:6px;padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:700;color:#2c5282">📝 会話訓練 − 貼り付け欄</div>
-            <span id="at_ai_training" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_training')" style="font-size:11px;padding:3px 10px;border:1px solid #bee3f8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
-          </div>
-          <textarea id="f_ai_training" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('training')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_training" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_training" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('training')">🔗 URLを整理</button>
-          <div id="ac_training" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
-        </div>
-      </div>
-      <div id="st_inheritance" class="st-panel" style="display:none">
-        <div style="background:#faf5ff;border:1px solid #d6bcfa;border-radius:6px;padding:12px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:700;color:#6B46C1">🏛 相続シナリオ − 貼り付け欄</div>
-            <span id="at_ai_inheritance" class="paste-at" style="margin-left:auto;align-self:center;margin-top:0;margin-right:6px"></span><button type="button" onclick="clearStrategyField('f_ai_inheritance')" style="font-size:11px;padding:3px 10px;border:1px solid #d6bcfa;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
-          </div>
-          <textarea id="f_ai_inheritance" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('inheritance')" onpaste="handleAiPaste(event)"></textarea><div id="f_ai_urls_inheritance" class="ai-url-refs" style="display:none"></div><button type="button" id="f_ai_organize_inheritance" class="ai-url-organize-btn" style="display:none" onclick="confirmOrganizeLegacyAiUrls('inheritance')">🔗 URLを整理</button>
-          <div id="ac_inheritance" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
-        </div>
-      </div>
-    </div>
-    <div style="background:#fffff0;border:1px solid #fefcbf;border-radius:6px;padding:12px;margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:12px;font-weight:700;color:#744210">✍️ アナログ協議</div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <button type="button" class="mic-btn" onclick="micStart('f_analog',this)">🎤</button>
-          <button type="button" onclick="clearStrategyField('f_analog')" style="font-size:11px;padding:3px 10px;border:1px solid #fefcbf;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
-        </div>
-      </div>
-      <textarea id="f_analog" rows="6" placeholder="課長との対面協議メモ・ホワイトボード内容などを記録" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:100px"></textarea><div id="analog_at" class="paste-at"></div>
-    </div>
+    </details>
   </div>
+
 
 <!-- PC同期モーダル（スマホ用） -->
 <div class="mo" id="syncModal">
