@@ -2572,7 +2572,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v10.102";
+var APP_VERSION = "v11.00";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6723,14 +6723,42 @@ function switchStrategyTab(key){
 window.switchStrategyTab=switchStrategyTab;
 var RANK_COLOR={S:'#c53030',A:'#e53e3e',B:'#dd6b20',C:'#d69e2e',D:'#38a169',E:'#718096',X:'#4a5568'};
 var RANK_DESC={S:'S：積極提案',A:'A：積極追客',B:'B：継続追客',C:'C：染み込み',D:'D：状況確認',E:'E：初期除外',X:'X：追客打切'};
-// 協議ランク＝Judgmentボタン由来（A/B/C/X）。全解除なら空。
+// 第204弾: human Judgment（pursuit_judge_sel／revisit_judge）のrank写像を単一正本化する
+// pure helper。_coRank()とjudgment.jsのrecomputeRank()が共通利用する（新規windowグローバル
+// 追加はしない＝非exportのトップレベルfunctionとして定義。単一HTMLの他includeファイルからは
+// 通常の関数参照として直接呼べる）。写像表はrecomputeRank()側の完全版（legacy 3値=訪問継続/
+// C染み込み/S積極提案を含む）を正本として採用する。
+function _zjRankMaps(){
+  return {
+    mp:{'A見込み':'A','追撃継続':'B','変化待ち':'C','打ち切り':'X','訪問継続':'B','C染み込み':'C','S積極提案':'A'},
+    mr:{'追客開始':'B','打ち切り':'X'}
+  };
+}
+// atが「非空string かつ Date.parseで解釈可能」の場合だけそのまま返す。それ以外（未設定・
+// 非string・空文字・不正値）は''（at無し＝最古扱い）とする。
+function _zjValidAt(a){
+  if(typeof a!=='string'||!a) return '';
+  return isNaN(Date.parse(a))?'':a;
+}
+// 「最新の、rank写像可能な人間Judgment」を返す。atが新しい順に候補を評価し、最初に写像表へ
+// 乗る値を採用する（継続訪問等の写像不能値はスキップして次候補へ）。両at無し・tie（同一at）は
+// 現行固定優先PJ→RJを完全維持する（旧カード互換）。戻り値はAI fallbackを含まない
+// （AI fallbackはrecomputeRank()側で本helperの結果が空の場合だけ適用する）。
+function zJudgeResolveHumanRank(card){
+  if(!card) return {rank:'',source:''};
+  var maps=_zjRankMaps(), mp=maps.mp, mr=maps.mr;
+  var pAt=_zjValidAt(card.pursuit_judge_sel_at), rAt=_zjValidAt(card.revisit_judge_at);
+  var order=(rAt&&(!pAt||rAt>pAt))?['revisit','pursuit']:['pursuit','revisit'];
+  for(var i=0;i<order.length;i++){
+    if(order[i]==='pursuit'){ if(card.pursuit_judge_sel&&mp[card.pursuit_judge_sel]) return {rank:mp[card.pursuit_judge_sel],source:'pursuit'}; }
+    else { if(card.revisit_judge&&mr[card.revisit_judge]) return {rank:mr[card.revisit_judge],source:'revisit'}; }
+  }
+  return {rank:'',source:''};
+}
+// 協議ランク＝Judgmentボタン由来（A/B/C/X）。全解除なら空。第204弾でresolverへ委譲。
 function _coRank(){
   if(!cur) return '';
-  var mp={'A見込み':'A','追撃継続':'B','変化待ち':'C','打ち切り':'X'};
-  var mr={'追客開始':'B','打ち切り':'X'};
-  if(cur.pursuit_judge_sel&&mp[cur.pursuit_judge_sel]) return mp[cur.pursuit_judge_sel];
-  if(cur.revisit_judge&&mr[cur.revisit_judge]) return mr[cur.revisit_judge];
-  return '';
+  return zJudgeResolveHumanRank(cur).rank;
 }
 function _setRankBox(dispId,lblId,rank,emptyLbl){
   var disp=document.getElementById(dispId), label=document.getElementById(lblId);
@@ -12144,15 +12172,15 @@ function remPursuit(i){
 var _rankFanfare='';
 function _rankOrd(r){ return {S:0,A:1,B:2,C:3,D:4,E:5,X:6}[r]; }
 function queueOrPlayFanfare(dir){ var ta=document.querySelector('.tab[data-tab="ta"]'); if(ta&&ta.classList.contains('active')){ if(dir==='up'){ if(window.playRankUp) playRankUp(); } else { if(window.playRankDown) playRankDown(); } _rankFanfare=''; } else { _rankFanfare=dir; } }
-function recomputeRank(){ if(!cur) return; var old=cur.pursuit_judge||''; var mp={'A見込み':'A','追撃継続':'B','変化待ち':'C','打ち切り':'X','訪問継続':'B','C染み込み':'C','S積極提案':'A'}; var mr={'追客開始':'B','打ち切り':'X'}; var rk=''; if(cur.pursuit_judge_sel&&mp[cur.pursuit_judge_sel]) rk=mp[cur.pursuit_judge_sel]; else if(cur.revisit_judge&&mr[cur.revisit_judge]) rk=mr[cur.revisit_judge]; if(!rk) rk=cur.pursuit_judge_ai||''; cur.pursuit_judge=rk; if(rk&&old&&rk!==old&&_rankOrd(rk)!==undefined&&_rankOrd(old)!==undefined){ queueOrPlayFanfare(_rankOrd(rk)<_rankOrd(old)?'up':'down'); } if(window.updateAiRankDisp) updateAiRankDisp(rk||''); }
+function recomputeRank(){ if(!cur) return; var old=cur.pursuit_judge||''; var rk=zJudgeResolveHumanRank(cur).rank; if(!rk) rk=cur.pursuit_judge_ai||''; cur.pursuit_judge=rk; if(rk&&old&&rk!==old&&_rankOrd(rk)!==undefined&&_rankOrd(old)!==undefined){ queueOrPlayFanfare(_rankOrd(rk)<_rankOrd(old)?'up':'down'); } if(window.updateAiRankDisp) updateAiRankDisp(rk||''); }
 function isRevisitJudgeLocked(){ if(window.IS_DEV) return false; if(!cur) return true; var r=((cur.revisits)||[])[2]; return !(r&&(r.date||r.content||r.rec)); }
 function applyRevisitLock(){ var locked=isRevisitJudgeLocked(); document.querySelectorAll('[data-rj]').forEach(function(b){ b.classList.toggle('rj-locked',locked); }); }
 window.isRevisitJudgeLocked=isRevisitJudgeLocked; window.applyRevisitLock=applyRevisitLock;
 function isRevisitJudgeDone(){ if(window.IS_DEV) return true; return !!(cur && (cur.revisit_judge || cur.revisit_judge_date || (cur.revisit_4eyes && String(cur.revisit_4eyes).trim()))); }
 function applyPursuitLock(){ var locked=!isRevisitJudgeDone(); var b=document.getElementById('addPursuitBtn'); if(b) b.classList.toggle('pursuit-locked', locked); document.querySelectorAll('[data-pj]').forEach(function(x){ x.classList.toggle('pj-locked', locked); }); }
 window.isRevisitJudgeDone=isRevisitJudgeDone; window.applyPursuitLock=applyPursuitLock;
-function setRJ(v,user){ if(user){ if(typeof collectForm==='function') collectForm(); if(isRevisitJudgeLocked()){ applyRevisitLock(); aibisAlert('再訪Judgmentはまだロック中だよ🔒<br><br>ヒアリングは足りてる？課長と協議した？<br><br>再訪3回目の「訪問日・訪問内容・録音要約」のどれかを記録するとJudgmentできるよ。'); return; } if(cur.revisit_judge===v) v=''; } cur.revisit_judge=v; document.querySelectorAll('[data-rj]').forEach(function(b){b.classList.toggle('active',b.dataset.rj===v);}); if(user){ recomputeRank(); if(window.applyPursuitLock) applyPursuitLock(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
-function setPJ(v,user){ if(user){ if(typeof collectForm==='function') collectForm(); if(!isRevisitJudgeDone()){ if(window.applyPursuitLock) applyPursuitLock(); aibisAlert('先に再訪Judgmentを行ってね🔒<br><br>追撃Judgmentは、再訪Judgment（判定日・フォーアイズ・判定ボタンのどれか）を入れてからだよ。<br><br>課長と協議した？'); return; } if(cur.pursuit_judge_sel===v) v=''; } cur.pursuit_judge_sel=v; document.querySelectorAll('[data-pj]').forEach(function(b){b.classList.toggle('active',b.dataset.pj===v);}); if(window.renderJudgeDetail) renderJudgeDetail(); if(user){ recomputeRank(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
+function setRJ(v,user){ if(user){ if(typeof collectForm==='function') collectForm(); if(isRevisitJudgeLocked()){ applyRevisitLock(); aibisAlert('再訪Judgmentはまだロック中だよ🔒<br><br>ヒアリングは足りてる？課長と協議した？<br><br>再訪3回目の「訪問日・訪問内容・録音要約」のどれかを記録するとJudgmentできるよ。'); return; } if(cur.revisit_judge===v) v=''; } cur.revisit_judge=v; if(user){ cur.revisit_judge_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-rj]').forEach(function(b){b.classList.toggle('active',b.dataset.rj===v);}); if(user){ recomputeRank(); if(window.applyPursuitLock) applyPursuitLock(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
+function setPJ(v,user){ if(user){ if(typeof collectForm==='function') collectForm(); if(!isRevisitJudgeDone()){ if(window.applyPursuitLock) applyPursuitLock(); aibisAlert('先に再訪Judgmentを行ってね🔒<br><br>追撃Judgmentは、再訪Judgment（判定日・フォーアイズ・判定ボタンのどれか）を入れてからだよ。<br><br>課長と協議した？'); return; } if(cur.pursuit_judge_sel===v) v=''; } cur.pursuit_judge_sel=v; if(user){ cur.pursuit_judge_sel_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-pj]').forEach(function(b){b.classList.toggle('active',b.dataset.pj===v);}); if(window.renderJudgeDetail) renderJudgeDetail(); if(user){ recomputeRank(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
 // 追撃Judgmentの選択に応じて重点ボックス（A見込み/追撃継続/変化待ち）を1つだけ表示
 function renderJudgeDetail(){
   var sel=(cur&&cur.pursuit_judge_sel)||'';
