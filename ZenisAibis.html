@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.02";
+var APP_VERSION = "v11.03";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -9034,13 +9034,17 @@ function zStratDeriveState(card){
         var ax = deriveResult.axes.filter(function(a){ return a.key===key; })[0];
         if(ax && Array.isArray(ax.missing)) missing = missing.concat(ax.missing);
       });
-      return { state:'A', missing: missing };
+      // 第206弾: card-six-axis-nav-strip-readonly。同一deriveResultのaxesをそのまま共有する
+      // （knowledgeReadV1／deriveCardKnowledgeV1の再呼出は行わない＝第二の真実源を作らない）。
+      return { state:'A', missing: missing, axes: deriveResult.axes };
     }
 
     var hasNew = zStratHasNewInfoAfterCouncil(council, readResult, card);
     var optionLine = zStratExtractOptionLine(council);
     var dateMD = zStratFmtMD(council.occurredAt);
-    return { state: hasNew ? 'C' : 'D', council: council, optionLine: optionLine, dateMD: dateMD };
+    // 第206弾: 状態C/DもAxes共有を追加。呼出元（zAxisStripRender）へ渡すためだけの追記であり、
+    // 既存のcouncil/optionLine/dateMD契約・C/D判定ロジックは1文字も変更しない。
+    return { state: hasNew ? 'C' : 'D', council: council, optionLine: optionLine, dateMD: dateMD, axes: deriveResult.axes };
   }catch(_eAll){
     return { state:null }; // fail-closed: 例外時はC/Dは主張しない
   }
@@ -9140,6 +9144,8 @@ function zStratStripRender(card){
     if(box){ box.style.display = 'none'; }
     var emptyBox = document.getElementById('onepassCandidateBox');
     if(emptyBox) emptyBox.style.display = 'none';
+    // 第206弾: DAN205ストリップと同時に#zAxisStripも非表示にする（挙動一致・guard付き1呼出）。
+    if(typeof zAxisStripRender==='function'){ try{ zAxisStripRender(card, null); }catch(_eAxis){} }
     return;
   }
   var d = zStratDeriveState(card);
@@ -9147,7 +9153,12 @@ function zStratStripRender(card){
 
   if(!box) return;
   while(box.firstChild) box.removeChild(box.firstChild);
-  if(!d || !d.state){ box.style.display = 'none'; return; } // fail-closed: 非表示
+  if(!d || !d.state){
+    box.style.display = 'none';
+    // 第206弾: fail-closed時もDAN205ストリップと同時に#zAxisStripを非表示にする（挙動一致）。
+    if(typeof zAxisStripRender==='function'){ try{ zAxisStripRender(card, d); }catch(_eAxis){} }
+    return;
+  } // fail-closed: 非表示
 
   var st = ZSTRAT_STATE_STYLE[d.state];
   box.style.display = 'flex';
@@ -9190,6 +9201,157 @@ function zStratStripRender(card){
     var btn = document.getElementById('kcvOpenBtn');
     if(btn) btn.click();
   };
+
+  // 第206弾: card-six-axis-nav-strip-readonly。本描画末尾でのみ、同一d（同一derive結果）を
+  // card_axis_strip.jsへ渡す。typeofガード＋try/catchの二重保護（新規window export無し）。
+  if(typeof zAxisStripRender==='function'){ try{ zAxisStripRender(card, d); }catch(_eAxis){} }
+}
+
+// ===== 第206弾: 個別カード6軸ナビストリップ（card-six-axis-nav-strip-readonly） =====
+// 正本: DAN206_FABLE5_THEME_AND_DESIGN_AUDIT_REPORT_20260811.md §4〜9
+// 本ファイルはstrategy_onepass.js／strategy_current_nav.js同様IIFEでラップしない
+// （top-level function慣行。strategy_current_nav.js末尾のtypeofガード呼出からは、
+// build後に結合される単一script内でのfunction宣言hoistingにより、本ファイルのinclude順が
+// 後であっても参照できる。新規window global export = 0）。
+//
+// 読取専用契約:
+// - strategy_current_nav.js::zStratDeriveState(card)が既に計算したd.axes（deriveCardKnowledgeV1と
+//   同一derive結果の共有）だけを描画する。knowledgeReadV1／deriveCardKnowledgeV1をここで
+//   再呼出ししない（第二の真実源を作らない）。
+// - 永続化状態を書き換える保存系・確認pin系の関数群を一切呼ばない。read系の新規呼出も行わない
+//   （具体名は tools/check.js 第206弾block の禁止参照リストで機械的に0件を検査する）。
+// - チップtapは既存「現状ナレッジ」モーダル（knowledge_card_view.js・byte不変）を開いて該当軸へ
+//   誘導するナビゲーションであり、進捗値やconfirmation状態を変更しない。
+
+// kcv（knowledge_card_view.js）内のLEVEL_COLORと意図的に同値を二重定義する（kcvはIIFE private
+// スコープのため本ファイルから参照不可）。値の同期はtools/check.js第206弾blockで機械検査する。
+var ZAXIS_LEVEL_COLOR = { '未着手': '#a0aec0', '断片': '#d69e2e', '把握': '#2f855a' };
+
+// 6軸の固定順・略称2字。key／labelはknowledge_derive.js::deriveCardKnowledgeV1の実契約に従う
+// （contact→family→asset→motivation→proposal→nextaction。推測でlabelや順序を作らない）。
+var ZAXIS_ORDER = [
+  { key: 'contact',    abbr: '接触' },
+  { key: 'family',     abbr: '家族' },
+  { key: 'asset',      abbr: '資産' },
+  { key: 'motivation', abbr: '動機' },
+  { key: 'proposal',   abbr: '提案' },
+  { key: 'nextaction', abbr: '次回' }
+];
+
+function _zAxisEl(tag, opts){
+  var el = document.createElement(tag);
+  opts = opts || {};
+  if(opts.className) el.className = opts.className;
+  if(opts.text != null) el.textContent = opts.text;
+  if(opts.style){ Object.keys(opts.style).forEach(function(k){ el.style[k] = opts.style[k]; }); }
+  if(opts.attrs){ Object.keys(opts.attrs).forEach(function(k){ el.setAttribute(k, opts.attrs[k]); }); }
+  return el;
+}
+
+// aria-label全文（正式軸名＋段階＋確認状態）を組み立てる。視覚チップは略称2字のみで、
+// スクリーンリーダー等へは全文を伝える。
+function _zAxisAriaLabel(axisResult){
+  var parts = [axisResult.label, axisResult.level];
+  if(axisResult.confirmation){
+    parts.push(axisResult.confirmation.state === 'confirmed' ? '確認済' : '再確認');
+  }
+  return parts.join(' ');
+}
+
+// card/dが不成立（card.id無し・d無し・state無し・axes不成立）なら非表示対象としてtrueを返す。
+function _zAxisShouldHide(card, d){
+  if(!card || !card.id) return true;
+  if(!d || d.state == null) return true;
+  if(!Array.isArray(d.axes) || d.axes.length !== 6) return true;
+  return false;
+}
+
+// #kcvOverlay内の該当軸行（div[role="button"]、知識card view既存契約）を検索してclickする。
+// 同期DOM契約のみを使用（新規timer／observer無し）。label一致に失敗した場合は
+// 「モーダルが開くだけ」の無害degradeとする。例外は一切外へ投げない（throw 0）。
+function zAxisNavigateToAxis(label){
+  try{
+    var openBtn = document.getElementById('kcvOpenBtn');
+    if(!openBtn || typeof openBtn.click !== 'function') return;
+    openBtn.click(); // 既存#kcvOpenBtnクリック契約（DAN205裁定§10-L1と同一手法の延長）
+    var overlay = document.getElementById('kcvOverlay');
+    if(!overlay || typeof overlay.querySelectorAll !== 'function') return;
+    var rows = overlay.querySelectorAll('div[role="button"]');
+    for(var i=0;i<rows.length;i++){
+      var row = rows[i];
+      if(row && typeof row.textContent === 'string' && row.textContent.indexOf(label) !== -1){
+        if(typeof row.click === 'function') row.click();
+        if(typeof row.scrollIntoView === 'function'){
+          try{ row.scrollIntoView({ block: 'center' }); }catch(_eScroll){}
+        }
+        return;
+      }
+    }
+    // label一致失敗: モーダルは既に開いているため、これ以上は何もしない（無害degrade）。
+  }catch(_eNav){ /* throw 0 */ }
+}
+
+// L1 axis strip render（トップレベル・window export 0）。edit_shell.htmlの#zStratStrip直下
+// #zAxisStripコンテナへ描画する。card/dはstrategy_current_nav.js::zStratStripRenderが渡す
+// 既存card／同一d（zStratDeriveStateの戻り値）をそのまま使う。ここで独自にderiveしない。
+function zAxisStripRender(card, d){
+  var box = document.getElementById('zAxisStrip');
+  if(!box) return;
+  try{
+    while(box.firstChild) box.removeChild(box.firstChild);
+
+    if(_zAxisShouldHide(card, d)){ box.style.display = 'none'; return; }
+
+    box.style.display = 'flex';
+    box.style.alignItems = 'center';
+    box.style.flexWrap = 'nowrap';
+    // 360px実測（E2E必須ゲート）で14pxの内部横overflowを検出したため、gapのみ純粋レイアウト
+    // 調整で圧縮する（情報量・略称・確認記号・折返しなし・タップ領域は無変更。実測寸法は
+    // 実装報告書へ記録）。
+    box.style.gap = '4px';
+
+    var byKey = {};
+    d.axes.forEach(function(ax){ if(ax && ax.key) byKey[ax.key] = ax; });
+
+    ZAXIS_ORDER.forEach(function(def){
+      var axisResult = byKey[def.key];
+      if(!axisResult) return; // 契約外の欠落は個別チップを描かないだけに留める（非throw）
+
+      var chip = _zAxisEl('button', {
+        attrs: { type: 'button', 'aria-label': _zAxisAriaLabel(axisResult) },
+        style: {
+          display: 'inline-flex', alignItems: 'center', gap: '3px',
+          padding: '4px 6px', minHeight: '28px', boxSizing: 'border-box',
+          fontSize: '11px', fontFamily: 'inherit', lineHeight: '1.2',
+          color: '#4a5568', background: '#ffffff',
+          border: '1px solid #e2e8f0', borderRadius: '12px',
+          cursor: 'pointer', flexShrink: '0'
+        }
+      });
+
+      chip.appendChild(_zAxisEl('span', {
+        style: {
+          display: 'inline-block', width: '7px', height: '7px', borderRadius: '7px',
+          background: ZAXIS_LEVEL_COLOR[axisResult.level] || '#a0aec0', flexShrink: '0'
+        }
+      }));
+      chip.appendChild(_zAxisEl('span', { text: def.abbr, style: { fontWeight: '700' } }));
+
+      if(axisResult.confirmation){
+        var confirmed = axisResult.confirmation.state === 'confirmed';
+        chip.appendChild(_zAxisEl('span', {
+          text: confirmed ? '\u2713' : '\u26a0',
+          style: { fontWeight: '700', color: confirmed ? '#2f855a' : '#c53030' }
+        }));
+      }
+
+      chip.addEventListener('click', function(){ zAxisNavigateToAxis(axisResult.label); });
+      box.appendChild(chip);
+    });
+  }catch(_eAll){
+    // fail-closed: 想定外の例外でも非表示側へ倒す（throw 0）。
+    try{ box.style.display = 'none'; }catch(_e2){}
+  }
 }
 
 // マニュアルのdetails開閉をJS制御（Android対応）
@@ -20671,6 +20833,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       <button id="cardNavNext" onclick="navCard(1)" style="background:#fff;border:1px solid #b9cce8;color:#2c5282;border-radius:8px;font-size:13px;font-weight:700;padding:8px 18px;min-height:38px;cursor:pointer;font-family:inherit">次 ›</button>
     </div>
     <div id="zStratStrip" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
+    <div id="zAxisStrip" class="no-print" style="display:none;padding:3px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
   <div class="tabs no-print">
     <div class="tab active" data-tab="ti" onclick="clickCardTab('ti')" style="color:#2c5282;font-size:15px;font-weight:700"><span class="ic">📋</span>初訪</div>
     <div class="tab" data-tab="tr" onclick="clickCardTab('tr')" style="color:#276749;font-size:15px;font-weight:700"><span class="ic">🔁</span>再訪</div>
