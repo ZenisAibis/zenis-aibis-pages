@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.03";
+var APP_VERSION = "v11.04";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -9146,6 +9146,8 @@ function zStratStripRender(card){
     if(emptyBox) emptyBox.style.display = 'none';
     // 第206弾: DAN205ストリップと同時に#zAxisStripも非表示にする（挙動一致・guard付き1呼出）。
     if(typeof zAxisStripRender==='function'){ try{ zAxisStripRender(card, null); }catch(_eAxis){} }
+    // 第207弾: 同時に#zConfirmCardも非表示にする（挙動一致・guard付き1呼出）。
+    if(typeof zConfirmCardRender==='function'){ try{ zConfirmCardRender(card, null); }catch(_eConfirm){} }
     return;
   }
   var d = zStratDeriveState(card);
@@ -9157,6 +9159,8 @@ function zStratStripRender(card){
     box.style.display = 'none';
     // 第206弾: fail-closed時もDAN205ストリップと同時に#zAxisStripを非表示にする（挙動一致）。
     if(typeof zAxisStripRender==='function'){ try{ zAxisStripRender(card, d); }catch(_eAxis){} }
+    // 第207弾: fail-closed時も同時に#zConfirmCardを非表示にする（挙動一致）。
+    if(typeof zConfirmCardRender==='function'){ try{ zConfirmCardRender(card, d); }catch(_eConfirm){} }
     return;
   } // fail-closed: 非表示
 
@@ -9205,6 +9209,9 @@ function zStratStripRender(card){
   // 第206弾: card-six-axis-nav-strip-readonly。本描画末尾でのみ、同一d（同一derive結果）を
   // card_axis_strip.jsへ渡す。typeofガード＋try/catchの二重保護（新規window export無し）。
   if(typeof zAxisStripRender==='function'){ try{ zAxisStripRender(card, d); }catch(_eAxis){} }
+  // 第207弾: confirm-card-mode-a-readonly-shell。本描画末尾でのみ、同一d（同一derive結果）を
+  // confirm_card_view.jsへ渡す。typeofガード＋try/catchの二重保護（新規window export無し）。
+  if(typeof zConfirmCardRender==='function'){ try{ zConfirmCardRender(card, d); }catch(_eConfirm){} }
 }
 
 // ===== 第206弾: 個別カード6軸ナビストリップ（card-six-axis-nav-strip-readonly） =====
@@ -9348,6 +9355,110 @@ function zAxisStripRender(card, d){
       chip.addEventListener('click', function(){ zAxisNavigateToAxis(axisResult.label); });
       box.appendChild(chip);
     });
+  }catch(_eAll){
+    // fail-closed: 想定外の例外でも非表示側へ倒す（throw 0）。
+    try{ box.style.display = 'none'; }catch(_e2){}
+  }
+}
+
+// ===== 第207弾: 個別カード確認カード（confirm-card-mode-a-readonly-shell） =====
+// 正本: DAN207_FABLE5_CONFIRM_CARD_MODE_A_READONLY_FINAL_DESIGN_AUDIT_REPORT_20260814.md
+//       DAN207_CHATGPT_FINAL_DESIGN_SUPPLEMENT_C1_C5_20260814.md（条件C1〜C5）
+// 本ファイルはstrategy_current_nav.js／card_axis_strip.js同様IIFEでラップしない
+// （top-level function慣行。build後結合される単一script内でのfunction宣言hoistingにより、
+// strategy_current_nav.js末尾のtypeofガード呼出から、include順に関わらず参照できる。
+// 新規window global export = 0）。
+//
+// 読取専用契約:
+// - strategy_current_nav.js::zStratDeriveState(card)が既に計算したd（d.council／d.dateMD）だけを
+//   描画する。既存の知識ログ読取・派生API群や、統合協議テキストの解析処理そのものをここで
+//   再呼出ししない（第二の真実源・第二parserを作らない）。既存read-only helperである
+//   既存read-only helperであるzStratExtractSectionBody（第1引数council・第2引数marker名。
+//   strategy_current_nav.js）だけを利用する。
+// - 永続化・確認pin・klog追記・保存系APIを一切呼ばない（新規保存値0）。クリック時副作用・
+//   キーボード操作対象化・モーダル起動・自動遷移のいずれも実装しない（非インタラクティブ）。
+//   具体名はtools/check.js第207弾blockの禁止参照リストで機械的に0件を検査する。
+// - strategy_panel.html内#onepassCandidateBox（戦略協議タブpanel内のフル表示・byte不変）とは
+//   別物。本コンポーネントはタブを開かずカード最上部に常在するコンパクトなプレビューであり、
+//   OPTIONS/MISSING/CAUTIONそれぞれの「先頭適格行」だけを表示する。
+
+// ───────────────────────────────────────────
+// C1: OPTIONS/MISSING/CAUTION共通の「先頭適格行」選定helper（1本だけ定義し3区画へ適用する）。
+// 適格条件: trim後非空 かつ 先頭が'#ZX9#'ではない。#ZX9#行はai_detect.jsの契約上
+// 「表示はしない・ジョブ判定専用」であるため、OPTIONS/MISSING/CAUTIONいずれに紛れ込んでも
+// このコンパクトプレビューでは不適格行として扱う（rawText・ai_detect.js・strategy_panel.html
+// のフル表示・統合協議テキストの解析処理自体は一切変更しない。本helperは表示用の選定のみを行う）。
+// ───────────────────────────────────────────
+function _zConfirmFirstEligibleLine(sectionBody){
+  var lines = String(sectionBody || '').split('\n');
+  for(var i=0;i<lines.length;i++){
+    var t = lines[i].trim();
+    if(!t) continue;
+    if(t.indexOf('#ZX9#') === 0) continue;
+    return t;
+  }
+  return '';
+}
+
+// card/dが不成立（card.id無し・d無し・state非C/D・council無し）ならtrueを返す（fail-closed）。
+// OPTIONS適格行の有無は呼出元が既に算出したoptLineをそのまま受け取り判定する
+// （zStratExtractSectionBodyの重複呼出を避けるため、本関数内では再算出しない）。
+function _zConfirmShouldHide(card, d, optLine){
+  if(!card || !card.id) return true;
+  if(!d || (d.state !== 'C' && d.state !== 'D')) return true;
+  if(!d.council) return true;
+  if(!optLine) return true;
+  return false;
+}
+
+function _zConfirmEl(tag, opts){
+  var el = document.createElement(tag);
+  opts = opts || {};
+  if(opts.className) el.className = opts.className;
+  if(opts.text != null) el.textContent = opts.text;
+  if(opts.style){ Object.keys(opts.style).forEach(function(k){ el.style[k] = opts.style[k]; }); }
+  return el;
+}
+
+// 1行=1visual line用の共通style（横方向はellipsisで省略し、文書横overflowを起こさない。
+// 明示的な幅指定・vw単位・パーセント単位は使わない＝block要素のauto幅がそのまま親paddingの
+// 内側に収まるため、overflow:hidden＋white-space:nowrapだけで安全にellipsis化できる）。
+function _zConfirmRowStyle(color){
+  return { fontSize:'11px', color: color || '#4a5568', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' };
+}
+
+// ───────────────────────────────────────────
+// L1 confirm card render（トップレベル・window export 0）。edit_shell.htmlの#zAxisStrip直下
+// #zConfirmCardコンテナへ描画する。card/dはstrategy_current_nav.js::zStratStripRenderが渡す
+// 既存card／同一d（zStratDeriveStateの戻り値）をそのまま使う。ここで独自にderiveしない。
+// ───────────────────────────────────────────
+function zConfirmCardRender(card, d){
+  var box = document.getElementById('zConfirmCard');
+  if(!box) return;
+  try{
+    while(box.firstChild) box.removeChild(box.firstChild);
+
+    // OPTIONSは表示可否の判定自体にも使うため先に1回だけ算出し、_zConfirmShouldHideへ渡す
+    // （zStratExtractSectionBodyの呼出をOPTIONS/MISSING/CAUTIONそれぞれちょうど1回に保つ）。
+    var optLine = (d && d.council) ? _zConfirmFirstEligibleLine(zStratExtractSectionBody(d.council, 'OPTIONS')) : '';
+    if(_zConfirmShouldHide(card, d, optLine)){ box.style.display = 'none'; return; }
+
+    var missLine = _zConfirmFirstEligibleLine(zStratExtractSectionBody(d.council, 'MISSING'));
+    var cautLine = _zConfirmFirstEligibleLine(zStratExtractSectionBody(d.council, 'CAUTION'));
+
+    box.style.display = 'block';
+    box.setAttribute('aria-label', '確認カード AI候補 未確認');
+
+    var headerText = '確認カード（AI候補・未確認）';
+    if(d.dateMD) headerText += '\u3000協議 ' + d.dateMD;
+    box.appendChild(_zConfirmEl('div', {
+      text: headerText,
+      style: { fontSize:'11px', fontWeight:'700', color:'#805ad5', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }
+    }));
+
+    box.appendChild(_zConfirmEl('div', { text: '次の一手候補: ' + optLine, style: _zConfirmRowStyle() }));
+    if(missLine) box.appendChild(_zConfirmEl('div', { text: '未確認: ' + missLine, style: _zConfirmRowStyle('#a0623a') }));
+    if(cautLine) box.appendChild(_zConfirmEl('div', { text: '注意: ' + cautLine, style: _zConfirmRowStyle('#975a16') }));
   }catch(_eAll){
     // fail-closed: 想定外の例外でも非表示側へ倒す（throw 0）。
     try{ box.style.display = 'none'; }catch(_e2){}
@@ -20834,6 +20945,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
     </div>
     <div id="zStratStrip" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
     <div id="zAxisStrip" class="no-print" style="display:none;padding:3px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
+    <div id="zConfirmCard" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
   <div class="tabs no-print">
     <div class="tab active" data-tab="ti" onclick="clickCardTab('ti')" style="color:#2c5282;font-size:15px;font-weight:700"><span class="ic">📋</span>初訪</div>
     <div class="tab" data-tab="tr" onclick="clickCardTab('tr')" style="color:#276749;font-size:15px;font-weight:700"><span class="ic">🔁</span>再訪</div>
