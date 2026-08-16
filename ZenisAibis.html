@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.04";
+var APP_VERSION = "v11.05";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3731,6 +3731,19 @@ function doSaveCards(cb) {
       return false;
     }
 
+    // 第208弾: next_action_response（確認カードMode A 人間応答／採用・却下・保留）。author/origin/
+    // realmは他既知kindと同型の厳格検査。response⇔statusは_klogValidateNextActionResponseShape
+    // （本ファイル末尾第208弾節で定義・producer側と共有）へ委譲する1:1固定対応。links.derivedFromは
+    // 必須単一key（source councilへの安定bindingのため）。未知keyは許容しない（ホワイトリスト厳格化）。
+    if(entry.kind === 'next_action_response'){
+      if(entry.author !== 'self') return false;
+      if(entry.origin !== 'confirm_card_view') return false;
+      if(entry.realm !== 'app') return false;
+      if(!_klogValidateNextActionResponseShape(entry)) return false;
+      if(!_klogOnlyAllowedKeys(entry, _KLOG_NEXT_ACTION_RESPONSE_ENTRY_KEYS)) return false;
+      return true;
+    }
+
     // 将来kind: hygieneの直接対象外だが、最低限の共通契約（linksがあればplain object・
     // derivedFromがあれば非空文字列）は満たす必要がある。ここを満たせない場合はfail-closed。
     if(Object.prototype.hasOwnProperty.call(entry, 'links')){
@@ -4350,6 +4363,13 @@ function doSaveCards(cb) {
     return out;
   }
 
+  // 私設ヘルパー: next_action_responseエントリの読取専用射影（第208弾）。candidatePreview／
+  // candidateHashは無加工。linksはderivedFromだけを保持する単一keyのオブジェクトとして返す。
+  function _klogProjectNextActionResponse208(e){
+    return { id:e.id, occurredAt:e.occurredAt, recordedAt:e.recordedAt, response:e.response, status:e.status,
+      candidatePreview:e.candidatePreview, candidateHash:e.candidateHash, links:{ derivedFrom: e.links.derivedFrom } };
+  }
+
   // knowledgeReadV1(customerId): 同期・非throw・純読取。手順：
   //   1) 対象顧客store全件読取 2) 既存validatorで全件検証 3) 既存_klogComputeActiveで
   //   active計算 4) activeなpaste_capture／app_eventを収集 5) occurredAt降順・同値は
@@ -4363,26 +4383,28 @@ function doSaveCards(cb) {
   function knowledgeReadV1(customerId){
     try{
       if(typeof customerId !== 'string' || customerId.length === 0){
-        return { ok:false, code:'invalid_argument', entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[] };
+        return { ok:false, code:'invalid_argument', entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[], responses:[] };
       }
       var read = _klogReadArrayDetailed(customerId);
       if(!read.ok){
-        return { ok:false, code:read.reason, entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[] };
+        return { ok:false, code:read.reason, entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[], responses:[] };
       }
       var comp = _klogComputeActive(read.arr, customerId);
       if(!comp.ok){
-        return { ok:false, code:comp.reason, entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[] };
+        return { ok:false, code:comp.reason, entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[], responses:[] };
       }
 
       var activeIdList = [];
       var candidates = [];
       var pinCandidates = [];
+      var responseCandidates208 = []; // 第208弾: next_action_response（entries/pinsとは別射影。cap対象外）
       for(var i=0;i<read.arr.length;i++){
         var e = read.arr[i];
         if(!comp.activeIds[e.id]) continue;
         activeIdList.push(e.id);
         if(e.kind === 'paste_capture' || e.kind === 'app_event') candidates.push(e);
         else if(e.kind === 'confirmation_pin') pinCandidates.push(e);
+        else if(e.kind === 'next_action_response') responseCandidates208.push(e);
       }
 
       // active計算後のcap前にソート（cap後の200件が「最新」であることを保証するため、
@@ -4421,9 +4443,24 @@ function doSaveCards(cb) {
       var pins = [];
       for(var p=0;p<pinCandidates.length;p++){ pins.push(_klogProjectConfirmationPin199(pinCandidates[p])); }
 
-      return { ok:true, code:'ok', entries:entries, totalActive:totalActive, truncated:truncated, pins:pins, activeIdList:activeIdList };
+      // 第208弾: responsesはentries/pinsと同じ決定的tie-break（occurredAt desc→recordedAt desc→
+      // id desc）でソートし、cap200の対象外とする。entries/pins/totalActive/truncated/
+      // activeIdListの意味・並び・capは一切変更しない。
+      responseCandidates208.sort(function(a, b){
+        if(a.occurredAt > b.occurredAt) return -1;
+        if(a.occurredAt < b.occurredAt) return 1;
+        if(a.recordedAt > b.recordedAt) return -1;
+        if(a.recordedAt < b.recordedAt) return 1;
+        if(a.id > b.id) return -1;
+        if(a.id < b.id) return 1;
+        return 0;
+      });
+      var responses208 = [];
+      for(var r208=0;r208<responseCandidates208.length;r208++){ responses208.push(_klogProjectNextActionResponse208(responseCandidates208[r208])); }
+
+      return { ok:true, code:'ok', entries:entries, totalActive:totalActive, truncated:truncated, pins:pins, activeIdList:activeIdList, responses:responses208 };
     }catch(_eAll){
-      return { ok:false, code:'invalid_store', entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[] };
+      return { ok:false, code:'invalid_store', entries:[], totalActive:0, truncated:false, pins:[], activeIdList:[], responses:[] };
     }
   }
   Object.defineProperty(klogCapturePaste, 'knowledgeReadV1', {
@@ -4609,6 +4646,142 @@ function doSaveCards(cb) {
   }
   Object.defineProperty(klogCapturePaste, 'confirmationApplyV1', {
     value: confirmationApplyV1, enumerable:false, writable:false, configurable:false
+  });
+
+  // ===== 第208弾: confirm-card-mode-a-next-action-human-response =====
+  // 目的：DAN207で表示できるようになった確認カード（AI由来の次の一手候補）に対し、担当者が
+  // 明示的にボタンを押した場合だけ、採用／却下／保留の人間判断来歴をappend-onlyで記録する。
+  // 正本：DAN208_FABLE5_NEXT_ACTION_HUMAN_RESPONSE_DESIGN_AUDIT_REPORT_20260815.md、
+  // DAN208_SONNET5_NEXT_ACTION_HUMAN_RESPONSE_IMPLEMENTATION_PROMPT_20260815.md §3〜6。
+  // 新規windowグローバルは0件。既存window.klogCapturePaste（第194弾契約）だけを維持し、
+  // 本弾の1API(nextActionResponseApplyV1)は同関数オブジェクトへ非列挙propertyとして付与する。
+  // 呼出元はsource/main/ui/confirm_card_view.jsのみ（他既存API・呼出元は無改変）。API内では
+  // onepassParse等の第二parserを呼ばない。「統合協議として有効か」の判定はUI/nav側の既存責務で
+  // あり、API側は「councilIdがactiveなpaste_capture entryである」ことだけを確認する。
+  var _KLOG_NEXT_ACTION_RESPONSE_VALUES = ['adopt', 'reject', 'hold'];
+  var _KLOG_NEXT_ACTION_STATUS_BY_RESPONSE = { adopt: 'human_confirmed', reject: 'rejected', hold: 'on_hold' };
+  var _KLOG_NEXT_ACTION_COMMAND_KEYS = ['action', 'customerId', 'councilId', 'candidateText'];
+  var _KLOG_NEXT_ACTION_RESPONSE_ENTRY_KEYS = ['id', 'occurredAt', 'recordedAt', 'author', 'customerId', 'origin', 'realm', 'kind', 'status', 'response', 'candidatePreview', 'candidateHash', 'links', 'schemaVer'];
+  var _klogNextActionQuotaSuppressed = false; // 専用Quota抑止。paste/appEvent/confirmationとは完全分離
+  var _klogNextActionLast = Object.create(null); // dedupe直近記録: key=customerId|councilId|action|candidateHash -> ts（成功後のみ更新）
+
+  // 私設ヘルパー: next_action_responseの厳格shape検証（producer出力・store保存済みentryの両方が
+  // この1関数を通る。response⇔statusの1:1対応・candidatePreview/candidateHash非空・
+  // links.derivedFromが必須単一keyであることを検証する。将来field追加はここでは許容しない
+  // ＝書込・読取の二重実装を避けるための単一の正本）。
+  function _klogValidateNextActionResponseShape(entry){
+    if(!_klogIsPlainObject(entry)) return false;
+    if(_KLOG_NEXT_ACTION_RESPONSE_VALUES.indexOf(entry.response) === -1) return false;
+    if(entry.status !== _KLOG_NEXT_ACTION_STATUS_BY_RESPONSE[entry.response]) return false;
+    if(!_klogNonEmptyString(entry.candidatePreview)) return false;
+    if(!_klogNonEmptyString(entry.candidateHash)) return false;
+    if(!_klogIsPlainObject(entry.links)) return false;
+    if(!_klogNonEmptyString(entry.links.derivedFrom)) return false;
+    var linksKeys208 = Object.keys(entry.links);
+    if(linksKeys208.length !== 1 || linksKeys208[0] !== 'derivedFrom') return false;
+    return true;
+  }
+
+  // nextActionResponseApplyV1(command): 同期・throwしない。既存内部API(confirmationApplyV1等)と
+  // 同型の契約：Quota抑止(専用フラグ)→引数厳格検証(command whitelist)→candidate正規化→
+  // 専用1500ms dedupe→unchanged idempotency→_klogReadArrayDetailed→_klogComputeActive
+  // fail-closed→source council実在・active・kind一致検査→現行有効response解決→id衝突検査→
+  // concat serialize→setItem厳密1回→成功後のみdedupe状態更新。失敗時はstore byte不変。
+  // paste_capture／app_event／confirmation_pinのQuota・dedupe状態へは一切干渉しない。
+  function nextActionResponseApplyV1(command){
+    try{
+      if(_klogNextActionQuotaSuppressed) return { ok:false, code:'quota_suppressed' };
+      if(!_klogIsPlainObject(command)) return { ok:false, code:'invalid_argument' };
+      if(!_klogOnlyAllowedKeys(command, _KLOG_NEXT_ACTION_COMMAND_KEYS)) return { ok:false, code:'invalid_argument' };
+
+      var action208 = command.action;
+      var customerId208 = command.customerId;
+      var councilId208 = command.councilId;
+      var candidateText208 = command.candidateText;
+
+      if(_KLOG_NEXT_ACTION_RESPONSE_VALUES.indexOf(action208) === -1) return { ok:false, code:'invalid_argument' };
+      if(!_klogNonEmptyString(customerId208)) return { ok:false, code:'invalid_argument' };
+      if(!_klogNonEmptyString(councilId208)) return { ok:false, code:'invalid_argument' };
+      if(typeof candidateText208 !== 'string') return { ok:false, code:'invalid_argument' };
+
+      var canonicalCandidate208 = candidateText208.trim();
+      if(canonicalCandidate208.length === 0) return { ok:false, code:'invalid_argument' };
+      if(canonicalCandidate208.length > 100000) return { ok:false, code:'invalid_argument' };
+
+      var candidatePreview208 = canonicalCandidate208.slice(0, 120);
+      var candidateHash208;
+      try{ candidateHash208 = _klogHash(canonicalCandidate208); }catch(_eHash208){ return { ok:false, code:'invalid_argument' }; }
+
+      var dedupeKey208 = customerId208 + '\u0001' + councilId208 + '\u0001' + action208 + '\u0001' + candidateHash208;
+      var nowMs208 = Date.now();
+      var lastTs208 = _klogNextActionLast[dedupeKey208];
+      if(typeof lastTs208 === 'number' && (nowMs208 - lastTs208) < KLOG_DEDUPE_WINDOW_MS){
+        return { ok:true, code:'deduped' };
+      }
+
+      var read208 = _klogReadArrayDetailed(customerId208);
+      if(!read208.ok) return { ok:false, code: (read208.reason === 'storage_read_failed') ? 'source_read_failed' : 'source_invalid_store' };
+
+      var comp208 = _klogComputeActive(read208.arr, customerId208);
+      if(!comp208.ok) return { ok:false, code: comp208.reason };
+
+      var councilEntry208 = comp208.idIndex[councilId208];
+      if(!councilEntry208 || !comp208.activeIds[councilId208]) return { ok:false, code:'source_not_found' };
+      if(councilEntry208.kind !== 'paste_capture') return { ok:false, code:'source_not_found' };
+
+      // 現行有効response解決（この顧客・このcouncilIdに対するactiveなnext_action_responseの中で
+      // 最新1件。entries/pinsと同一tie-breakで決定的に選ぶ）。unchanged idempotency判定専用で、
+      // UI表示側の解決（strategy_current_nav.js側）とは独立に、書込直前の最新storeで再解決する。
+      var existingForCouncil208 = [];
+      for(var i208=0; i208<read208.arr.length; i208++){
+        var e208 = read208.arr[i208];
+        if(!comp208.activeIds[e208.id]) continue;
+        if(e208.kind !== 'next_action_response') continue;
+        if(!e208.links || e208.links.derivedFrom !== councilId208) continue;
+        existingForCouncil208.push(e208);
+      }
+      existingForCouncil208.sort(function(a, b){
+        if(a.occurredAt !== b.occurredAt) return a.occurredAt > b.occurredAt ? -1 : 1;
+        if(a.recordedAt !== b.recordedAt) return a.recordedAt > b.recordedAt ? -1 : 1;
+        if(a.id !== b.id) return a.id > b.id ? -1 : 1;
+        return 0;
+      });
+      var currentResponse208 = existingForCouncil208.length > 0 ? existingForCouncil208[0] : null;
+      if(currentResponse208 && currentResponse208.response === action208 && currentResponse208.candidateHash === candidateHash208){
+        return { ok:true, code:'unchanged' };
+      }
+
+      var newId208 = _klogGenId();
+      if(Object.prototype.hasOwnProperty.call(comp208.idIndex, newId208)) return { ok:false, code:'id_collision' };
+
+      var nowIso208 = new Date().toISOString();
+      var entry208 = {
+        id: newId208, occurredAt: nowIso208, recordedAt: nowIso208, author:'self', customerId: customerId208,
+        origin:'confirm_card_view', realm:'app', kind:'next_action_response',
+        response: action208, status: _KLOG_NEXT_ACTION_STATUS_BY_RESPONSE[action208],
+        candidatePreview: candidatePreview208, candidateHash: candidateHash208,
+        links: { derivedFrom: councilId208 }, schemaVer: KLOG_SCHEMA_VER
+      };
+      if(!_klogValidateNextActionResponseShape(entry208)) return { ok:false, code:'invalid_argument' }; // 自己検証（producer/validator同一関数共有）
+
+      var serialized208;
+      try{ serialized208 = JSON.stringify(read208.arr.concat([entry208])); }catch(_eSer208){ return { ok:false, code:'serialize_failed' }; }
+
+      try{
+        localStorage.setItem(_klogKey(customerId208), serialized208);
+      }catch(_eSet208){
+        if(_klogIsQuotaError(_eSet208)){ _klogNextActionQuotaSuppressed = true; }
+        return { ok:false, code:'write_failed' };
+      }
+
+      _klogNextActionLast[dedupeKey208] = nowMs208; // 成功後だけdedupe更新
+      return { ok:true, code:'ok', id:newId208 };
+    }catch(_eAll208){
+      return { ok:false, code:'invalid_argument' };
+    }
+  }
+  Object.defineProperty(klogCapturePaste, 'nextActionResponseApplyV1', {
+    value: nextActionResponseApplyV1, enumerable:false, writable:false, configurable:false
   });
 
   window.klogCapturePaste = klogCapturePaste;
@@ -9042,9 +9215,16 @@ function zStratDeriveState(card){
     var hasNew = zStratHasNewInfoAfterCouncil(council, readResult, card);
     var optionLine = zStratExtractOptionLine(council);
     var dateMD = zStratFmtMD(council.occurredAt);
+    // 第208弾: 現行council(id)に対するactiveなnext_action_responseを、既存1回のknowledgeReadV1
+    // 結果(readResult.responses)からfilterするだけで解決する。第二read・第二onepassParse・独自
+    // sort・日時比較によるbindingは一切行わない。responsesは既にread側で決定順にsort済みのため
+    // 先頭[0]が現行有効応答。新しいcouncilはidが変わるため、旧councilの応答は誤適用されない。
+    var confirmResponse208 = (readResult.responses || []).filter(function(r){
+      return r && r.links && r.links.derivedFrom === council.id;
+    })[0] || null;
     // 第206弾: 状態C/DもAxes共有を追加。呼出元（zAxisStripRender）へ渡すためだけの追記であり、
     // 既存のcouncil/optionLine/dateMD契約・C/D判定ロジックは1文字も変更しない。
-    return { state: hasNew ? 'C' : 'D', council: council, optionLine: optionLine, dateMD: dateMD, axes: deriveResult.axes };
+    return { state: hasNew ? 'C' : 'D', council: council, optionLine: optionLine, dateMD: dateMD, axes: deriveResult.axes, confirmResponse: confirmResponse208 };
   }catch(_eAll){
     return { state:null }; // fail-closed: 例外時はC/Dは主張しない
   }
@@ -9417,6 +9597,7 @@ function _zConfirmEl(tag, opts){
   if(opts.className) el.className = opts.className;
   if(opts.text != null) el.textContent = opts.text;
   if(opts.style){ Object.keys(opts.style).forEach(function(k){ el.style[k] = opts.style[k]; }); }
+  if(opts.attrs){ Object.keys(opts.attrs).forEach(function(k){ el.setAttribute(k, opts.attrs[k]); }); }
   return el;
 }
 
@@ -9425,6 +9606,58 @@ function _zConfirmEl(tag, opts){
 // 内側に収まるため、overflow:hidden＋white-space:nowrapだけで安全にellipsis化できる）。
 function _zConfirmRowStyle(color){
   return { fontSize:'11px', color: color || '#4a5568', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' };
+}
+
+// ───────────────────────────────────────────
+// 第208弾: 確認カードMode A — 「次の一手候補」への人間応答（採用・却下・保留）。
+// 正本: DAN208_FABLE5_NEXT_ACTION_HUMAN_RESPONSE_DESIGN_AUDIT_REPORT_20260815.md、
+//       DAN208_SONNET5_..._IMPLEMENTATION_PROMPT_20260815.md §8。
+// currentResp（strategy_current_nav.js::zStratDeriveStateが既に解決したd.confirmResponse）は
+// ここで再解決しない。ここで独自にreadResult/responsesを再取得・再sortしない（第二真実源禁止）。
+// 新API呼出しはファイル内この1箇所（click handler内）だけであり、render/open/close/カード
+// 切替経路（zConfirmCardRender本体）では一切呼ばない。
+// ───────────────────────────────────────────
+var _ZCONFIRM_RESPONSE_LABEL_208 = { adopt:'採用', reject:'却下', hold:'保留' };
+
+// occurredAt(厳格ISO UTC想定)の先頭YYYY-MM-DDを文字列operationだけでparseし、ゼロ埋めを
+// 外したM/Dを返す。new Date().getMonth()等のlocal timezone変換に依存すると表示日がずれ得る
+// ため、文字列slice＋数値化だけで決定的に行う（Dateオブジェクトを一切生成しない）。
+function _zConfirmFmtMD208(iso){
+  if(typeof iso !== 'string' || iso.length < 10) return '';
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if(!m) return '';
+  var mo = parseInt(m[2], 10), da = parseInt(m[3], 10);
+  if(!(mo>=1 && mo<=12) || !(da>=1 && da<=31)) return '';
+  return mo + '/' + da;
+}
+
+function _zConfirmButtonStyle208(active){
+  return {
+    flex:'1', fontSize:'11px', fontWeight:'700', padding:'5px 2px', borderRadius:'6px',
+    border:'1px solid ' + (active ? '#805ad5' : '#cbd5e0'),
+    background: active ? '#805ad5' : '#ffffff',
+    color: active ? '#ffffff' : '#4a5568',
+    cursor:'pointer', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+  };
+}
+
+// 採用/却下/保留ボタン共通click handler。新API呼出siteはファイル内ちょうど1箇所＝ここ。
+// 成功（ok:true。code:ok/deduped/unchangedのいずれも含む）時だけzStratStripRender(card)を
+// 1回呼び、fresh read後の再描画へ戻す。失敗時はerror toastのみでDOM状態（aria-pressed等）を
+// 先に変更しない・成功表示0・自動retry 0。API未定義・呼出し例外も含めtry/catchで一括保護する。
+function _zConfirmHandleClick208(customerId, councilId, actionKey, candidateFullText, card){
+  try{
+    var res208 = klogCapturePaste.nextActionResponseApplyV1({
+      action: actionKey, customerId: customerId, councilId: councilId, candidateText: candidateFullText
+    });
+    if(res208 && res208.ok){
+      if(typeof zStratStripRender === 'function') zStratStripRender(card);
+    } else {
+      if(typeof toast === 'function') toast('担当者判断の記録に失敗しました');
+    }
+  }catch(_eAll){
+    try{ if(typeof toast === 'function') toast('担当者判断の記録に失敗しました'); }catch(_e2){}
+  }
 }
 
 // ───────────────────────────────────────────
@@ -9446,10 +9679,14 @@ function zConfirmCardRender(card, d){
     var missLine = _zConfirmFirstEligibleLine(zStratExtractSectionBody(d.council, 'MISSING'));
     var cautLine = _zConfirmFirstEligibleLine(zStratExtractSectionBody(d.council, 'CAUTION'));
 
-    box.style.display = 'block';
-    box.setAttribute('aria-label', '確認カード AI候補 未確認');
+    // 第208弾: 現行有効response（strategy_current_nav.js::zStratDeriveStateが既に解決した
+    // d.confirmResponseだけを使う。ここで独自にreadResult/responsesを再解決しない）。
+    var currentResp208 = (d && d.confirmResponse) ? d.confirmResponse : null;
 
-    var headerText = '確認カード（AI候補・未確認）';
+    box.style.display = 'block';
+    box.setAttribute('aria-label', currentResp208 ? '確認カード AI候補' : '確認カード AI候補 未確認');
+
+    var headerText = currentResp208 ? '確認カード（AI候補）' : '確認カード（AI候補・未確認）';
     if(d.dateMD) headerText += '\u3000協議 ' + d.dateMD;
     box.appendChild(_zConfirmEl('div', {
       text: headerText,
@@ -9459,6 +9696,36 @@ function zConfirmCardRender(card, d){
     box.appendChild(_zConfirmEl('div', { text: '次の一手候補: ' + optLine, style: _zConfirmRowStyle() }));
     if(missLine) box.appendChild(_zConfirmEl('div', { text: '未確認: ' + missLine, style: _zConfirmRowStyle('#a0623a') }));
     if(cautLine) box.appendChild(_zConfirmEl('div', { text: '注意: ' + cautLine, style: _zConfirmRowStyle('#975a16') }));
+
+    // 第208弾C4: 応答済みは、AI候補行とは別のDOM行・別prefix・別色で担当者判断を表示する
+    // （AI出力と人間判断を視覚上混同しない）。
+    if(currentResp208){
+      var respLabel208 = _ZCONFIRM_RESPONSE_LABEL_208[currentResp208.response] || '';
+      var respMD208 = _zConfirmFmtMD208(currentResp208.occurredAt);
+      box.appendChild(_zConfirmEl('div', {
+        text: '担当者判断: ' + respLabel208 + (respMD208 ? (' ' + respMD208) : ''),
+        style: { fontSize:'11px', fontWeight:'700', color:'#2c5282', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginTop:'2px' }
+      }));
+    }
+
+    // 第208弾C7: 採用/却下/保留の3ボタンを未応答・応答済み両方で常設する（応答変更の入口）。
+    // UI側でdisable状態機械は追加しない。360px幅で3ボタンが収まるようflex:1を使用しpx単位のみ。
+    var btnRow208 = _zConfirmEl('div', { style: { display:'flex', gap:'6px', marginTop:'4px' } });
+    var councilId208 = d.council.id;
+    var customerId208 = card.id;
+    ['adopt', 'reject', 'hold'].forEach(function(actionKey208){
+      var isActive208 = !!(currentResp208 && currentResp208.response === actionKey208);
+      var btn208 = _zConfirmEl('button', {
+        text: _ZCONFIRM_RESPONSE_LABEL_208[actionKey208],
+        style: _zConfirmButtonStyle208(isActive208),
+        attrs: { type:'button', 'aria-pressed': isActive208 ? 'true' : 'false' }
+      });
+      btn208.addEventListener('click', (function(clickActionKey208){
+        return function(){ _zConfirmHandleClick208(customerId208, councilId208, clickActionKey208, optLine, card); };
+      })(actionKey208));
+      btnRow208.appendChild(btn208);
+    });
+    box.appendChild(btnRow208);
   }catch(_eAll){
     // fail-closed: 想定外の例外でも非表示側へ倒す（throw 0）。
     try{ box.style.display = 'none'; }catch(_e2){}
