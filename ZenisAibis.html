@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.05";
+var APP_VERSION = "v11.06";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -4443,20 +4443,13 @@ function doSaveCards(cb) {
       var pins = [];
       for(var p=0;p<pinCandidates.length;p++){ pins.push(_klogProjectConfirmationPin199(pinCandidates[p])); }
 
-      // 第208弾: responsesはentries/pinsと同じ決定的tie-break（occurredAt desc→recordedAt desc→
-      // id desc）でソートし、cap200の対象外とする。entries/pins/totalActive/truncated/
-      // activeIdListの意味・並び・capは一切変更しない。
-      responseCandidates208.sort(function(a, b){
-        if(a.occurredAt > b.occurredAt) return -1;
-        if(a.occurredAt < b.occurredAt) return 1;
-        if(a.recordedAt > b.recordedAt) return -1;
-        if(a.recordedAt < b.recordedAt) return 1;
-        if(a.id > b.id) return -1;
-        if(a.id < b.id) return 1;
-        return 0;
-      });
+      // 第209弾: timestampベースのtie-break（旧仕様）を廃止し、persisted配列の成功append順
+      // （descending。最後にappendされたactive responseが先頭）を権威とする。occurredAt/
+      // recordedAt/idは監査メタデータであり、current解決の順序権威にしない
+      // （家法「append-only層のcurrentはwall-clockではなくpersisted append順で決定する」）。
+      // entries/pins/totalActive/truncated/activeIdListの意味・並び・capは一切変更しない。
       var responses208 = [];
-      for(var r208=0;r208<responseCandidates208.length;r208++){ responses208.push(_klogProjectNextActionResponse208(responseCandidates208[r208])); }
+      for(var r208=responseCandidates208.length-1;r208>=0;r208--){ responses208.push(_klogProjectNextActionResponse208(responseCandidates208[r208])); }
 
       return { ok:true, code:'ok', entries:entries, totalActive:totalActive, truncated:truncated, pins:pins, activeIdList:activeIdList, responses:responses208 };
     }catch(_eAll){
@@ -4715,8 +4708,14 @@ function doSaveCards(cb) {
       var dedupeKey208 = customerId208 + '\u0001' + councilId208 + '\u0001' + action208 + '\u0001' + candidateHash208;
       var nowMs208 = Date.now();
       var lastTs208 = _klogNextActionLast[dedupeKey208];
-      if(typeof lastTs208 === 'number' && (nowMs208 - lastTs208) < KLOG_DEDUPE_WINDOW_MS){
-        return { ok:true, code:'deduped' };
+      // 第209弾: delta=nowMs208-lastTs208 が 0<=delta<KLOG_DEDUPE_WINDOW_MSのときだけdeduped。
+      // delta<0（端末時計逆行）はdedupeをbypassし、直後のstore再読込→append順current解決→
+      // unchanged判定へ進める（dedupeは性能ガード、正しさのガードはunchanged判定側に置く）。
+      if(typeof lastTs208 === 'number'){
+        var deltaMs208 = nowMs208 - lastTs208;
+        if(deltaMs208 >= 0 && deltaMs208 < KLOG_DEDUPE_WINDOW_MS){
+          return { ok:true, code:'deduped' };
+        }
       }
 
       var read208 = _klogReadArrayDetailed(customerId208);
@@ -4729,9 +4728,11 @@ function doSaveCards(cb) {
       if(!councilEntry208 || !comp208.activeIds[councilId208]) return { ok:false, code:'source_not_found' };
       if(councilEntry208.kind !== 'paste_capture') return { ok:false, code:'source_not_found' };
 
-      // 現行有効response解決（この顧客・このcouncilIdに対するactiveなnext_action_responseの中で
-      // 最新1件。entries/pinsと同一tie-breakで決定的に選ぶ）。unchanged idempotency判定専用で、
-      // UI表示側の解決（strategy_current_nav.js側）とは独立に、書込直前の最新storeで再解決する。
+      // 現行有効response解決（この顧客・このcouncilIdに対するactiveなnext_action_responseのうち、
+      // read208.arr上で最後に成功appendされた1件）。第209弾でtimestamp/idベースのtie-breakを
+      // 廃止し、persisted配列の成功append順を権威とした。occurredAt/recordedAt/idは監査メタ
+      // データであり順序権威にしない。unchanged idempotency判定専用で、UI表示側の解決
+      // （strategy_current_nav.js側）とは独立に、書込直前の最新storeで再解決する。
       var existingForCouncil208 = [];
       for(var i208=0; i208<read208.arr.length; i208++){
         var e208 = read208.arr[i208];
@@ -4740,13 +4741,7 @@ function doSaveCards(cb) {
         if(!e208.links || e208.links.derivedFrom !== councilId208) continue;
         existingForCouncil208.push(e208);
       }
-      existingForCouncil208.sort(function(a, b){
-        if(a.occurredAt !== b.occurredAt) return a.occurredAt > b.occurredAt ? -1 : 1;
-        if(a.recordedAt !== b.recordedAt) return a.recordedAt > b.recordedAt ? -1 : 1;
-        if(a.id !== b.id) return a.id > b.id ? -1 : 1;
-        return 0;
-      });
-      var currentResponse208 = existingForCouncil208.length > 0 ? existingForCouncil208[0] : null;
+      var currentResponse208 = existingForCouncil208.length > 0 ? existingForCouncil208[existingForCouncil208.length - 1] : null;
       if(currentResponse208 && currentResponse208.response === action208 && currentResponse208.candidateHash === candidateHash208){
         return { ok:true, code:'unchanged' };
       }
