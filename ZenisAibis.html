@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.06";
+var APP_VERSION = "v11.07";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -7981,6 +7981,32 @@ function onepassSafeGeneralFallback(target, val, selStart, selEnd, clean, rawOri
 }
 
 // ───────────────────────────────────────────
+// 第210弾: AI参考ランク抽出・反映。抽出源はparsed.preface限定（②valid integratedのみ）。
+// pursuit_judge_aiのみ書換え、recomputeRankは呼ばない（official非干渉）。新規window export 0。
+// ───────────────────────────────────────────
+var ONEPASS_AI_REF_RE = /^AI参考ランク[：:]\s*([SABCDEX])\s*$/;
+function onepassExtractAiRefRank(prefaceText){
+  var lines = (typeof prefaceText === 'string' ? prefaceText : '').split('\n');
+  for(var i=0;i<lines.length;i++){
+    var m = ONEPASS_AI_REF_RE.exec(lines[i]);
+    if(m) return m[1];
+  }
+  return '';
+}
+function onepassApplyAiRefRank(rank){
+  if(!rank || !/^[SABCDEX]$/.test(rank)) return;
+  if(typeof cur === 'undefined' || !cur) return;
+  var old = cur.pursuit_judge_ai || '';
+  if(old === rank) return;
+  cur.pursuit_judge_ai = rank;
+  if(old && _rankOrd(rank) !== undefined && _rankOrd(old) !== undefined){
+    queueOrPlayFanfare(_rankOrd(rank) < _rankOrd(old) ? 'up' : 'down');
+  }
+  if(typeof updateAiRankDisp === 'function') updateAiRankDisp();
+  if(typeof toast === 'function') toast('🤖 AI参考ランク【'+rank+'】を更新しました（正式ランクは変更していません）');
+}
+
+// ───────────────────────────────────────────
 // ② valid integrated: 8テーマへ機械分配する。
 // ───────────────────────────────────────────
 function onepassDistribute(parsed, generalTarget, generalVal, generalSelStart, generalSelEnd){
@@ -8010,6 +8036,7 @@ function onepassDistribute(parsed, generalTarget, generalVal, generalSelStart, g
       if(typeof klogCapturePaste === 'function' && typeof cur !== 'undefined' && cur){
         try{ klogCapturePaste('general', generalAssembled.klogRaw, cur, sessionId); }catch(_eKlog){}
       }
+      onepassApplyAiRefRank(onepassExtractAiRefRank(parsed.preface));
       // generalはinput dispatchしない（autoDetectJudge回避・C-G4／§9-2）。
       return;
     }
@@ -13357,7 +13384,7 @@ function remPursuit(i){
 var _rankFanfare='';
 function _rankOrd(r){ return {S:0,A:1,B:2,C:3,D:4,E:5,X:6}[r]; }
 function queueOrPlayFanfare(dir){ var ta=document.querySelector('.tab[data-tab="ta"]'); if(ta&&ta.classList.contains('active')){ if(dir==='up'){ if(window.playRankUp) playRankUp(); } else { if(window.playRankDown) playRankDown(); } _rankFanfare=''; } else { _rankFanfare=dir; } }
-function recomputeRank(){ if(!cur) return; var old=cur.pursuit_judge||''; var rk=zJudgeResolveHumanRank(cur).rank; if(!rk) rk=cur.pursuit_judge_ai||''; cur.pursuit_judge=rk; if(rk&&old&&rk!==old&&_rankOrd(rk)!==undefined&&_rankOrd(old)!==undefined){ queueOrPlayFanfare(_rankOrd(rk)<_rankOrd(old)?'up':'down'); } if(window.updateAiRankDisp) updateAiRankDisp(rk||''); }
+function recomputeRank(){ if(!cur) return; var old=cur.pursuit_judge||''; var rk=zJudgeResolveHumanRank(cur).rank; cur.pursuit_judge=rk; if(rk&&old&&rk!==old&&_rankOrd(rk)!==undefined&&_rankOrd(old)!==undefined){ queueOrPlayFanfare(_rankOrd(rk)<_rankOrd(old)?'up':'down'); } if(window.updateAiRankDisp) updateAiRankDisp(rk||''); }
 function isRevisitJudgeLocked(){ if(window.IS_DEV) return false; if(!cur) return true; var r=((cur.revisits)||[])[2]; return !(r&&(r.date||r.content||r.rec)); }
 function applyRevisitLock(){ var locked=isRevisitJudgeLocked(); document.querySelectorAll('[data-rj]').forEach(function(b){ b.classList.toggle('rj-locked',locked); }); }
 window.isRevisitJudgeLocked=isRevisitJudgeLocked; window.applyRevisitLock=applyRevisitLock;
@@ -15194,7 +15221,8 @@ function genPrompt(anon){
     lines.push('・各区画は見出し行だけを単独の行に書き、装飾・番号付け・改変（全角化や記号追加など）をしないこと。見出し行の直後から本文を書く。');
     lines.push('・見出しの出力順は自由（前後してよい）。ただし11見出しすべてを漏れなく出力すること。');
     lines.push('・見出し行自体の前後に空行や説明を挟んでもよいが、見出し文字列そのものは変更しない。');
-    lines.push('・回答のどこにも「判定：」という表記や、S/A/B/C/D/E/Xの追客ランク記号は出力しないでください（ランクは人間が別途判断します）。');
+    lines.push('・回答の最初の1行目に、必ず「AI参考ランク：X」（Xは半角の S/A/B/C/D/E/X のいずれか1文字）とだけ書く。これはAIの参考値であり正式ランクではない（正式ランクは人間のJudgmentでのみ確定する）。この行は最初の【AIBIS:】見出しより前に置く。');
+    lines.push('・上記1行目の「AI参考ランク：X」行を除き、回答のどこにも「判定：」という表記や、S/A/B/C/D/E/Xの追客ランク記号は出力しないでください（正式ランクは人間が別途判断します）。');
     lines.push('');
     lines.push('【AIBIS:GENERAL】');
     lines.push('この見込み客カード全体の総合所見を書いてください。現在の状況、家族関係、資産・相続の論点、動機の強さ、次の一手の方向性を3〜6文でまとめる。');
