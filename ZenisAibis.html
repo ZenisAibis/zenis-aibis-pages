@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.07";
+var APP_VERSION = "v11.08";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -21833,9 +21833,9 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         <div id="aiPaceDisp" style="font-size:10px;font-weight:700;margin-top:6px;padding:3px 8px;border-radius:10px;display:none"></div>
       </div>
     </div>
-    <!-- 第205弾: ②主ボタン1行（抽出30%｜AI分析70%。ファイルで抽出／貼付履歴訂正は⑦保守へ移設） -->
+    <!-- 第205弾: ②主ボタン1行（抽出30%｜AI分析70%。ファイルで抽出／貼付履歴訂正は⑦保守へ移設）／第211弾: 左ボタンを📎プロンプト抽出(promptToFile)へ変更 -->
     <div style="display:flex;gap:8px;margin-bottom:10px">
-      <button type="button" style="flex:3;padding:11px;font-size:13px;background:#2d3748;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="copyPromptAnon()">🤖 分析用に抽出</button>
+      <button type="button" style="flex:3;padding:11px;font-size:13px;background:#2d3748;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="promptToFile()">📎 プロンプト抽出</button>
       <button type="button" style="flex:7;padding:11px;font-size:13px;background:#0078d4;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:500" onclick="openCopilot()">🤖 AI分析</button>
     </div>
     <!-- 第205弾: ③総合戦略協議（既存f_ai_generalブロックを主役として上段へ。id/属性は1文字も変更しない） -->
@@ -21870,6 +21870,10 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
           <option value="training">会話訓練</option>
           <option value="inheritance">相続シナリオ</option>
         </select>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button type="button" style="flex:3;padding:11px;font-size:13px;background:#2d3748;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="promptToFile()">📎 プロンプト抽出</button>
+          <button type="button" style="flex:7;padding:11px;font-size:13px;background:#0078d4;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:500" onclick="openCopilot()">🤖 AI分析</button>
+        </div>
       </div>
       <div id="strategyTabs">
         <div id="st_general" class="st-panel"></div>
@@ -21956,14 +21960,13 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       </div>
       <textarea id="f_analog" rows="6" placeholder="課長との対面協議メモ・ホワイトボード内容などを記録" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:100px"></textarea><div id="analog_at" class="paste-at"></div>
     </div>
-    <!-- 第205弾: ⑦<details>…保守（貼付履歴を訂正／ファイルで抽出／最優先事項を格下げ収納） -->
+    <!-- 第205弾: ⑦<details>…保守（貼付履歴を訂正／最優先事項を格下げ収納）／第211弾: ファイルで抽出は標準経路📎プロンプト抽出へ昇格し本欄から撤去 -->
     <details id="onepassMaintenanceDetails" style="margin-bottom:8px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#718096;padding:6px 0">⋯ 保守</summary>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
         <div style="display:flex;justify-content:flex-end">
           <button type="button" id="klogHygieneOpenBtn" style="padding:8px 12px;font-size:12px;background:#718096;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">🧹 貼付履歴を訂正</button>
         </div>
-        <button type="button" style="padding:11px;font-size:13px;background:#553c9a;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="promptToFile()">📎 ファイルで抽出</button>
         <!-- 最優先事項 -->
         <div style="background:#fff8f0;border:1px solid #fbd38d;border-radius:6px;padding:10px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
