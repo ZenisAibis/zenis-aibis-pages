@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.08";
+var APP_VERSION = "v11.09";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -9146,6 +9146,483 @@ if(document.readyState === 'loading'){
   } else {
     _kcvBindButton();
   }
+})();
+
+// ===== 第212弾: customer-story-readonly Phase 1（営業知識OS 派生・read-onlyタイムライン） =====
+// 目的：既存カード・knowledge log（knowledgeReadV1）の値だけから、顧客との経緯を時系列で
+// 確認できるread-onlyモーダルを追加する。新規保存0・schema変更0・backup format変更0・
+// AI推定イベント0・paste_capture本文表示0。DAN212_FABLE5_CUSTOMER_STORY_READONLY_DESIGN_
+// AUDIT_REPORT_20260820.md（CONDITIONAL GO）＋ChatGPT統合裁定（MAJOR3件を実装仕様へ内蔵・
+// IMPLEMENTATION GO）を正本とする。
+//
+// 構造：pure core（_storyBuildTimeline）＋thin renderer。pure coreはDOM／storage非依存の
+// 純関数で、入力（card／readResult）を一切変更しない。window公開は openCustomerStory の
+// 関数宣言1点だけ。_storyBuildTimelineはテスト目的でopenCustomerStoryへ非列挙propertyとして
+// 付与する（knowledge_log.js の window.klogCapturePaste.knowledgeReadV1 等と同型の既存契約。
+// 新規windowグローバルには当たらない）。
+//
+// 読取契約：knowledgeReadV1(customerId) をモーダルopen時にちょうど1回だけ呼ぶ。
+// hygieneListV1・raw localStorage直読・第二parser・独自active計算は行わない。
+// 書込0：localStorage.setItem・klog系apply/append API呼出・card object変異は本ファイル内0件。
+//
+// M1（cap200切詰め）：readResult.truncated===true 時は固定文言footerで必ず通知する（黙殺禁止）。
+// M2（「初回」誤誘導禁止）：doukou_at識別子は本ファイル内で一切使わない。proposal_req_at／
+// family_headcount_atは「現在値の日付」としてのみ扱い、「初回」を意味するラベルは使わない。
+// M3（XSS/漏洩）：ユーザー由来文字列は必ずtextContent。innerHTML／document.writeは0。
+// content・rawText等をconsole／toastへ出さない。
+(function () {
+  'use strict';
+
+  // ---------------------------------------------------------------------
+  // 表示ラベル正本（census対象・tools/check.js DAN212 blockで正本ファイルと一致を検証）
+  // ---------------------------------------------------------------------
+  // stageラベル正本: source/main/ui/initial_visit_panel.html の data-s="0"〜"7"
+  var STORY_STAGE_LABELS = {
+    '0': '\u9762\u8b58', '1': '\u6ce8\u610f', '2': '\u8208\u5473', '3': '\u9023\u60f3',
+    '4': '\u6b32\u6c42', '5': '\u6bd4\u8f03', '6': '\u4fe1\u5ff5', '7': '\u6c7a\u5fc3'
+  };
+  // 6軸label正本: source/main/core/knowledge_derive.js の各軸 return { key, label }
+  var STORY_AXIS_LABELS = {
+    contact: '\u63a5\u89e6\u30fb\u95a2\u4fc2',
+    family: '\u5bb6\u65cf\u30fb\u610f\u601d\u6c7a\u5b9a\u8005',
+    asset: '\u76f8\u7d9a\u30fb\u8cc7\u7523\u8ab2\u984c',
+    motivation: '\u52d5\u6a5f\u30fb\u5fc3\u7406',
+    proposal: '\u63d0\u6848\u6e96\u5099',
+    nextaction: '\u6b21\u56de\u884c\u52d5'
+  };
+  var STORY_CAT_ORDER = { A: 0, B: 1, C: 2 };
+
+  // ---------------------------------------------------------------------
+  // pure core 用ユーティリティ（knowledge_derive.jsの既定契約と同一意味論を本ファイルに
+  // 閉じて再実装する。第二readerを作らないための独立実装であり、日付哲学を新規発明しない）。
+  // ---------------------------------------------------------------------
+  function _storyIsPresent(v) {
+    if (v === null || v === undefined) return false;
+    if (typeof v === 'string') return v.trim().length > 0;
+    return true;
+  }
+  function _storyStrictDateOnly(v) {
+    if (typeof v !== 'string') return false;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) return false;
+    var y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+    var dt = new Date(Date.UTC(y, mo - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === (mo - 1) && dt.getUTCDate() === d;
+  }
+  // JST（UTC+9固定・host timezone非依存）。todayJstは呼出元(open時)で1回だけ算出しrender内固定。
+  function _storyTodayJst(nowMs) {
+    return new Date(nowMs + 9 * 3600000).toISOString().slice(0, 10);
+  }
+  // ISO(UTC) -> JST日付バケット。不正isoはnull（呼出元でイベント非生成・非throw）。
+  function _storyJstDateFromIso(iso) {
+    if (typeof iso !== 'string' || iso.length === 0) return null;
+    var t = Date.parse(iso);
+    if (isNaN(t)) return null;
+    return new Date(t + 9 * 3600000).toISOString().slice(0, 10);
+  }
+  // content先頭60字（trim後。60字超は既存_kdPreview40と同型のellipsis付与）。
+  function _storyPreview60(s) {
+    var t = (typeof s === 'string') ? s.trim() : '';
+    if (t.length === 0) return '';
+    return t.length > 60 ? (t.slice(0, 60) + '\u2026') : t;
+  }
+  function _storyStageLabel(v) {
+    if (Object.prototype.hasOwnProperty.call(STORY_STAGE_LABELS, v)) return STORY_STAGE_LABELS[v];
+    return _storyIsPresent(v) ? String(v) : '\u672a\u8a2d\u5b9a';
+  }
+  function _storyAxisLabel(k) {
+    return Object.prototype.hasOwnProperty.call(STORY_AXIS_LABELS, k) ? STORY_AXIS_LABELS[k] : String(k || '');
+  }
+  function _storyJudgeValueLabel(v) {
+    return _storyIsPresent(v) ? String(v) : '\u672a\u5224\u5b9a';
+  }
+  function _storyVisitDetailParts(visitType, extra, content) {
+    var parts = [];
+    if (_storyIsPresent(visitType)) parts.push(String(visitType));
+    if (_storyIsPresent(extra)) parts.push(String(extra));
+    var prev = _storyPreview60(content);
+    if (prev) parts.push(prev);
+    return parts.length ? parts : null;
+  }
+
+  // app_event 1件 -> Bカテゴリlabel（未知field/eventTypeはnull=無視。fail-soft・想定外契約の
+  // 静かな無視。B1〜B4以外の将来kindを本弾で誤表示しないための安全側動作）。
+  function _storyBEventLabel(e) {
+    if (e.eventType === 'stage_change' && e.field === 'stage') {
+      var reasonSuffix = e.stageReasonPresent === true ? '\uff08\u7406\u7531\u8a18\u9332\u3042\u308a\uff09' : '';
+      return '\u5fc3\u7406\u6bb5\u968e ' + _storyStageLabel(e.before) + '\u2192' + _storyStageLabel(e.after) + reasonSuffix;
+    }
+    if (e.eventType === 'judgment_change' && e.field === 'revisit_judge') {
+      return '\u518d\u8a2a\u5224\u65ad ' + _storyJudgeValueLabel(e.before) + '\u2192' + _storyJudgeValueLabel(e.after);
+    }
+    if (e.eventType === 'judgment_change' && e.field === 'pursuit_judge_sel') {
+      return '\u8ffd\u6483\u5224\u65ad ' + _storyJudgeValueLabel(e.before) + '\u2192' + _storyJudgeValueLabel(e.after);
+    }
+    if (e.eventType === 'proposal_request_change' && e.field === 'proposal_req') {
+      return e.after === '1' ? '\u63d0\u6848\u4f9d\u983c ON' : '\u63d0\u6848\u4f9d\u983c OFF';
+    }
+    return null;
+  }
+
+  // 全順序比較器（入力shuffleで結果が変わらない決定的関数）。
+  //   第1キー: jstDate昇順 / 第2キー: カテゴリ A<B<C / 第3キー: Aはsub->srcIdx、B/Cは
+  //   occurredAt->(CのみrecordedAt)->id（第212弾§4補正: app_event射影にrecordedAtが
+  //   存在しないためBはoccurredAt->idで確定する。knowledgeReadV1へrecordedAtを追加しない）。
+  function _storyEventCompare(a, b) {
+    if (a.jstDate !== b.jstDate) return a.jstDate < b.jstDate ? -1 : 1;
+    var co = STORY_CAT_ORDER[a.cat] - STORY_CAT_ORDER[b.cat];
+    if (co !== 0) return co;
+    if (a.cat === 'A') {
+      if (a.sub !== b.sub) return a.sub - b.sub;
+      return a.srcIdx - b.srcIdx;
+    }
+    if (a.occurredAt !== b.occurredAt) return a.occurredAt < b.occurredAt ? -1 : 1;
+    if (a.cat === 'C' && a.recordedAt !== b.recordedAt) return a.recordedAt < b.recordedAt ? -1 : 1;
+    if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+    return 0;
+  }
+
+  // -----------------------------------------------------------------------------
+  // pure core: _storyBuildTimeline(card, readResult, todayJst)
+  //   DOM／storage非依存の純関数。card／readResultを一切変更しない（読取のみ）。
+  //   戻り値: { events:[{jstDate,cat,sub,srcIdx,occurredAt,recordedAt,id,label,detail,
+  //             badges}...], excludedCount, truncated, klogWarn }
+  //   excludedCountは「値が存在するのに厳格date-only形式を満たさない」場合だけ加算する
+  //   （knowledge_derive.js _kdEvalDateOnlyFieldと同一意味論＝空/未入力は不正に数えない。
+  //   既定で空のrevisits/pursuitsプレースホルダ行を誤って「不正」表示しないための契約）。
+  // -----------------------------------------------------------------------------
+  function _storyBuildTimeline(card, readResult, todayJst) {
+    var c = (card && typeof card === 'object') ? card : {};
+    var rr = (readResult && typeof readResult === 'object') ? readResult : {};
+    var truncated = rr.truncated === true;
+    var klogWarn = (rr.ok === true) ? null : { code: (typeof rr.code === 'string' && rr.code) ? rr.code : 'unknown' };
+
+    var events = [];
+    var excludedCount = 0;
+
+    // ---- A1 発掘 ----
+    if (_storyIsPresent(c.discovery_date)) {
+      if (_storyStrictDateOnly(c.discovery_date)) {
+        events.push({ jstDate: c.discovery_date, cat: 'A', sub: 0, srcIdx: 0, label: '\u767a\u6398', detail: null, badges: [] });
+      } else { excludedCount++; }
+    }
+
+    // ---- A2 再訪（+ 同行候補収集） ----
+    var doukouCandidates = [];
+    var revisits = Array.isArray(c.revisits) ? c.revisits : [];
+    for (var i = 0; i < revisits.length; i++) {
+      var rv = revisits[i] || {};
+      if (!_storyIsPresent(rv.date)) continue;
+      if (!_storyStrictDateOnly(rv.date)) { excludedCount++; continue; }
+      var evA2 = {
+        jstDate: rv.date, cat: 'A', sub: 1, srcIdx: i, label: '\u518d\u8a2a',
+        detail: _storyVisitDetailParts(rv.visit_type, rv.appo, rv.content), badges: []
+      };
+      events.push(evA2);
+      if (/\u540c\u884c/.test(rv.visit_type || '')) {
+        doukouCandidates.push({ jstDate: rv.date, sub: 1, srcIdx: i, ev: evA2 });
+      }
+    }
+
+    // ---- A3 追撃（+ 同行候補収集） ----
+    var pursuits = Array.isArray(c.pursuits) ? c.pursuits : [];
+    for (var j = 0; j < pursuits.length; j++) {
+      var pv = pursuits[j] || {};
+      if (!_storyIsPresent(pv.date)) continue;
+      if (!_storyStrictDateOnly(pv.date)) { excludedCount++; continue; }
+      var evA3 = {
+        jstDate: pv.date, cat: 'A', sub: 2, srcIdx: j, label: '\u8ffd\u6483',
+        detail: _storyVisitDetailParts(pv.visit_type, pv.interviewer, pv.content), badges: []
+      };
+      events.push(evA3);
+      if (/\u540c\u884c/.test(pv.visit_type || '')) {
+        doukouCandidates.push({ jstDate: pv.date, sub: 2, srcIdx: j, ev: evA3 });
+      }
+    }
+
+    // ---- A4 初同行バッジ（独立イベント化しない。doukou_atは判定・表示に一切不使用。
+    //       mgr_involveのみ・同行訪問行0はバッジ0） ----
+    if (doukouCandidates.length > 0) {
+      doukouCandidates.sort(function (a, b) {
+        if (a.jstDate !== b.jstDate) return a.jstDate < b.jstDate ? -1 : 1;
+        if (a.sub !== b.sub) return a.sub - b.sub;
+        return a.srcIdx - b.srcIdx;
+      });
+      doukouCandidates[0].ev.badges.push('\u2605\u521d\u540c\u884c');
+    }
+
+    // ---- A5 再訪判定日 ----
+    if (_storyIsPresent(c.revisit_judge_date)) {
+      if (_storyStrictDateOnly(c.revisit_judge_date)) {
+        events.push({
+          jstDate: c.revisit_judge_date, cat: 'A', sub: 3, srcIdx: 0, label: '\u518d\u8a2a\u5224\u5b9a\u65e5',
+          detail: '\u5224\u5b9a\uff08\u73fe\u5728\u5024\uff09: ' + _storyJudgeValueLabel(c.revisit_judge), badges: []
+        });
+      } else { excludedCount++; }
+    }
+
+    // ---- A6 追撃判定日 ----
+    if (_storyIsPresent(c.pursuit_judge_date)) {
+      if (_storyStrictDateOnly(c.pursuit_judge_date)) {
+        events.push({
+          jstDate: c.pursuit_judge_date, cat: 'A', sub: 4, srcIdx: 0, label: '\u8ffd\u6483\u5224\u5b9a\u65e5',
+          detail: '\u5224\u5b9a\uff08\u73fe\u5728\u5024\uff09: ' + _storyJudgeValueLabel(c.pursuit_judge), badges: []
+        });
+      } else { excludedCount++; }
+    }
+
+    // ---- A7 家族人数 把握（family_headcount===trueのときだけ_atを評価する。
+    //       falseなら未評価＝excludedCountへも数えない。「初回確定日」等は使わない） ----
+    if (c.family_headcount === true) {
+      if (_storyIsPresent(c.family_headcount_at)) {
+        if (_storyStrictDateOnly(c.family_headcount_at)) {
+          events.push({
+            jstDate: c.family_headcount_at, cat: 'A', sub: 5, srcIdx: 0,
+            label: '\u5bb6\u65cf\u4eba\u6570 \u628a\u63e1\u65e5\uff08\u73fe\u5728\u5024\uff09', detail: null, badges: []
+          });
+        } else { excludedCount++; }
+      }
+    }
+
+    // ---- B category（app_event） + A8判定用のproposal_req app_event有無フラグ ----
+    var bEvents = [];
+    var hasProposalAppEvent = false;
+    var entries = Array.isArray(rr.entries) ? rr.entries : [];
+    for (var k = 0; k < entries.length; k++) {
+      var e = entries[k];
+      if (!e || e.kind !== 'app_event') continue;
+      if (e.eventType === 'proposal_request_change' && e.field === 'proposal_req') hasProposalAppEvent = true;
+      var jd = _storyJstDateFromIso(e.occurredAt);
+      if (jd === null) continue;
+      var bLabel = _storyBEventLabel(e);
+      if (bLabel === null) continue;
+      bEvents.push({
+        jstDate: jd, cat: 'B', sub: null, srcIdx: null,
+        occurredAt: e.occurredAt, recordedAt: null, id: e.id,
+        label: bLabel, detail: null, badges: []
+      });
+    }
+
+    // ---- A8 提案依頼（現在値・fallback。activeなapp_event(proposal_req)が0件のときだけ。
+    //       app_eventが1件以上あればA8は出さない＝唯一のcross-source抑制規則） ----
+    if (c.proposal_req === true && !hasProposalAppEvent) {
+      if (_storyIsPresent(c.proposal_req_at)) {
+        if (_storyStrictDateOnly(c.proposal_req_at)) {
+          events.push({
+            jstDate: c.proposal_req_at, cat: 'A', sub: 6, srcIdx: 0,
+            label: '\u63d0\u6848\u4f9d\u983c ON\uff08\u73fe\u5728\u5024\u306e\u65e5\u4ed8\uff09', detail: null, badges: []
+          });
+        } else { excludedCount++; }
+      }
+    }
+
+    events = events.concat(bEvents);
+
+    // ---- C category（confirmation_pin。revoke済はactive射影に構造的に不在のため追加判定0） ----
+    var pins = Array.isArray(rr.pins) ? rr.pins : [];
+    for (var p = 0; p < pins.length; p++) {
+      var pin = pins[p];
+      if (!pin) continue;
+      var jdC = _storyJstDateFromIso(pin.occurredAt);
+      if (jdC === null) continue;
+      var evCount = Array.isArray(pin.evidenceRefs) ? pin.evidenceRefs.length : 0;
+      events.push({
+        jstDate: jdC, cat: 'C', sub: null, srcIdx: null,
+        occurredAt: pin.occurredAt, recordedAt: (typeof pin.recordedAt === 'string') ? pin.recordedAt : '',
+        id: pin.id,
+        label: '\u4eba\u9593\u78ba\u8a8d: ' + _storyAxisLabel(pin.axisKey) + '\uff08\u6839\u62e0' + evCount + '\u4ef6\uff09',
+        detail: null, badges: []
+      });
+    }
+
+    // ---- 未来日バッジ（隠さない。時系列位置へ表示） ----
+    for (var f = 0; f < events.length; f++) {
+      if (typeof todayJst === 'string' && events[f].jstDate > todayJst) events[f].badges.push('\u26a0\u672a\u6765\u65e5');
+    }
+
+    events.sort(_storyEventCompare);
+
+    return { events: events, excludedCount: excludedCount, truncated: truncated, klogWarn: klogWarn };
+  }
+
+  // -----------------------------------------------------------------------------
+  // thin renderer（DOM構築のみ。表示判断ロジックはpure core側に置く）
+  // -----------------------------------------------------------------------------
+  var _storyOverlay = null;
+  var _storyKeydownHandler = null;
+  var _storyReturnFocusEl = null;
+
+  function _storyEl(tag, opts) {
+    var el = document.createElement(tag);
+    opts = opts || {};
+    if (opts.style) { for (var k in opts.style) { if (Object.prototype.hasOwnProperty.call(opts.style, k)) el.style[k] = opts.style[k]; } }
+    if (opts.attrs) { for (var a in opts.attrs) { if (Object.prototype.hasOwnProperty.call(opts.attrs, a)) el.setAttribute(a, opts.attrs[a]); } }
+    if (opts.text !== undefined) el.textContent = opts.text;
+    if (opts.onclick) el.addEventListener('click', opts.onclick);
+    return el;
+  }
+
+  function _storyCloseOverlay() {
+    if (_storyOverlay && _storyOverlay.parentNode) { _storyOverlay.parentNode.removeChild(_storyOverlay); }
+    _storyOverlay = null;
+    if (_storyKeydownHandler) { document.removeEventListener('keydown', _storyKeydownHandler); _storyKeydownHandler = null; }
+    var toFocus = _storyReturnFocusEl;
+    _storyReturnFocusEl = null;
+    if (toFocus && typeof toFocus.focus === 'function') { try { toFocus.focus(); } catch (_eFocus) {} }
+  }
+
+  // B/C領域のfail-soft警告文言（code別3区分・定型文言のみ。rawText/contentは一切出さない）。
+  function _storyKlogWarnMessage(code) {
+    if (code === 'invalid_argument') return '\u26a0 \u9867\u5ba2\u60c5\u5831\u3092\u7279\u5b9a\u3067\u304d\u305a\u3001\u72b6\u614b\u5909\u5316\u30fb\u78ba\u8a8d\u60c5\u5831\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002';
+    if (code === 'invalid_store' || code === 'storage_read_failed' || code === 'duplicate_entry_id' || code === 'derived_cycle') {
+      return '\u26a0 \u72b6\u614b\u5909\u5316\u30fb\u78ba\u8a8d\u60c5\u5831\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\uff08\u8a18\u9332\u304c\u306a\u3044\u308f\u3051\u3067\u306f\u3042\u308a\u307e\u305b\u3093\uff09\u3002';
+    }
+    return '\u26a0 \u72b6\u614b\u5909\u5316\u30fb\u78ba\u8a8d\u60c5\u5831\u306e\u8aad\u307f\u8fbc\u307f\u4e2d\u306b\u554f\u984c\u304c\u767a\u751f\u3057\u307e\u3057\u305f\u3002';
+  }
+
+  function _storyRenderRow(ev) {
+    var row = _storyEl('div', {
+      attrs: { 'data-cat': ev.cat },
+      style: { border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 10px', boxSizing: 'border-box' }
+    });
+    var top = _storyEl('div', { style: { display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' } });
+    top.appendChild(_storyEl('span', { text: ev.jstDate, style: { fontSize: '11px', color: '#718096', fontWeight: '700', flexShrink: '0' } }));
+    top.appendChild(_storyEl('span', { text: ev.label, style: { fontSize: '13px', color: '#2d3748', fontWeight: '700', wordBreak: 'break-word' } }));
+    for (var b = 0; b < ev.badges.length; b++) {
+      var isDoukou = ev.badges[b].indexOf('\u521d\u540c\u884c') >= 0;
+      top.appendChild(_storyEl('span', {
+        text: ev.badges[b],
+        style: {
+          fontSize: '10px', color: isDoukou ? '#805ad5' : '#c05621',
+          border: '1px solid currentColor', borderRadius: '10px', padding: '0 6px', flexShrink: '0'
+        }
+      }));
+    }
+    row.appendChild(top);
+    if (ev.detail) {
+      var parts = Array.isArray(ev.detail) ? ev.detail : [ev.detail];
+      row.appendChild(_storyEl('div', {
+        text: parts.join(' \u30fb '),
+        style: { fontSize: '12px', color: '#4a5568', marginTop: '4px', wordBreak: 'break-word' }
+      }));
+    }
+    return row;
+  }
+
+  function _storyRenderOverlay(built) {
+    _storyReturnFocusEl = (typeof document !== 'undefined' && document.activeElement) ? document.activeElement : null;
+
+    var overlay = _storyEl('div', {
+      attrs: { id: 'zStoryOverlay' },
+      style: {
+        position: 'fixed', inset: '0', zIndex: '9999', background: 'rgba(0,0,0,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', boxSizing: 'border-box'
+      }
+    });
+    var card = _storyEl('div', {
+      attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': '\u9867\u5ba2\u30b9\u30c8\u30fc\u30ea\u30fc', tabindex: '-1' },
+      style: {
+        background: 'white', borderRadius: '10px', maxWidth: '560px', width: '100%', maxHeight: '88vh',
+        overflowY: 'auto', padding: '14px', boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontFamily: 'inherit', boxSizing: 'border-box'
+      }
+    });
+
+    var head = _storyEl('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px' } });
+    var heading = _storyEl('div', {
+      text: '\ud83e\udded \u9867\u5ba2\u30b9\u30c8\u30fc\u30ea\u30fc', attrs: { tabindex: '-1' },
+      style: { fontSize: '15px', fontWeight: '700', color: '#2d3748', outline: 'none' }
+    });
+    var closeBtn = _storyEl('button', {
+      text: '\u2715', attrs: { type: 'button', 'aria-label': '\u9589\u3058\u308b' },
+      style: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#718096', flexShrink: '0' },
+      onclick: _storyCloseOverlay
+    });
+    head.appendChild(heading);
+    head.appendChild(closeBtn);
+    card.appendChild(head);
+
+    var visitCount = 0, changeCount = 0, confirmCount = 0;
+    for (var i = 0; i < built.events.length; i++) {
+      var ev0 = built.events[i];
+      if (ev0.cat === 'A' && (ev0.sub === 1 || ev0.sub === 2)) visitCount++;
+      else if (ev0.cat === 'B') changeCount++;
+      else if (ev0.cat === 'C') confirmCount++;
+    }
+    card.appendChild(_storyEl('div', {
+      text: '\u8a2a\u554f' + visitCount + '\u30fb\u72b6\u614b\u5909\u5316' + changeCount + '\u30fb\u78ba\u8a8d' + confirmCount,
+      style: { fontSize: '12px', color: '#4a5568', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid #e2e8f0' }
+    }));
+
+    if (built.klogWarn) {
+      card.appendChild(_storyEl('div', {
+        text: _storyKlogWarnMessage(built.klogWarn.code),
+        style: { fontSize: '12px', color: '#c53030', background: '#fff5f5', border: '1px solid #feb2b2', borderRadius: '6px', padding: '8px 10px', marginBottom: '10px' }
+      }));
+    }
+
+    var list = _storyEl('div', { attrs: { id: 'zStoryList' }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
+    if (built.events.length === 0) {
+      list.appendChild(_storyEl('div', {
+        text: '\u8868\u793a\u3067\u304d\u308b\u8a18\u9332\u304c\u307e\u3060\u3042\u308a\u307e\u305b\u3093\u3002',
+        style: { fontSize: '13px', color: '#a0aec0', padding: '12px 0', textAlign: 'center' }
+      }));
+    } else {
+      for (var r = 0; r < built.events.length; r++) list.appendChild(_storyRenderRow(built.events[r]));
+    }
+    card.appendChild(list);
+
+    if (built.excludedCount > 0) {
+      card.appendChild(_storyEl('div', {
+        text: '\u65e5\u4ed8\u4e0d\u660e\u30fb\u4e0d\u6b63: ' + built.excludedCount + '\u4ef6\uff08\u8868\u793a\u5bfe\u8c61\u5916\uff09',
+        style: { fontSize: '11px', color: '#a0aec0', marginTop: '10px' }
+      }));
+    }
+    if (built.truncated) {
+      card.appendChild(_storyEl('div', {
+        text: '\u26a0 \u4fdd\u5b58\u4ef6\u6570\u4e0a\u9650\u306b\u3088\u308a\u3001\u53e4\u3044\u72b6\u614b\u5909\u5316\u306e\u4e00\u90e8\u306f\u8868\u793a\u3055\u308c\u3066\u3044\u307e\u305b\u3093',
+        style: { fontSize: '11px', color: '#c05621', marginTop: '6px' }
+      }));
+    }
+
+    overlay.appendChild(card);
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) _storyCloseOverlay(); });
+    document.body.appendChild(overlay);
+    _storyOverlay = overlay;
+    _storyKeydownHandler = function (ev) { if (ev.key === 'Escape') _storyCloseOverlay(); };
+    document.addEventListener('keydown', _storyKeydownHandler);
+    try { heading.focus(); } catch (_eF) {}
+  }
+
+  // openCustomerStory(): エントリポイント。cur不在時はモーダルを開かず既存toast経路で終了する。
+  // knowledgeReadV1(customerId) をopenごとにちょうど1回だけ呼ぶ。
+  function openCustomerStory() {
+    var c = (typeof cur !== 'undefined' && cur && _storyIsPresent(cur.id)) ? cur : null;
+    if (!c) {
+      if (typeof aibisToast === 'function') aibisToast('\u30ab\u30fc\u30c9\u304c\u958b\u304b\u308c\u3066\u3044\u307e\u305b\u3093');
+      return;
+    }
+    _storyCloseOverlay();
+    var readResult;
+    try {
+      readResult = (typeof window !== 'undefined' && window.klogCapturePaste && typeof window.klogCapturePaste.knowledgeReadV1 === 'function')
+        ? window.klogCapturePaste.knowledgeReadV1(String(c.id))
+        : { ok: false, code: 'unavailable', entries: [], totalActive: 0, truncated: false, pins: [], activeIdList: [], responses: [] };
+    } catch (_eRead) {
+      readResult = { ok: false, code: 'invalid_store', entries: [], totalActive: 0, truncated: false, pins: [], activeIdList: [], responses: [] };
+    }
+    var todayJst = _storyTodayJst(Date.now());
+    var built = _storyBuildTimeline(c, readResult, todayJst);
+    _storyRenderOverlay(built);
+  }
+
+  // テスト専用の非列挙アクセス（window own propertyは増やさない。既存 window.klogCapturePaste.
+  // knowledgeReadV1 等と同型の付与パターン）。
+  Object.defineProperty(openCustomerStory, '_storyBuildTimeline', {
+    value: _storyBuildTimeline, enumerable: false, writable: false, configurable: false
+  });
+
+  window.openCustomerStory = openCustomerStory;
 })();
 
 // ===== 第205弾: 個別カード現在地ナビ（strategy-onepass-current-nav） =====
@@ -21221,6 +21698,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <button onclick="closeCardMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル</button>
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
             <button id="kcvOpenBtn" onclick="closeCardMenu()">🧭 現状ナレッジ</button>
+            <button onclick="closeCardMenu();openCustomerStory()">🧭 顧客ストーリー</button>
           </div>
         </div>
         <button id="cardPrintBtn" onclick="openPrintModal()" title="印刷（カード・家族・戦略を選択）" style="background:#0d9488;color:white;border:1px solid rgba(255,255,255,0.25);border-radius:6px;font-size:15px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">🖨</button>
