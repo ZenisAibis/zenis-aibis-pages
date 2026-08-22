@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.09";
+var APP_VERSION = "v11.10";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -7983,13 +7983,26 @@ function onepassSafeGeneralFallback(target, val, selStart, selEnd, clean, rawOri
 // ───────────────────────────────────────────
 // 第210弾: AI参考ランク抽出・反映。抽出源はparsed.preface限定（②valid integratedのみ）。
 // pursuit_judge_aiのみ書換え、recomputeRankは呼ばない（official非干渉）。新規window export 0。
+// 第213弾（ai-reference-rank-topline-robustness）: canonical「AI参考ランク：X」が全行で
+// 不成立の場合に限り、preface先頭から最初の「空/whitespace-onlyではない行」（raw・trim禁止）
+// がexactly S/A/B/C/D/E/Xの1文字ならtop-line fallbackとして採用する。precedence:
+// canonical（全行first-match・不変）＞ top-line single-letter fallback ＞ ''。
+// Fable 5設計監査MAJOR-1裁定によりcanonical優先を採用（fallback優先案は不採用）。
 // ───────────────────────────────────────────
 var ONEPASS_AI_REF_RE = /^AI参考ランク[：:]\s*([SABCDEX])\s*$/;
+var ONEPASS_AI_REF_TOPLINE_RE = /^[SABCDEX]$/;
 function onepassExtractAiRefRank(prefaceText){
   var lines = (typeof prefaceText === 'string' ? prefaceText : '').split('\n');
   for(var i=0;i<lines.length;i++){
     var m = ONEPASS_AI_REF_RE.exec(lines[i]);
     if(m) return m[1];
+  }
+  // 第213弾fallback: canonicalが全行不成立だった場合だけ、先頭から最初の非空/非whitespace行を
+  // 1行だけ検査する（それより後の行へは進まない＝説明文の次行に単独文字があっても不採用）。
+  for(var j=0;j<lines.length;j++){
+    if(/^\s*$/.test(lines[j])) continue;
+    if(ONEPASS_AI_REF_TOPLINE_RE.test(lines[j])) return lines[j];
+    break;
   }
   return '';
 }
