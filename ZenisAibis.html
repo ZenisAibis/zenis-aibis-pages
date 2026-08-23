@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.11";
+var APP_VERSION = "v11.12";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -15554,8 +15554,9 @@ function genPrompt(anon){
     lines.push('');
   }
   if(c.ai_summary){
-    lines.push('■ 前回の最優先事項サマリー');
+    lines.push('■ 前回の最優先事項サマリー（AI由来・未確認・生成時期不明）');
     lines.push('  '+c.ai_summary);
+    lines.push('  ※上記サマリーは過去に自動保存されたAI出力の参考情報です。鮮度・正確性は未確認のため、本プロンプト内の現在のカード情報・訪問記録と矛盾する場合はそちらを優先してください。');
     lines.push('');
   }
   if(c.ai_memo){
