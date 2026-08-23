@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.10";
+var APP_VERSION = "v11.11";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -11498,7 +11498,7 @@ if(!window._zRevLiveBound){
   },true);
 }
 /* ---- shared dashboard helpers (real data) ---- */
-var _zAreaMode='ward';
+// 第214弾: 旧共有モード変数は撤去（analysis_helpers.jsのteam/self keyed stateへ一本化）。
 var _zTown2Ward={};
 (function(){var W={
  '江戸川区':['西小岩','北小岩','南小岩','東小岩','中央','松島','平井','小松川','西葛西','東葛西','中葛西','南葛西','北葛西','清新町','臨海町','一之江','春江町','瑞江','篠崎町','鹿骨','本一色','興宮町','船堀','大杉','西一之江'],
@@ -11834,7 +11834,9 @@ function renderSelfDash(tid, targetManager){
  if(!isMob && !tid){ bodyGrow+='<div class="z-card z-cf"><h3>💭 AI分析結果（貼り付け）</h3><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"><button class="z-mini" onclick="copySelfPrompt()">🤖 分析用に抽出</button><button class="z-mini" onclick="openCopilot()">🤖 AI分析</button><button class="z-mini" onclick="printSelfReport()">🖨 印刷</button><span id="selfMemoAt" style="margin-left:auto;align-self:center;font-size:11px;font-weight:700;color:#2f9e44;white-space:nowrap"></span><button class="z-mini" onclick="clearSelfMemo()" style="background:none;border:1px solid #fc8181;color:#c53030">🗑 削除</button></div><textarea id="selfAnalysisMemo" placeholder="AIの分析結果をここに貼り付け（印刷に使われます）" oninput="saveSelfMemo()"></textarea></div>'; }
  bodyGrow+='<div class="z-card z-c2"><h3>🌳 生産緑地 保有率</h3>'+_ryokuchiRing(mine)+'</div>';
  bodyGrow+='<div class="z-card z-c2"><h3>🥧 現況の内訳</h3><div class="z-sub">担当先の現状区分の分布。</div>'+_genjoPie(mine)+'</div>';
- bodyGrow+=_zAreaCard(mine,'zSetAreaSelf');
+ // 第214弾: self scope明示化。population semantics(mine導出)は無変更。通常呼出(targetManager省略)は
+ // 実targetがcards全体−土地リードのため、嘘にならないneutral labelを用いる（population変更は禁止）。
+ bodyGrow+=_zAreaCard('self', mine, targetManager?'担当：'+e(targetManager)+'（ミラー）':'保有全体', 'zSetAreaSelf');
  bodyState=_zc('🚨','放置危険アラート','このままだと流れる見込み。タップでカードへ。',zDangerCardHTML(mine,false),'z-cf')+_zc('✅','契約前進チェックリスト','契約までの不足を1行で。','<div class="z-list2">'+zContractListHTML(mine,false)+'</div>','z-cf')+_zc('👪','家族合意マップ','家族の賛否と次に会う人。','<div class="z-list2">'+zFamilyMapHTML(mine,false)+'</div>','z-cf')+bodyState; var growthCard=_zc('🌱','成長サマリ','あなたの伸び。ランキングより自分の前進を。',zGrowthCardHTML(axes,_ghost,_sk,_mg),'z-cf'); bodyGrow=growthCard+bodyGrow; H+=_zsec('selfState','📊 自分の状態と詰まりどころ <span class="z-secsub">パイプライン・重要指標・滞留の原因</span>',bodyState)+_zsec('selfGrow','🌱 成長・振り返り <span class="z-secsub">バッジ・スキル・週1で見返す指標</span>',bodyGrow);
  H+='</div>';
  host.innerHTML=H;
@@ -16351,20 +16353,27 @@ function _zsecPlain(k,title,body){var op=!!_zOpen[k];return '<div class="z-sec'+
 function _zSecFoot(){return '<div class="z-secfoot"><button type="button" class="z-secfoot-btn" onclick="zSecClose(this)">▲ このセクションを閉じる</button></div>';}
 window.zSecClose=function(el){var s=el.closest?el.closest('.z-sec'):null;if(!s)return;s.classList.add('z-collapsed');var k=s.getAttribute('data-k');if(k)_zOpen[k]=false;var a=s.querySelector('.z-sec-h .z-ar');if(a)a.textContent='▶';var h=s.querySelector('.z-sec-h');if(h&&h.scrollIntoView){try{h.scrollIntoView({block:'start',behavior:'smooth'});}catch(_e){h.scrollIntoView();}}};
 window.zToggleSec=function(h){var s=h.parentNode;s.classList.toggle('z-collapsed');var k=s.getAttribute('data-k');var open=!s.classList.contains('z-collapsed');if(k)_zOpen[k]=open;var a=h.querySelector('.z-ar');if(a)a.textContent=open?'▼':'▶';};
-window.zSetArea=function(m){_zAreaMode=m;_zAreaRefresh();};
-window.zSetAreaSelf=function(m){_zAreaMode=m;_zAreaRefresh();};
-var _zAreaCtx=null;
-function _zAreaInner(target,toggleFn){ toggleFn=toggleFn||'zSetArea';
+// 第214弾: team/selfが共有していた旧areaモード変数・旧areaコンテキスト変数（いずれも
+// 単一globalでlast-writer-winsのため相互汚染していた）は完全撤去し、scope別keyed stateへ
+// 分離する（heatmap-scope-isolation / cross-device determinism）。
+var _zAreaState = {
+ team: { mode:'ward', target:[], label:'', count:0, fn:'zSetArea' },
+ self: { mode:'ward', target:[], label:'', count:0, fn:'zSetAreaSelf' }
+};
+window.zSetArea=function(m){_zAreaState.team.mode=m;_zAreaRefresh('team');};
+window.zSetAreaSelf=function(m){_zAreaState.self.mode=m;_zAreaRefresh('self');};
+function _zAreaInner(scopeKey){ var st=_zAreaState[scopeKey]; if(!st) return ''; var target=st.target,toggleFn=st.fn;
  var byWard={},byTown={},byWardC={},byTownC={};
  target.forEach(function(c){var p=_zParseAddr(c.address);byWard[p.ward]=(byWard[p.ward]||0)+1;(byWardC[p.ward]=byWardC[p.ward]||[]).push(c);var key=p.ward+' '+p.town;byTown[key]=(byTown[key]||0)+1;(byTownC[key]=byTownC[key]||[]).push(c);});
  function grid(obj,cmap){var mx=Math.max.apply(null,Object.keys(obj).map(function(k){return obj[k];}))||1;return '<div class="z-areagrid">'+Object.keys(obj).sort(function(a,b){return obj[b]-obj[a];}).map(function(k){var v=obj[k],unk=/未分類|区不明|町名なし/.test(k),disp=k.replace('（町名なし）','(町なし)');var items=(cmap[k]||[]).map(function(c){return {name:c.name,score:calcScore(c),sub:e(c.manager||''),id:String(c.id||'').replace(/[^\w-]/g,'')};});var rk=_zRevReg(disp,items);return '<div class="z-area'+(unk?' z-unk':'')+'" style="'+(unk?'':'background:'+_zHeat(v/mx*100))+'" onpointerdown="zRevShow(this,\''+rk+'\')" onpointerup="zRevHide()" onpointerleave="zRevHide()" onpointercancel="zRevHide()" oncontextmenu="return false" onclick="zRevList(\''+rk+'\',this)"><b>'+v+'</b><span>'+e(disp)+'</span></div>';}).join('')+'</div>';}
- var body='<div class="z-toggle"><button class="'+(_zAreaMode==='ward'?'on':'')+'" onclick="'+toggleFn+'(\'ward\')">区</button><button class="'+(_zAreaMode==='town'?'on':'')+'" onclick="'+toggleFn+'(\'town\')">町</button></div><div class="z-sub" style="clear:both;padding-top:6px">件数の濃淡。長押しでプレビュー、タップで一覧→お客様名からカードへ。区・町・不明も全部拾います。</div>'+(_zAreaMode==='ward'?grid(byWard,byWardC):grid(byTown,byTownC));
+ var body='<div class="z-toggle"><button class="'+(st.mode==='ward'?'on':'')+'" onclick="'+toggleFn+'(\'ward\')">区</button><button class="'+(st.mode==='town'?'on':'')+'" onclick="'+toggleFn+'(\'town\')">町</button></div><div class="z-sub" style="clear:both;padding-top:6px">件数の濃淡。長押しでプレビュー、タップで一覧→お客様名からカードへ。区・町・不明も全部拾います。</div>'+(st.mode==='ward'?grid(byWard,byWardC):grid(byTown,byTownC));
  return body;
 }
-function _zAreaCard(target,toggleFn){ toggleFn=toggleFn||'zSetArea'; _zAreaCtx={target:target,fn:toggleFn};
- return _zc('🗺','エリア別ヒートマップ（区⇔町 切替）','','<div class="z-area-inner">'+_zAreaInner(target,toggleFn)+'</div>','z-cf');
+function _zAreaCard(scopeKey,target,scopeLabel,toggleFn){ var st=_zAreaState[scopeKey]; if(!st) return '';
+ st.target=target; st.label=scopeLabel||''; st.count=target.length; st.fn=toggleFn||st.fn;
+ return _zc('🗺','エリア別ヒートマップ（区⇔町 切替）',st.label+'｜対象'+st.count+'件','<div class="z-area-inner" data-z-area-scope="'+scopeKey+'">'+_zAreaInner(scopeKey)+'</div>','z-cf');
 }
-function _zAreaRefresh(){ if(!_zAreaCtx) return; var ns=document.querySelectorAll('.z-area-inner'); for(var i=0;i<ns.length;i++){ ns[i].innerHTML=_zAreaInner(_zAreaCtx.target,_zAreaCtx.fn); } }
+function _zAreaRefresh(scopeKey){ if(!scopeKey||!_zAreaState[scopeKey]) return; var ns=document.querySelectorAll('.z-area-inner[data-z-area-scope="'+scopeKey+'"]'); for(var i=0;i<ns.length;i++){ ns[i].innerHTML=_zAreaInner(scopeKey); } }
 var _wkP='m0';
 function _bizDays(a,b){ var n=0,d=new Date(a.getFullYear(),a.getMonth(),a.getDate()),end=new Date(b.getFullYear(),b.getMonth(),b.getDate()); while(d<=end){ var w=d.getDay(); if(w>=1&&w<=5)n++; d.setDate(d.getDate()+1);} return n; }
 function _wkIn(ds,s,e){ if(!ds)return false; var d=new Date(ds); if(isNaN(+d))return false; return d>=new Date(s.getFullYear(),s.getMonth(),s.getDate()) && d<=e; }
@@ -16543,8 +16552,8 @@ var achH=reps.map(function(r){var bs=_achBadges(g[r]);if(!bs.length)return '';re
  var bodyRank=('🏆 ランキング & 評価',
    _zc('🎖','担当別 実績バッジ','行動の積み重ねで全員に出番。',achH,'z-c2')
   +_zc('🎖','今月の課目標（進捗）','今月の課目標。みんなで達成。',missH,'z-c2'));
- // area
- var bodyArea=_zAreaCard(t);
+ // area（第214弾: team scope明示化。labelはscope導出変数そのものから構築＝実targetと一致保証）
+ var bodyArea=_zAreaCard('team', t, scope==='all'?'課全体':'担当：'+e(scope));
  // multi
  var asMap={'1億以下':1,'3億以下':2,'5億以下':3,'10億未満':4,'10億以上':5};
  var _pts2=t.map(function(c){var av=(asMap[c.land_asset]||0)+(+(c.m2||0)>=200?2:+(c.m2||0)>=100?1:0);return {c:c,s:calcScore(c),av:av};});var _sMin=Math.min.apply(null,_pts2.map(function(p){return p.s;})),_sMax=Math.max.apply(null,_pts2.map(function(p){return p.s;})),_aMin=Math.min.apply(null,_pts2.map(function(p){return p.av;})),_aMax=Math.max.apply(null,_pts2.map(function(p){return p.av;}));var _sR=(_sMax-_sMin)||1,_aR=(_aMax-_aMin)||1;var bub='<svg class="z-bub" viewBox="0 0 560 230">';_pts2.forEach(function(p){var c=p.c;var x=20+(p.s-_sMin)/_sR*520;var y=210-(p.av-_aMin)/_aR*190;var rr=5+p.s/78*11;var rk=_zRevReg('💎 お宝客',[{name:c.name,score:calcScore(c),sub:STG[+(c.stage||0)]+'・'+e(c.manager||''),id:String(c.id||'').replace(/[^\w-]/g,'')}]);bub+='<circle cx="'+x.toFixed(0)+'" cy="'+y.toFixed(0)+'" r="'+rr.toFixed(0)+'" fill="'+(RC[c.pursuit_judge]||'#888')+'" opacity=".62" stroke="#fff" stroke-width="1" style="cursor:pointer" onpointerdown="zRevShow(this,\''+rk+'\')" onpointerup="zRevHide()" onpointerleave="zRevHide()" onpointercancel="zRevHide()" oncontextmenu="return false" onclick="zRevList(\''+rk+'\',this)"/>';});bub+='<text x="280" y="228" font-size="9" fill="#6b7894" text-anchor="middle">熱量（スコア）→</text></svg>';
