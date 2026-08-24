@@ -2579,7 +2579,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.13";
+var APP_VERSION = "v11.14";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -8119,6 +8119,7 @@ function onepassBindDetailsToggle(){
   var sel = document.getElementById('promptPreset');
   if(!det || !sel) return;
   det.addEventListener('toggle', function(){
+    if(typeof _updateInheritanceGate==='function') _updateInheritanceGate();
     if(det.open){
       if(sel.value === 'general'){
         sel.value = 'next_visit';
@@ -8150,6 +8151,7 @@ if(typeof switchStrategyTab === 'function' && !switchStrategyTab.__onepassBridge
   var _onepassOrigSwitchStrategyTab = switchStrategyTab;
 
   var onepassSwitchStrategyTabBridged = function onepassSwitchStrategyTabBridged(key){
+    if(typeof _updateInheritanceGate==='function') _updateInheritanceGate();
     var det = document.getElementById('onepassDeepDetails');
     var sel = document.getElementById('promptPreset');
 
@@ -14540,7 +14542,7 @@ function buildPrintCSS(){
     +'.rev-judge-field{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}'
     +'.rev-judge-box{flex:1 1 auto}';
 }
-var STRAT_THEMES=[['general','総合分析'],['next_visit','次回作戦'],['motivation','動機引揚'],['personality','性格応対'],['objection','反論対応'],['hearing','聞取補充'],['training','会話訓練'],['inheritance','相続シナリオ']];
+var STRAT_THEMES=[['general','総合分析'],['next_visit','次回作戦'],['motivation','動機引揚'],['personality','性格応対'],['objection','反論対応'],['hearing','聞取補充'],['training','会話考察'],['inheritance','相続シナリオ']];
 function toggleStrategyThemes(){
   var box=document.getElementById('printStrategyThemes');
   var chk=document.getElementById('printStrategy');
@@ -15184,7 +15186,7 @@ function buildFamilyHTML(c){
 function buildStrategyHTML(c,opt){
   opt=opt||{};
   var e=function(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
-  var THEMES={general:'総合分析',next_visit:'次回作戦',motivation:'動機引上げ',personality:'性格応対',objection:'反論対応',hearing:'聞取補充',training:'会話訓練',inheritance:'相続シナリオ'};
+  var THEMES={general:'総合分析',next_visit:'次回作戦',motivation:'動機引上げ',personality:'性格応対',objection:'反論対応',hearing:'聞取補充',training:'会話考察',inheritance:'相続シナリオ'};
   var only=opt.only||'';
   var titleSuffix=(only&&THEMES[only])?(' − '+THEMES[only]):'';
   var html='<div class="h2 strat">💭 戦略協議'+titleSuffix+'</div>';
@@ -15325,6 +15327,28 @@ function _pushPromptGoodBadContract(lines, target){
   lines.push('3. なぜダメか（この顧客に逆効果な理由）');
   lines.push('4. 修正版');
   lines.push('良い例・修正版は上記のステージ別トーン指示に必ず従う（ステージ0〜2では提案・テストクロージングを含めない）。');
+}
+
+/* 第217弾: 相続シナリオgate同期（読取専用）。cur.family_headcountのみ読み、保存・派生系
+ * 呼出は一切しない。#promptPreset内のinheritance <option>のdisabled/表示文言を同期し、
+ * 未確定中にselect値がinheritanceならnext_visitへ退避する。プロンプト層gate（本ファイル内
+ * preset==='inheritance'分岐・onepass INHERITANCE区画）が常時最終防衛のため、本関数の
+ * 同期タイミングが多少遅れても誤生成は起きない。 */
+function _updateInheritanceGate(){
+  try{
+    var sel=document.getElementById('promptPreset');
+    if(!sel || !sel.options) return;
+    var opt=null;
+    for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value==='inheritance'){ opt=sel.options[i]; break; } }
+    if(!opt) return;
+    var unlocked=!!(typeof cur!=='undefined' && cur && cur.family_headcount);
+    opt.disabled=!unlocked;
+    opt.textContent=unlocked?'🔓 相続シナリオ':'🔒 相続シナリオ（家族人数把握で解放）';
+    if(!unlocked && sel.value==='inheritance'){
+      sel.value='next_visit';
+      if(typeof switchStrategyTab==='function') switchStrategyTab('next_visit');
+    }
+  }catch(_eGate){}
 }
 
 /* ===== 第216弾: past-council-safe-reuse-phase-b 定数（ai-prompt-v2） =====
@@ -15669,30 +15693,42 @@ function genPrompt(anon){
   lines.push('■ 分析依頼');
   if(preset==='next_visit'){
     lines.push('【次回作戦】次の訪問で何をすべきか具体的に教えてください。');
+    lines.push('※ 状況分析は書かないでください（状況分析は「総合分析」の領域です）。行動と達成基準だけを、次の①〜⑦の順で書いてください。');
     lines.push('※ 録音要約・訪問履歴・家族構成・前回サマリーをすべて踏まえて回答してください。');
     lines.push('※ 課長との協議内容（フォーアイズ/シックスアイズ）があれば、その方針を最優先で踏まえて次の一手を設計してください。');
     lines.push('');
-    lines.push('① 訪問タイミング（時間帯・曜日の推奨・訪問ペースの観点も含む）');
-    lines.push('② 最初の一言・自然な切り出し方');
-    lines.push('③ 会話の流れ（3〜5ステップ）');
-    lines.push('④ 想定される反応と切り返し');
-    lines.push('⑤ 次回アポへの繋ぎ方');
+    lines.push('① 次回訪問の目的（1つだけに絞る）');
+    lines.push('② 最優先確認事項');
+    lines.push('③ 深掘りテーマ');
+    lines.push('④ 動機を引き上げる一言・問いかけ');
+    lines.push('⑤ 今回はまだ言わないこと');
+    lines.push('⑥ 目標とする小さな前進と着地点');
     lines.push('   ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせて');
+    lines.push('⑦ 担当者がやること／やらないこと');
     _pushPromptNgContract(lines,'次回作戦',[
       '切り上げるべきサインを無視した粘り',
       'ステージ0〜2での提案・テストクロージング',
       '初動での売り込み'
     ]);
-    _pushPromptGoodBadContract(lines,'② 最初の一言');
+    _pushPromptGoodBadContract(lines,'④ 動機を引き上げる一言');
   } else if(preset==='inheritance'){
-    lines.push('【相続シナリオ】家族構成・資産情報から、このお客様の相続の論点を設計してください。');
-    lines.push('※ 税額は断定せず概算・幅で示し、必ず「詳細は税理士確認」と添える。推定は推定と明記。不足情報は推測で埋めず「確認すべきこと」に回す。特例の適用可否・法定相続人の確定は戸籍・契約・登記等の確認前提であり断定しない。死亡時期や認知症を急がせる材料にしない。確認先は論点で使い分ける（税務=税理士／登記・遺言=司法書士／紛争性=弁護士／境界・測量=土地家屋調査士）。');
-    lines.push('');
-    lines.push('① 推定相続人の整理（法定相続人・代襲/養子の可能性・人数）と意思決定のキーパーソン');
-    lines.push('② 資産側の論点（貸家建付地評価・小規模宅地等の特例の適用可能性・基礎控除との関係など、該当しそうなものだけ）');
-    lines.push('③ 3大リスク「分けられない・納税資金がない・評価が重い」のうち、この家に最も刺さるもの1つと根拠');
-    lines.push('④ お客様に響く「気づきの一言」（ステージ2以下は促し型、3以上はテストクロージングへの橋がけ。ご本人だけでなく、家族の誰の納得がまだ足りないかにも触れる）');
-    lines.push('⑤ 提案依頼につなげる次の一手と、裏取りすべき不足情報（優先順）');
+    if(!c.family_headcount){
+      lines.push('【相続シナリオ｜確認待ち】家族人数把握がまだコンプリートしていません。');
+      lines.push('※ この状態では相続の結論・断定は一切書かないでください。相続シナリオの分析に入る前に確認すべき家族情報の項目だけを、①〜③の順で挙げてください。');
+      lines.push('');
+      lines.push('① 家族構成として確認が必要な項目（配偶者・子・その他の推定相続人の有無など）');
+      lines.push('② 上記を確認するための自然な聞き方');
+      lines.push('③ 家族人数把握が完了した後に、あらためて相続シナリオの分析を依頼する旨');
+    } else {
+      lines.push('【相続シナリオ】家族構成・資産情報から、このお客様の相続の論点を設計してください。');
+      lines.push('※ 税額は断定せず概算・幅で示し、必ず「詳細は税理士確認」と添える。推定は推定と明記。不足情報は推測で埋めず「確認すべきこと」に回す。特例の適用可否・法定相続人の確定は戸籍・契約・登記等の確認前提であり断定しない。死亡時期や認知症を急がせる材料にしない。確認先は論点で使い分ける（税務=税理士／登記・遺言=司法書士／紛争性=弁護士／境界・測量=土地家屋調査士）。');
+      lines.push('');
+      lines.push('① 推定相続人の整理（法定相続人・代襲/養子の可能性・人数）と意思決定のキーパーソン');
+      lines.push('② 資産側の論点（貸家建付地評価・小規模宅地等の特例の適用可能性・基礎控除との関係など、該当しそうなものだけ）');
+      lines.push('③ 3大リスク「分けられない・納税資金がない・評価が重い」のうち、この家に最も刺さるもの1つと根拠');
+      lines.push('④ お客様に響く「気づきの一言」（ステージ2以下は促し型、3以上はテストクロージングへの橋がけ。ご本人だけでなく、家族の誰の納得がまだ足りないかにも触れる）');
+      lines.push('⑤ 提案依頼につなげる次の一手と、裏取りすべき不足情報（優先順）');
+    }
     _pushPromptNgContract(lines,'相続シナリオ',[
       '税務・法的効果の断定',
       '家族対立の創作',
@@ -15763,19 +15799,24 @@ function genPrompt(anon){
     ]);
     _pushPromptGoodBadContract(lines,'② 質問例');
   } else if(preset==='training'){
-    lines.push('【会話訓練】実際の訪問を想定した会話練習用スクリプトを作ってください。');
-    lines.push('※ 録音要約・訪問履歴から、このお客様のこれまでの反応を踏まえたリアルな会話にしてください。');
+    lines.push('【会話考察】訪問1回分の会話設計書を作ってください。');
+    lines.push('※ 録音要約・訪問履歴・家族構成・前回サマリー・「前回の統合協議」区画があれば、それらを踏まえたリアルな会話設計にしてください。');
     lines.push('');
-    lines.push('① 玄関先での自然な会話（5〜8ターン）');
-    lines.push('② 相手の反応別の会話分岐（前向き／中立／消極の3パターン。断り文句への本格的な切り返しは扱わない＝「反論対応」テーマの領域）');
-    lines.push('③ アポを取る場面の会話例');
-    lines.push('   ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせたトーンで');
-    lines.push('   新人営業マンでも使いやすい自然な言葉で');
-    lines.push('悪いロールプレイは5ターン以内とし、悪い箇所を行単位で指摘してください。');
-    _pushPromptNgContract(lines,'会話訓練',[
+    lines.push('Ⅰ 入口（過去・前回の話題からの自然接続。訪問履歴・録音・趣味/家族/仕事/地域の記録があれば最優先で引用すること）');
+    lines.push('Ⅱ 今日投げかける言葉と、その理由');
+    lines.push('Ⅲ 深掘りテーマ');
+    lines.push('Ⅳ 触れない領域・NGワード');
+    lines.push('Ⅴ 想定される反論と切り返し（「受け止め→真因確認→許可を得て補足→引く判断」の順で設計し、明確な拒否・終了意思がある場合は深追いせず関係維持を優先すること）');
+    lines.push('Ⅵ 動機を高める一言');
+    lines.push('Ⅶ 次回へつながる終わり方（前振り）');
+    lines.push('   ソーシャルスタイル「'+(c.social||'未判定')+'」を仮説として全節へ織り込み、録音・訪問履歴にある実際の反応があればそちらを優先してください。');
+    lines.push('');
+    lines.push('話題の優先順位（必ずこの順）：1) 過去の実会話・このお客様固有の情報　2) カード内の属性（家族・趣味・仕事・地域など）　3) 一般話題（1・2の材料が無い場合のみ）。');
+    lines.push('最新ニュースの扱い：Aibis側では最新ニュースの取得は行いません。1・2の材料が不足する場合のみ、季節・訪問時間帯・地域性に基づく一般話題を1つ提案してください。あなた（回答するAI）がWeb検索を利用できる場合に限り、最新ニュースを任意で1件添えてもかまいません。');
+    _pushPromptNgContract(lines,'会話考察',[
       '新人が言いがちな売り込み文句'
     ]);
-    _pushPromptGoodBadContract(lines,'① ロールプレイ');
+    _pushPromptGoodBadContract(lines,'Ⅱ 今日投げかける言葉');
   } else {
     // general（第205弾: 戦略協議1往復統合onepass。8テーマ+OPTIONS/MISSING/CAUTIONを固定見出しで
     // 1回のAI回答へ集約する。既存7テーマ分岐(next_visit〜inheritance)は意味変更しない。
@@ -15795,6 +15836,7 @@ function genPrompt(anon){
     lines.push('現ステージ「'+stg+'」を踏まえ、力の入れどころ・抜きどころも明記する（例：今は関係構築に力を入れる時期／一旦間隔を空けて良い時期）。');
     lines.push('最後に必ず「サマリー：〇〇」（40文字以内。動機・問題点・解決ポイント・相続税の有無を含めて簡潔に）の1行を書くこと。');
     lines.push('例：サマリー：長男KP未面談・父はネガ・相続発生前・建替え動機弱め');
+    lines.push('訪問履歴・前回サマリー・「前回の統合協議」区画があれば、それらと現在を比較し、前回→今回の重要な変化を最大3点、「変化：〔誰/何〕が〔X〕→〔Y〕（根拠：日付・記録）」の形式で必ず書くこと。変化が読み取れない場合は「大きな変化なし（根拠）」と書くこと。過去の情報が現在のカード事実・訪問記録と矛盾する場合は現在を優先すること。');
     _pushPromptNgContract(lines,'総合戦略協議',[
       '焦らせる期限・キャンペーン煽り',
       'ステージ飛ばしのクロージング'
@@ -15817,10 +15859,14 @@ function genPrompt(anon){
     lines.push('まだ聞けていない重要項目を5〜7項目挙げ、それぞれを自然に聞き出す質問例と推奨順序を書いてください。家族・資産・相続の質問は困りごと→家族→資産規模→相続の順を原則とする。');
     lines.push('');
     lines.push('【AIBIS:TRAINING】');
-    lines.push('実際の訪問を想定した会話練習用スクリプトを書いてください。玄関先での自然な会話（5〜8ターン）、相手の反応別の分岐（前向き／中立／消極）、ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせたトーンで。新人営業マンでも使える言葉で。');
+    lines.push('訪問1回分の会話設計書を、Ⅰ入口（過去/前回の話題からの自然接続）Ⅱ今日投げかける言葉と理由 Ⅲ深掘りテーマ Ⅳ触れない領域・NGワード Ⅴ想定反論と切り返し Ⅵ動機を高める一言 Ⅶ次回へつながる終わり方 の順で書いてください。話題は過去の実会話・固有情報を最優先とし、無い場合のみカード属性、それも無い場合のみ季節等の一般話題にとどめてください（最新ニュースはあなたがWeb検索できる場合のみ任意で1件）。ソーシャルスタイル「'+(c.social||'未判定')+'」を仮説として全節へ織り込んでください。');
     lines.push('');
     lines.push('【AIBIS:INHERITANCE】');
-    lines.push('家族構成・資産情報から相続の論点を整理してください。①推定相続人とキーパーソン ②資産側の論点 ③最も刺さるリスク1つと根拠 ④気づきの一言 ⑤次の一手。税額は断定せず概算・幅で示し「詳細は税理士確認」と添えること。');
+    if(!c.family_headcount){
+      lines.push('家族人数把握が未完了のため、相続の結論・断定は書かないでください。相続シナリオの分析に入る前に確認すべき家族情報の項目だけを挙げてください。');
+    } else {
+      lines.push('家族構成・資産情報から相続の論点を整理してください。①推定相続人とキーパーソン ②資産側の論点 ③最も刺さるリスク1つと根拠 ④気づきの一言 ⑤次の一手。税額は断定せず概算・幅で示し「詳細は税理士確認」と添えること。');
+    }
     lines.push('');
     lines.push('【AIBIS:OPTIONS】');
     lines.push('次の一手の有力候補を2〜3案、それぞれ理由つきで書いてください。断定はせず「まず確認したいこと」「様子を見る」等の含みを持たせてよい。これは人間が選ぶための材料であり、AIが決定するものではない。');
@@ -22437,11 +22483,11 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         <select id="promptPreset" style="font-size:13px;width:100%" onchange="switchStrategyTab(this.value)">
           <option value="general" hidden>総合分析</option>
           <option value="next_visit">次回作戦</option>
-          <option value="motivation">動機引揚</option>
-          <option value="personality">性格応対</option>
-          <option value="objection">反論対応</option>
-          <option value="hearing">聞取補充</option>
-          <option value="training">会話訓練</option>
+          <option value="motivation" hidden>動機引揚</option>
+          <option value="personality" hidden>性格応対</option>
+          <option value="objection" hidden>反論対応</option>
+          <option value="hearing" hidden>聞取補充</option>
+          <option value="training">会話考察</option>
           <option value="inheritance">相続シナリオ</option>
         </select>
         <div style="display:flex;gap:8px;margin-top:8px">
