@@ -1,10 +1,10 @@
 {
   "main": {
-    "appVersion": "v11.14"
+    "appVersion": "v11.15"
   },
   "camera": {
     "appVersion": "cam-v1.78"
   },
-  "dan": 217,
-  "generatedAt": "2026-08-24T22:52:39.048Z"
+  "dan": 218,
+  "generatedAt": "2026-08-25T15:48:13.887Z"
 }
