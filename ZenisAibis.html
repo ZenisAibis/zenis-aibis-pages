@@ -2596,7 +2596,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.15";
+var APP_VERSION = "v11.16";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -8000,26 +8000,24 @@ function onepassSafeGeneralFallback(target, val, selStart, selEnd, clean, rawOri
 // ───────────────────────────────────────────
 // 第210弾: AI参考ランク抽出・反映。抽出源はparsed.preface限定（②valid integratedのみ）。
 // pursuit_judge_aiのみ書換え、recomputeRankは呼ばない（official非干渉）。新規window export 0。
-// 第213弾（ai-reference-rank-topline-robustness）: canonical「AI参考ランク：X」が全行で
-// 不成立の場合に限り、preface先頭から最初の「空/whitespace-onlyではない行」（raw・trim禁止）
-// がexactly S/A/B/C/D/E/Xの1文字ならtop-line fallbackとして採用する。precedence:
-// canonical（全行first-match・不変）＞ top-line single-letter fallback ＞ ''。
-// Fable 5設計監査MAJOR-1裁定によりcanonical優先を採用（fallback優先案は不採用）。
+// [SUPERSEDED DAN219] 旧記述（逐語保存）:
+//   「第213弾（ai-reference-rank-topline-robustness）: canonical「AI参考ランク：X」が全行で
+//   不成立の場合に限り、preface先頭から最初の「空/whitespace-onlyではない行」（raw・trim禁止）
+//   がexactly S/A/B/C/D/E/Xの1文字ならtop-line fallbackとして採用する。precedence:
+//   canonical（全行first-match・不変）＞ top-line single-letter fallback ＞ ''。
+//   Fable 5設計監査MAJOR-1裁定によりcanonical優先を採用（fallback優先案は不採用）。」
+// 旧canonical正規表現（逐語保存）: /^AI参考ランク[：:]\s*([SABCDEX])\s*$/
+// DAN219 Strategy Council control/state consistency hotfixにより、可視契約が
+// 「分析参考ランク: X」へ変更され、あわせてparserをcanonical-onlyへ変更した。
+// 旧label「AI参考ランク」・第213弾top-line bare-letter fallbackは完全撤去する
+// （ChatGPT/Fable統合裁定: 誤検出リスクの高いbare-letter fallbackを撤去する安全側強化）。
 // ───────────────────────────────────────────
-var ONEPASS_AI_REF_RE = /^AI参考ランク[：:]\s*([SABCDEX])\s*$/;
-var ONEPASS_AI_REF_TOPLINE_RE = /^[SABCDEX]$/;
+var ONEPASS_AI_REF_RE = /^分析参考ランク[：:]\s*([SABCDEX])\s*$/;
 function onepassExtractAiRefRank(prefaceText){
   var lines = (typeof prefaceText === 'string' ? prefaceText : '').split('\n');
   for(var i=0;i<lines.length;i++){
     var m = ONEPASS_AI_REF_RE.exec(lines[i]);
     if(m) return m[1];
-  }
-  // 第213弾fallback: canonicalが全行不成立だった場合だけ、先頭から最初の非空/非whitespace行を
-  // 1行だけ検査する（それより後の行へは進まない＝説明文の次行に単独文字があっても不採用）。
-  for(var j=0;j<lines.length;j++){
-    if(/^\s*$/.test(lines[j])) continue;
-    if(ONEPASS_AI_REF_TOPLINE_RE.test(lines[j])) return lines[j];
-    break;
   }
   return '';
 }
@@ -8033,7 +8031,7 @@ function onepassApplyAiRefRank(rank){
     queueOrPlayFanfare(_rankOrd(rank) < _rankOrd(old) ? 'up' : 'down');
   }
   if(typeof updateAiRankDisp === 'function') updateAiRankDisp();
-  if(typeof toast === 'function') toast('🤖 AI参考ランク【'+rank+'】を更新しました（正式ランクは変更していません）');
+  if(typeof toast === 'function') toast('🤖 分析参考ランク【'+rank+'】を更新しました（正式ランクは変更していません）');
 }
 
 // ───────────────────────────────────────────
@@ -12982,6 +12980,7 @@ window.addEventListener('resize',fitTabsTop);
 function switchTab(id){
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab===id); });
   document.querySelectorAll('.tc').forEach(function(c){ c.style.display=c.id===id?'block':'none'; });
+  if(id==='ta' && typeof _updateInheritanceGate==='function') _updateInheritanceGate();
   if(id==='ta' && _rankFanfare){ if(_rankFanfare==='up'){ if(window.playRankUp) playRankUp(); } else { if(window.playRankDown) playRankDown(); } _rankFanfare=''; }
   if(id==='tr'){ document.querySelectorAll('[data-rj]').forEach(function(b){b.classList.toggle('active', !!cur && b.dataset.rj===(cur.revisit_judge||''));}); if(window.applyRevisitLock) applyRevisitLock(); }
   if(id==='tp'){ document.querySelectorAll('[data-pj]').forEach(function(b){b.classList.toggle('active', !!cur && b.dataset.pj===(cur.pursuit_judge_sel||''));}); if(window.applyPursuitLock) applyPursuitLock(); }
@@ -12999,7 +12998,12 @@ window.updateTabProgress=updateTabProgress;
  * editViewはposition:fixed;overflow-y:autoのため、カードの実スクロール主体はwindowではなくeditView。
  * offsetTop連鎖・固定値・isMob・scrollIntoView・window.scrollToは一切使わない。
  * すべてgetBoundingClientRect()の差分とeditView.scrollTopの実測から算出する。
- * switchTab()本体・switchTabAndCopy()はここでは一切変更しない（無改修のまま）。 */
+ * [SUPERSEDED DAN219] 旧記述（逐語保存）: 「switchTab()本体・switchTabAndCopy()はここでは
+ * 一切変更しない（無改修のまま）。」
+ * DAN219でswitchTab('ta')エントリへ相続シナリオgate resync（_updateInheritanceGate()の
+ * guarded呼出1点）のみを意図的に追加した。本コメントが担保する不変条件（スクロール処理を
+ * 一切追加しない・windowスクロール等を使わない）自体はそのまま成立する。switchTabAndCopy()は
+ * 本弾で無接触。 */
 function _cardScroller(){
   return document.getElementById('editView');
 }
@@ -15386,7 +15390,7 @@ var ZPB216_CAUTION_MAX=200;
 var ZPB216_BLOCK_CEILING=1400;
 var ZPB216_TRUNC='…（以下省略）';
 
-function genPrompt(anon){
+function genPrompt(anon,presetOverride){
   collectForm();
   var c=cur;
   // 匿名化
@@ -15464,7 +15468,7 @@ function genPrompt(anon){
 
   // 第205弾限定是正: general(onepass)だけ旧AI追客rank決定命令を遮断する。
   // 個別7テーマは従来契約を維持するため、presetを共通prompt構築前に確定する。
-  var preset=document.getElementById('promptPreset')?.value||'general';
+  var preset=presetOverride||document.getElementById('promptPreset')?.value||'general';
   var lines=[];
   lines.push('あなたは土地活用営業のトップ営業マンであり、相続コンサルタント課長です。');
   lines.push('以下の見込み客カードを読み、部下が明日すぐ動ける営業戦略のアドバイスをしてください。');
@@ -15854,8 +15858,8 @@ function genPrompt(anon){
     lines.push('・各区画は見出し行だけを単独の行に書き、装飾・番号付け・改変（全角化や記号追加など）をしないこと。見出し行の直後から本文を書く。');
     lines.push('・見出しの出力順は自由（前後してよい）。ただし11見出しすべてを漏れなく出力すること。');
     lines.push('・見出し行自体の前後に空行や説明を挟んでもよいが、見出し文字列そのものは変更しない。');
-    lines.push('・回答の最初の1行目に、必ず「AI参考ランク：X」（Xは半角の S/A/B/C/D/E/X のいずれか1文字）とだけ書く。これはAIの参考値であり正式ランクではない（正式ランクは人間のJudgmentでのみ確定する）。この行は最初の【AIBIS:】見出しより前に置く。');
-    lines.push('・上記1行目の「AI参考ランク：X」行を除き、回答のどこにも「判定：」という表記や、S/A/B/C/D/E/Xの追客ランク記号は出力しないでください（正式ランクは人間が別途判断します）。');
+    lines.push('・回答の最初の1行目に、必ず「分析参考ランク: X」（Xは半角の S/A/B/C/D/E/X のいずれか1文字）とだけ書く。これはAIの参考値であり正式ランクではない（正式ランクは人間のJudgmentでのみ確定する）。この行は最初の【AIBIS:】見出しより前に置く。');
+    lines.push('・上記1行目の「分析参考ランク: X」行を除き、回答のどこにも「判定：」という表記や、S/A/B/C/D/E/Xの追客ランク記号は出力しないでください（正式ランクは人間が別途判断します）。');
     lines.push('');
     lines.push('【AIBIS:GENERAL】');
     lines.push('この見込み客カード全体の総合所見を書いてください。現在の状況、家族関係、資産・相続の論点、動機の強さ、次の一手の方向性を3〜6文でまとめる。');
@@ -15997,7 +16001,7 @@ function _mjPick(r){
  var cb=window._mjCb; window._mjCb=null; if(cb) cb();
 }
 window._askMyJudge=_askMyJudge; window._mjPick=_mjPick;
-function promptToFile(){ _askMyJudge(_promptFileEntry); }
+function promptToFile(preset){ promptToFile._preset = preset || null; _askMyJudge(_promptFileEntry); }
 window._promptFileEntry=_promptFileEntry;
 function _promptFileEntry(){
   var q=checkInputQuality();
@@ -16015,10 +16019,19 @@ function _promptFileEntry(){
 }
 function _promptFileGo(){
   try{
-    var p=genPrompt(true);
+    var preset=promptToFile._preset||document.getElementById('promptPreset')?.value||'general';
+    promptToFile._preset=null;
+    var p=genPrompt(true,preset);
     var nm=(cur&&cur.name)?String(cur.name).replace(/[\\/:*?"<>|]/g,''):'お客様';
-    var sel=document.getElementById('promptPreset');
-    var th=(sel&&sel.options[sel.selectedIndex])?sel.options[sel.selectedIndex].text:'分析';
+    var th='\u5206\u6790';
+    try{
+      var selElTh=document.getElementById('promptPreset');
+      if(selElTh && selElTh.options){
+        for(var iTh=0;iTh<selElTh.options.length;iTh++){
+          if(selElTh.options[iTh] && selElTh.options[iTh].value===preset){ th=selElTh.options[iTh].text; break; }
+        }
+      }
+    }catch(_eTh){}
     var d=new Date(); var ts=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
     var fn='AIBIS分析_'+nm+'様_'+th+'_'+ts+'.txt';
     var blob=new Blob([p],{type:'text/plain;charset=utf-8'});
@@ -22058,6 +22071,8 @@ function toggleFamHeadcount(){
   cur.family_headcount=!cur.family_headcount;
   cur.family_headcount_at=cur.family_headcount?(cur.family_headcount_at||todayStr()):'';
   updateFamHeadcountBtn();
+  if(typeof setDirty==='function') setDirty(true);
+  if(typeof _updateInheritanceGate==='function') _updateInheritanceGate();
 }
 function updateFamHeadcountBtn(){
   var btn=document.getElementById('famHeadcountBtn'); if(!btn) return;
@@ -22857,7 +22872,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
     </div>
     <!-- 第205弾: ②主ボタン1行（抽出30%｜AI分析70%。ファイルで抽出／貼付履歴訂正は⑦保守へ移設）／第211弾: 左ボタンを📎プロンプト抽出(promptToFile)へ変更 -->
     <div style="display:flex;gap:8px;margin-bottom:10px">
-      <button type="button" style="flex:3;padding:11px;font-size:13px;background:#2d3748;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="promptToFile()">📎 プロンプト抽出</button>
+      <button type="button" style="flex:3;padding:11px;font-size:13px;background:#2d3748;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" onclick="promptToFile('general')">📎 プロンプト抽出</button>
       <button type="button" style="flex:7;padding:11px;font-size:13px;background:#0078d4;color:white;border:none;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:500" onclick="openCopilot()">🤖 AI分析</button>
     </div>
     <!-- 第205弾: ③総合戦略協議（既存f_ai_generalブロックを主役として上段へ。id/属性は1文字も変更しない） -->
