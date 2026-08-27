@@ -2267,6 +2267,18 @@ body.is-mob .mob-menu{display:inline-block}
       <input type="url" id="sCopilotUrl" placeholder="https://copilot.microsoft.com/" style="font-size:13px">
       <p class="ht" style="margin-top:4px">未入力の場合はデフォルトのURLを使用します。<br>戦略協議の使い方はマニュアルまたはアイビスへ。</p>
     </div>
+    <div class="sec">
+      <div class="stitle">■ ロープレAI宛先設定</div>
+      <p class="ht" style="margin-bottom:8px">ロープレ抽出したTXTを添付・読み込ませて使う外部AIを2つまで登録できます。どちらを使うかは抽出のたびに聞かれません。</p>
+      <label>ロープレAI① 表示名</label>
+      <input type="text" id="sRoleplayAiName1" placeholder="例：ChatGPT" style="font-size:13px">
+      <label style="margin-top:6px;display:block">ロープレAI① URL</label>
+      <input type="url" id="sRoleplayAiUrl1" placeholder="https://chat.openai.com/" style="font-size:13px">
+      <label style="margin-top:10px;display:block">ロープレAI② 表示名</label>
+      <input type="text" id="sRoleplayAiName2" placeholder="例：Gemini" style="font-size:13px">
+      <label style="margin-top:6px;display:block">ロープレAI② URL</label>
+      <input type="url" id="sRoleplayAiUrl2" placeholder="https://gemini.google.com/" style="font-size:13px">
+    </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
       <button class="bc" id="setupCancel" onclick="showList()" style="display:none">キャンセル</button>
       <button class="bs" onclick="saveSetup()" style="padding:10px 24px;font-size:14px">💾 保存して開始</button>
@@ -2493,6 +2505,7 @@ var DEV_UNLOCK_KEY='prospect_dev_unlock_v1';
 var DEV_UNLOCK_HASH='d2077f5f6886f83503d4c1dd4b9543933b165c4246ca784052d92a05d57b05b6'; // 開発者モード解錠用の初期パスワードのハッシュ（第151弾追補・sha256hex、平文はソースに埋め込まない）
 var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
+var RPAK = 'roleplay_ai_slots_v1'; // 第220弾: 二系統ロープレAI宛先スロット（[{name,url},{name,url}]）。CPKとは別key・非接触。
 
 // ===== 第177弾: 控えbaseline統一（backup-baseline） =====
 // 目的：「外部控えを作った日時」(aibis_last_backup) と、
@@ -2596,7 +2609,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.16";
+var APP_VERSION = "v11.17";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -10330,6 +10343,13 @@ function showSetup() {
   try{ _paintSendMailHint(); }catch(_e){}
   if(window._pwaSyncBtns) _pwaSyncBtns();
   if ((el=document.getElementById('sCopilotUrl'))) el.value = localStorage.getItem(CPK)||'';
+  try{
+    var _rpSlots=(typeof _rpakLoad==='function')?_rpakLoad():[{name:'',url:''},{name:'',url:''}];
+    var _rn1=document.getElementById('sRoleplayAiName1'); if(_rn1) _rn1.value=_rpSlots[0].name;
+    var _ru1=document.getElementById('sRoleplayAiUrl1'); if(_ru1) _ru1.value=_rpSlots[0].url;
+    var _rn2=document.getElementById('sRoleplayAiName2'); if(_rn2) _rn2.value=_rpSlots[1].name;
+    var _ru2=document.getElementById('sRoleplayAiUrl2'); if(_ru2) _ru2.value=_rpSlots[1].url;
+  }catch(_eRpLoad){}
   var _sm=document.getElementById('staffMailSection'); if(_sm){ _sm.style.display=isMgrUnlocked()?'block':'none'; if(typeof renderStaffMailRows==='function'){renderStaffMailRows();renderStaffMailChips();} }
   var has = !!(uName && mgrEmail && branch && section);
   ['setupCancel'].forEach(function(id){
@@ -10390,6 +10410,14 @@ function saveSetup() {
   localStorage.setItem(NICKK,nick); uNick=nick;
   var copilotUrl=document.getElementById('sCopilotUrl')?.value.trim()||'';
   if(copilotUrl) localStorage.setItem(CPK,copilotUrl);
+  try{
+    if(typeof _rpakSave==='function'){
+      _rpakSave([
+        {name:(document.getElementById('sRoleplayAiName1')?.value||'').trim(), url:(document.getElementById('sRoleplayAiUrl1')?.value||'').trim()},
+        {name:(document.getElementById('sRoleplayAiName2')?.value||'').trim(), url:(document.getElementById('sRoleplayAiUrl2')?.value||'').trim()}
+      ]);
+    }
+  }catch(_eRpSave){}
   uName=name; mgrEmail=mgr; selfEmail=self; branch=br; section=sec; userRole=rol;
   applyRoleUI();
   toast('設定を保存しました');
@@ -12808,6 +12836,7 @@ function mkBlank() {
     revisit_judge_date:'', revisit_judge:'',
     pursuits:[], pursuit_judge_date:'', pursuit_judge:'', pursuit_judge_sel:'', pursuit_judge_ai:'',
     job9_ranks:null, job9_ranks_at:'', ai_memo:'', family_headcount:false, family_headcount_at:'', family_bikou:'', doukou:false, doukou_at:'', mgr_involve:'単独', cust_type:'新規', asset_type:false, ekitoho:'', proposal_req:false, proposal_req_at:'', next_aim:'',
+    roleplay_eval_history:[], // 第220弾: 累積ロープレ評価履歴（配列additive・旧カードは(c.roleplay_eval_history||[])で無害）
     schemaVersion:CURRENT_SCHEMA_VERSION, // 第150弾：新規カードにのみ付与。既存カードへの遡及付与はしない
     created_at:new Date().toISOString(), updated_at:new Date().toISOString()
   };
@@ -13272,7 +13301,7 @@ function collectForm() {
   _collectAiThemes(c);
   var ag=document.getElementById('f_analog'); if(ag){ var av=ag.value; if(av!==(c.analog_memo||'')){ c.analog_memo_at=av.trim()?new Date().toISOString():''; } c.analog_memo=av; }
   // 第218弾: ロープレ評価（roleplay_eval）。f_analogと同型（analog型_at規約）。
-  var rpe=document.getElementById('f_roleplay_eval'); if(rpe){ var rpv=rpe.value; if(rpv!==(c.roleplay_eval||'')){ c.roleplay_eval_at=rpv.trim()?new Date().toISOString():''; } c.roleplay_eval=rpv; }
+  var rpe=document.getElementById('f_roleplay_eval'); if(rpe){ var rpv=rpe.value; var rpChanged=(rpv!==(c.roleplay_eval||'')); if(typeof _rpCommitEvalHistory==='function') _rpCommitEvalHistory(c, rpv); if(rpChanged){ c.roleplay_eval_at=rpv.trim()?new Date().toISOString():''; } c.roleplay_eval=rpv; }
   c.updated_at=new Date().toISOString();
   return c;
 }
@@ -16063,18 +16092,26 @@ window.openOneDrive=openOneDrive;
 // 既存分析（テーマ選択セレクタ・8テーマ経路）とは完全独立。cur読取・collectForm()・
 // 既存planCity(c)のみを消費する。新規テーマ・新規パネル・onepass関連の
 // markerは一切新設しない。本ファイル内で完結する専用匿名化パイプライン(_rpSanitize)と
-// 遮断式leak-scan(_rpLeakScan)を持つ。window公開はroleplayExtract()のみ。
-// 正本: DAN218_FABLE5_ROLEPLAY_DESIGN_RISK_AUDIT_REPORT_20260825.md §5-§10。
+// 遮断式leak-scan(_rpLeakScan)を持つ。
+// ===== 第220弾: card-grounded roleplay persona engine 拡張 =====
+// 目標体験：「カードの人物が目の前にいるように感じる」。外部AIが役者、Aibisは持ち運び可能な
+// persona契約の供給者。二系統AI宛先(RPAK)・setup modal（相手/grip/口調・session-only）・
+// 人物source model（encounter memory優先・家族個別persona・sensitive知識の自発禁止）・
+// 0-100評価＋累積履歴を追加する。既存分析（genPrompt/テーマ選択セレクタ/8テーマ）・CPK/openCopilot・
+// klog・rank/Judgmentへは一切非接触。window公開はroleplayExtract()・openRoleplayAi()のみ。
+// 正本: DAN220_SONNET5_IMPLEMENTATION_PROMPT_20260826.md、
+//       DAN220_CHATGPT_FABLE_INTEGRATION_ADJUDICATION_20260826.md。
 
 /* ===== 定数（トップレベル・check pin対象） ===== */
 var RP_ALIAS='仮名A様';
-var RP_INITIAL_MAX=400;
+var RP_INITIAL_MAX=600;
+var RP_INITIAL_REC_MAX=600;
 var RP_ANALOG_MAX=400;
-var RP_HIST_ENTRY_MAX=180;
-var RP_HIST_ENTRIES_MAX=8;
-var RP_AIREF_MAX=400;
-var RP_EVALREF_MAX=300;
-var RP_TOTAL_CEILING=6000;
+var RP_HIST_ENTRY_MAX=240;
+var RP_HIST_ENTRIES_MAX=12;
+var RP_FAM_NOTE_MAX=200;
+var RP_AIREF_MAX=300;
+var RP_TOTAL_CEILING=12000;
 var RP_TRUNC='…（以下省略）';
 
 /* 家族続柄allowset（構造化置換で基部を温存する語彙。第9節固定literal）。 */
@@ -16089,6 +16126,7 @@ function _rpCap(s,max){
 /* ============================================================
  * _rpSanitize(t,c): 決定論的匿名化パイプライン（順序固定・6段）
  * _anonScrub()は呼ばない・改変しない。regexの思想のみ本ファイル内へ転記する。
+ * DAN220でも無変更・無弱体化（denylist）。
  * ============================================================ */
 function _rpSanitize(t,c){
   t=String(t||'');
@@ -16106,11 +16144,11 @@ function _rpSanitize(t,c){
       // 二重目の「様」を誤って基部とみなす連鎖バグを防ぐため、この時点で正規化する。
       t=t.replace(/様様/g,'様');
     }
-    // family[].name → 続柄ラベル（f.relがあれば優先、無ければご家族）
+    // family[].name → 続柄ラベル（f.roleがあれば優先、無ければご家族）
     ((c&&c.family)||[]).forEach(function(f){
       var fn=String((f&&f.name)||'').trim();
       if(fn.length>=1){
-        var relLabel=(f&&f.rel)?String(f.rel):'ご家族';
+        var relLabel=(f&&f.role)?String(f.role):'ご家族';
         t=t.split(fn).join(relLabel);
       }
     });
@@ -16125,15 +16163,6 @@ function _rpSanitize(t,c){
     t=t.replace(/[0-9０-９]+(?:番(?:地)?(?:[0-9０-９]*号)?|号)/g,'（所在略）');
     t=t.replace(/[0-9０-９]+[-‐ー−][0-9０-９]+(?:[-‐ー−][0-9０-９]+)?/g,'（所在略）');
 
-    // [DAN218 privacy correction Fix-2] 旧実装（逐語保存・削除禁止）:
-    //   t=t.replace(/([一-龥々]{1,4})(さん|様|氏|君|くん|ちゃん|先生|社長|部長|課長|専務|常務|会長)/g,function(m,base,hon){
-    //     if(RP_ROLE_ALLOWSET.indexOf(base)>=0) return m; // allowset温存
-    //     if(base===RP_ALIAS.replace('様','')) return m; // 仮名Aは非自壊
-    //     return '□□'+hon;
-    //   });
-    // 旧実装はbase長上限が1-4文字固定（5文字以上の氏名で先頭文字が残留）、カタカナ氏名
-    // 非対応（サトウさん等が素通り）という2つの欠陥を持っていた
-    // （DAN218 Fable code/privacy audit MAJOR-1/MINOR相当で捕捉）。sentinel二段方式へ修正する。
     // 4a) allowset役割語（「ご」任意接頭＋allowset語＋敬称）を先に保護退避
     var _sent=[];
     t=t.replace(
@@ -16162,7 +16191,7 @@ function _rpEsc(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 /* ============================================================
  * _rpLeakScan(t,c): 最終防御・遮断式leak-scan。
  * sanitizer以上に広く検知してよい（意図的な非対称）。1件でも検知でblock。
- * 戻り値: 検知クラス名の配列（空配列=clean）。
+ * 戻り値: 検知クラス名の配列（空配列=clean）。DAN220でも無変更・無弱体化（denylist）。
  * ============================================================ */
 function _rpLeakScan(t,c){
   var found=[];
@@ -16182,15 +16211,6 @@ function _rpLeakScan(t,c){
     if(/[\w.+-]+@[\w-]+(\.[\w-]+)+/.test(t)) found.push('メール様式');
     if(/(?:[0-9０-９]+|[一二三四五六七八九十百千]+)丁目/.test(t)) found.push('丁目断片');
     if(/[0-9０-９]+(?:番(?:地)?(?:[0-9０-９]*号)?|号)/.test(t)) found.push('番地・号断片');
-    // [DAN218 privacy correction Fix-1] 旧実装（逐語保存・削除禁止）:
-    //   if(/([一-龥々]{1,4})(さん|様|氏|君|くん|ちゃん|先生|社長|部長|課長|専務|常務|会長)/.test(t)){
-    //     var m2=t.match(/([一-龥々]{1,4})(さん|様|氏|君|くん|ちゃん|先生|社長|部長|課長|専務|常務|会長)/);
-    //     var base2=m2?m2[1]:'';
-    //     if(RP_ROLE_ALLOWSET.indexOf(base2)<0 && base2!==RP_ALIAS.replace('様','')) found.push('敬称連結第三者名様式');
-    //   }
-    // 旧実装は最初の1件しか判定しないため、先頭の一致がallowset語（例:長男様）だった場合、
-    // 同一テキスト内の後続の非allowset敬称連結名（例:田中さん）を見逃す欠陥があった
-    // （DAN218 Fable code/privacy audit BLOCKER-1相当・MAJOR-1で捕捉）。全件走査へ修正する。
     var reH=/([一-龥々]{1,10}|[ァ-ヴー]{2,10})(さん|様|氏|君|くん|ちゃん|先生|社長|部長|課長|専務|常務|会長)/g, mH, badH=0;
     while((mH=reH.exec(t))!==null){
       var b=mH[1];
@@ -16207,113 +16227,285 @@ function _rpLeakScan(t,c){
 }
 
 /* ============================================================
- * コンテキスト収集（cap込み・実測順は§7どおり）
+ * 第220弾 A: 二系統ロープレAI宛先スロット（RPAK）
+ * storage_keys.jsのRPAK='roleplay_ai_slots_v1'を使用。CPKは一切非接触。
+ * 値は常に[{name,url},{name,url}]のちょうど2要素へ正規化する。
  * ============================================================ */
-function _rpFmtHistEntry(e){
-  var parts=[];
-  if(e.date) parts.push(e.date);
-  if(e.content) parts.push(e.content);
-  if(e.rec) parts.push('録音要約:'+e.rec);
-  return _rpCap(parts.join(' / '), RP_HIST_ENTRY_MAX);
+function _rpakNormalize(arr){
+  var a=Array.isArray(arr)?arr:[];
+  var out=[{name:'',url:''},{name:'',url:''}];
+  for(var i=0;i<2;i++){
+    if(a[i] && typeof a[i]==='object'){
+      out[i]={name:String(a[i].name||''), url:String(a[i].url||'')};
+    }
+  }
+  return out;
 }
-function _rpBuildContext(c){
+function _rpakLoad(){
+  var raw=null;
+  try{ raw=localStorage.getItem(RPAK); }catch(_e){}
+  var parsed=[];
+  if(raw){ try{ parsed=JSON.parse(raw); }catch(_e2){ parsed=[]; } }
+  return _rpakNormalize(parsed);
+}
+function _rpakSave(slots){
+  var norm=_rpakNormalize(slots);
+  try{ localStorage.setItem(RPAK, JSON.stringify(norm)); }catch(_e){}
+  return norm;
+}
+/* openRoleplayAi(slot): slot=1|2のみ。RPAKを正規化読取し、有効なhttp(s) URLなら新規タブで開く。
+ * 無効/未設定はアラートのみでnavigateしない。auto-upload・clipboard操作・CPK/openCopilot呼出は
+ * 一切行わない。 */
+function openRoleplayAi(slot){
+  if(slot!==1 && slot!==2) return;
+  var slots=_rpakLoad();
+  var s=slots[slot-1]||{name:'',url:''};
+  var url=String(s.url||'').trim();
+  if(!/^https?:\/\//.test(url)){
+    if(typeof aibisAlert==='function'){
+      aibisAlert('ロープレAI'+(slot===1?'①':'②')+'のURLが未設定、または正しくありません。<br>「⚙ 設定」画面の「ロープレAI宛先」から登録してください。');
+    }
+    return;
+  }
+  window.open(url, '_blank');
+}
+window.openRoleplayAi=openRoleplayAi;
+
+/* ============================================================
+ * 第220弾 E/F/G: persona source model（明示的な階層区分）
+ * ①encounter memory＝実記録された過去のやり取り（新しい順）
+ * ②persona/background＝記録済みfieldのみ（social/stage/現状/選択家族member）
+ * ③営業側文脈＝ai_memo（顧客発言ではない旨を明記）
+ * ④sensitive/背景知識＝知っているが自発的には言わない節
+ * 過去のroleplay_eval(_history)はここに一切含めない（Q11・denylist）。
+ * ============================================================ */
+function _rpSelectedFamily(c, counterpartKey){
+  if(!counterpartKey || counterpartKey==='principal') return null;
+  var idx=parseInt(counterpartKey,10);
+  var fam=(c&&c.family)||[];
+  if(!isNaN(idx) && fam[idx]) return fam[idx];
+  return null;
+}
+function _rpFmtEncounterEntry(kind,date,text,max){
+  var m=(typeof max==='number')?max:RP_HIST_ENTRY_MAX;
+  return '['+kind+' '+(date||'-')+'] '+_rpCap(text, m);
+}
+function _rpBuildContext(c, practiceSettings){
+  var ps=practiceSettings||{};
   var ctx={};
+  ctx.counterpartKey=ps.counterpartKey||'principal';
+  ctx.grip=ps.grip||'普通';
+  ctx.style=ps.style||'普通';
+
+  var selFam=_rpSelectedFamily(c, ctx.counterpartKey);
+  ctx.isFamilyCounterpart=!!selFam;
+  ctx.counterpartRoleLabel=selFam ? String(selFam.role||'ご家族') : '本人（顧客）';
+  ctx.counterpartStance=selFam ? String(selFam.stance||'unk') : 'principal';
+  ctx.counterpartMet=selFam ? !!selFam.met : true;
+  ctx.counterpartOwner=selFam ? !!selFam.owner : false;
+  ctx.counterpartKp=selFam ? !!selFam.kp : true;
+  var famNoteRaw=selFam ? [selFam.note,selFam.bikou].filter(Boolean).join(' / ') : '';
+  ctx.counterpartNote=famNoteRaw ? _rpCap(famNoteRaw, RP_FAM_NOTE_MAX) : '';
+  // family social は実在時のみ（発明しない）。無ければ空のまま（principalのc.socialへフォールバックしない）。
+  ctx.counterpartSocial=selFam ? String(selFam.social||'') : String(c.social||'');
+
+  // ① encounter memory: 実記録のみ・新しい順・最大RP_HIST_ENTRIES_MAX件
+  var encounters=[];
+  if(c.initial_content) encounters.push({date:c.discovery_date||'', text:String(c.initial_content), kind:'初回訪問メモ', _o:2, max:RP_INITIAL_MAX});
+  if(c.initial_content_rec) encounters.push({date:c.discovery_date||'', text:String(c.initial_content_rec), kind:'初回訪問録音要約', _o:1, max:RP_INITIAL_REC_MAX});
+  ((c.revisits)||[]).forEach(function(e){
+    if(e && e.content) encounters.push({date:e.date||'', text:String(e.content), kind:'訪問メモ', _o:0, max:RP_HIST_ENTRY_MAX});
+    if(e && e.rec) encounters.push({date:e.date||'', text:String(e.rec), kind:'訪問録音要約', _o:0, max:RP_HIST_ENTRY_MAX});
+  });
+  ((c.pursuits)||[]).forEach(function(e){
+    if(e && e.content) encounters.push({date:e.date||'', text:String(e.content), kind:'追撃メモ', _o:0, max:RP_HIST_ENTRY_MAX});
+    if(e && e.rec) encounters.push({date:e.date||'', text:String(e.rec), kind:'追撃録音要約', _o:0, max:RP_HIST_ENTRY_MAX});
+  });
+  // family_bikou（カード単位の家族要約メモ）も関連encounterとして含める（末尾扱い＝日付なし最古級）
+  if(c.family_bikou) encounters.push({date:'', text:String(c.family_bikou), kind:'家族メモ', _o:-1, max:RP_HIST_ENTRY_MAX});
+  encounters.sort(function(a,b){
+    var d=String(b.date||'').localeCompare(String(a.date||''));
+    if(d!==0) return d;
+    return (b._o||0)-(a._o||0);
+  });
+  ctx.encounters=encounters.slice(0,RP_HIST_ENTRIES_MAX).map(function(e){
+    return _rpFmtEncounterEntry(e.kind, e.date, e.text, e.max);
+  });
+
+  // ② persona/background（記録済みfieldのみ）
   ctx.social=c.social||'未判定';
   ctx.stage=(c.stage!==''&&c.stage!=null)?String(c.stage):'未設定';
   ctx.stageReason=c.stage_reason||'';
-  ctx.area=(typeof planCity==='function') ? (planCity(c)||'（住所未設定）') : '（住所未設定）';
-  ctx.family=((c.family)||[]).map(function(f){ return (f&&f.rel)?String(f.rel):'ご家族'; });
-  ctx.landAsset=c.land_asset||'';
   ctx.genjo=c.genjo||'';
-  ctx.initial=_rpCap(c.initial_content||'', RP_INITIAL_MAX);
+  ctx.landAsset=c.land_asset||'';
+  ctx.area=(typeof planCity==='function') ? (planCity(c)||'（住所未設定）') : '（住所未設定）';
   ctx.analog=_rpCap(c.analog_memo||'', RP_ANALOG_MAX);
 
-  var hist=[]
-    .concat((c.revisits||[]).map(function(e){ return Object.assign({},e,{_kind:'訪問'}); }))
-    .concat((c.pursuits||[]).map(function(e){ return Object.assign({},e,{_kind:'追撃'}); }));
-  hist.sort(function(a,b){ return String(b.date||'').localeCompare(String(a.date||'')); });
-  ctx.history=hist.slice(0,RP_HIST_ENTRIES_MAX).map(function(e){
-    return '['+e._kind+' '+(e.date||'-')+'] '+_rpFmtHistEntry(e);
-  });
+  // ③ 営業側文脈（顧客発言ではない旨を必ず明記して分離）
+  ctx.salesMemo=c.ai_memo ? _rpCap(String(c.ai_memo), RP_FAM_NOTE_MAX) : '';
 
+  // ④ AI参考仮説（general/next_visit/training/inheritanceのみ・各300cap・最下位優先）
   ctx.aiRefs=[];
   [['ai_general','総合分析'],['ai_next_visit','次回作戦'],['ai_training','会話考察'],['ai_inheritance','相続シナリオ']].forEach(function(p){
     var v=c[p[0]];
-    if(v && String(v).trim()){ ctx.aiRefs.push({label:p[1], body:_rpCap(v, RP_AIREF_MAX)}); }
+    if(v && String(v).trim()){ ctx.aiRefs.push({label:p[1], body:_rpCap(String(v), RP_AIREF_MAX)}); }
   });
 
-  ctx.priorEval = (c.roleplay_eval && String(c.roleplay_eval).trim()) ? _rpCap(c.roleplay_eval, RP_EVALREF_MAX) : '';
   return ctx;
 }
 
 /* ============================================================
- * プロンプト組立（順序固定: H→役割規則10→顧客コンテキスト→演技指針→評価モード）
+ * 第220弾 J: 優先順位付き組立＋決定論的切詰
+ * 優先順=1行動契約/persona/practice設定(常時) 2最新encounter 3選択家族 4social/stage/現状
+ * 5旧encounter 6AI参考。超過時は6→5の順でセクション丸ごと省略（1行を残す）、
+ * それでも超過なら最終clamp。
+ * ============================================================ */
+function _rpAssemble(sections){
+  var all=sections.slice();
+  function build(){ var out=[]; all.forEach(function(s){ out=out.concat(s.lines); }); return out.join('\n'); }
+  var text=build();
+  if(text.length<=RP_TOTAL_CEILING) return text;
+  [6,5].forEach(function(dropP){
+    if(text.length<=RP_TOTAL_CEILING) return;
+    for(var i=0;i<all.length;i++){
+      if(all[i].priority===dropP){ all[i]={priority:dropP, lines:['（紙幅により省略）']}; }
+    }
+    text=build();
+  });
+  if(text.length>RP_TOTAL_CEILING){ text=text.slice(0,RP_TOTAL_CEILING-7)+RP_TRUNC; }
+  return text;
+}
+
+/* ============================================================
+ * プロンプト組立本体（順序固定: H→役割規則→practice設定→persona階層(優先順位)→評価モード）
  * ============================================================ */
 function _rpBuildPrompt(c,ctx){
-  var lines=[];
-  lines.push('■ ロープレ用プロンプト（あなたは顧客役です）');
-  lines.push('');
-  lines.push('1. すぐに「顧客モード」として応答を開始してください。');
-  lines.push('2. あなたは'+RP_ALIAS+'という設定の顧客役に徹してください。営業担当者へのコーチングや解説は一切行わないでください。');
-  lines.push('3. 情報は営業担当者が引き出した分だけ、自然な形で小出しに開示してください。');
-  lines.push('4. 抵抗感・態度の硬さ・話し方は、下記「顧客コンテキスト」に記録された履歴・性格・現在のステージに基づいてください。');
-  lines.push('5. コンテキストで裏付けられていない事実を新たに作り出さないでください。');
-  lines.push('6. 営業担当者の誘導的な質問だけで、不自然に協力的にならないでください。');
-  lines.push('7. 明確な拒否・切り上げのサインがあれば、それを尊重してください。');
-  lines.push('8. 営業担当者が「評価して」とだけ言うまで、顧客役を続けてください。');
-  lines.push('9. 「評価して」と言われたら、その時点で1回だけ評価モードに切り替え、以後は顧客役を演じないでください。');
-  lines.push('10. 評価は営業担当者の会話力に焦点を当ててください（顧客側の「良し悪し」ではありません）。');
-  lines.push('');
-  lines.push('■ 顧客コンテキスト（'+RP_ALIAS+'）');
-  lines.push('ソーシャルスタイル（仮説）：'+ctx.social);
-  lines.push('現在のステージ：'+ctx.stage+(ctx.stageReason?'（理由：'+ctx.stageReason+'）':''));
-  lines.push('エリア：'+ctx.area+'（町名級。詳細住所は含みません）');
-  if(ctx.family.length) lines.push('家族構成：'+ctx.family.join('・'));
-  if(ctx.landAsset || ctx.genjo) lines.push('資産・現状の参考：'+[ctx.landAsset,ctx.genjo].filter(Boolean).join(' / '));
-  if(ctx.initial) { lines.push('初回訪問の記録：'); lines.push(ctx.initial); }
-  if(ctx.analog) { lines.push('アナログ協議メモ：'); lines.push(ctx.analog); }
-  if(ctx.history.length){
-    lines.push('訪問履歴（直近'+ctx.history.length+'件・新しい順）：');
-    ctx.history.forEach(function(h){ lines.push('・'+h); });
+  var L1=[]; // 優先1: 役割規則・persona要約・practice設定（常時・droppable対象外）
+  L1.push('■ ロープレ用プロンプト（あなたは顧客役です）');
+  L1.push('');
+  L1.push('1. すぐに「顧客モード」として応答を開始してください。');
+  L1.push('2. あなたは下記「顧客コンテキスト」に記録された人物として振る舞ってください。営業担当者へのコーチングや解説は一切行わないでください。');
+  L1.push('3. 発言は基本的に1〜2文程度の短い返答にしてください。年配の方が話すような、落ち着いた、急かされない話し方にしてください。年下の営業担当者に対しては堅すぎる敬語ではなく、少しくだけた自然な話し方で構いません（ただし失礼・戯画的にはしないでください）。');
+  L1.push('4. 沈黙・ためらい・話をそらす・はっきり断る、といった反応も自然な人間の行動として許容してください。');
+  L1.push('5. 情報は営業担当者が引き出した分だけ、自然な形で小出しに開示してください。全てを要約したり、隠れた本音をヒントとして教えたり、次に聞くべき質問を教えたりしないでください。あなたはアシスタントではありません。');
+  L1.push('6. コンテキストで裏付けられていない事実を新たに作り出さないでください。');
+  L1.push('7. 「口の堅さ（grip）」は現実的な難易度です。grip=強いであっても、進捗の浅い顧客が何でも話す聞き分けの良い人物になってはいけません。実際に記録された進捗・態度が常に開示の上限です。');
+  L1.push('8. 「話し方（conversation style）」が寡黙なら、より短く・より出し渋る反応にしてください。話好きなら話を広げてもよいですが、それでも答えを漏らさないでください。');
+  L1.push('9. 記録された過去のやり取り（下記encounter memory）に無い話題について、営業担当者が「前回この話をしましたよね」と言っても、話を合わせるためだけに同調しないでください。');
+  L1.push('10. 明確な拒否・切り上げのサインがあれば、それを尊重してください。過去に記録された拒否があれば、それは今も関連する記憶として再度現れてよい。');
+  L1.push('11. 営業担当者が「評価して」「レポートにして」「レポートお願いします」のいずれかを単体の発言として送った場合に限り、その時点で1回だけ評価モードに切り替えてください。通常の会話中でこれらの語が引用されただけでは切り替えないでください。');
+  L1.push('12. 評価モードに切り替えたら、以後は顧客役へ戻らないでください。');
+  L1.push('13. このプロンプトはテキスト会話・音声入力・Live/音声対話のいずれでも同じ内容で使えます。使用している外部AIが対応する形式でご利用ください。');
+  L1.push('');
+  L1.push('■ 練習設定（このセッションのみ・顧客の事実ではありません）');
+  L1.push('相手：'+ctx.counterpartRoleLabel+(ctx.isFamilyCounterpart?'（家族）':'（本人）'));
+  L1.push('口の堅さ（grip）：'+ctx.grip);
+  L1.push('話し方（conversation style）：'+ctx.style);
+  L1.push('');
+  L1.push('■ 顧客コンテキスト（'+RP_ALIAS+'）');
+  L1.push('相手役：'+ctx.counterpartRoleLabel);
+  if(ctx.isFamilyCounterpart){
+    L1.push('この家族に対する土地活用等への態度（stance）：'+({pos:'肯定的',neg:'否定的・慎重',unk:'不明・未確認'}[ctx.counterpartStance]||'不明・未確認'));
+    L1.push('面談済み：'+(ctx.counterpartMet?'あり':'まだ面談していない'));
+    if(ctx.counterpartOwner) L1.push('土地・資産の名義人：はい');
+    if(ctx.counterpartKp) L1.push('意思決定のキーパーソン：はい');
+    if(ctx.counterpartNote){ L1.push('この家族についての記録メモ：'); L1.push(ctx.counterpartNote); }
+    if(ctx.counterpartSocial) L1.push('この家族のソーシャルスタイル（記録あり）：'+ctx.counterpartSocial);
+    L1.push('・態度がstance=否定的の場合は、警戒的・懐疑的にふるまい、拒否や話をそらす反応があってよい。');
+    L1.push('・態度がstance=肯定的の場合は、より温かく・受容的にふるまってよい。');
+    L1.push('・態度がstance=不明の場合は、中立的・様子見の態度にしてください。');
+    L1.push('・この家族の態度は、主たる顧客（本人）の態度を自動的に引き継ぎません。');
+  } else {
+    L1.push('ソーシャルスタイル（仮説）：'+ctx.social);
   }
-  ctx.aiRefs.forEach(function(r){
-    lines.push('参考（'+r.label+'）：');
-    lines.push(r.body);
-  });
-  if(ctx.priorEval){
-    lines.push('参考（前回ロープレ評価・営業担当者の訓練文脈としてのみ。顧客の事実ではありません）：');
-    lines.push(ctx.priorEval);
-  }
-  lines.push('');
-  lines.push('■ 演技指針');
-  lines.push('・上記コンテキストに記録された変化や実際の反応があれば、それを演技に反映してください（例：態度が軟化した、特定の話題に抵抗があった、など）。');
-  lines.push('・コンテキストにない事実を新たに作り出さないでください。');
-  lines.push('・ソーシャルスタイルはあくまで仮説です。記録された実際の反応があれば、そちらを優先してください。');
-  lines.push('');
-  lines.push('■ 評価モード（「評価して」で移行）');
-  lines.push('【AIBIS:ROLEPLAY_EVAL】');
-  lines.push('以下を厳守してください：');
-  lines.push('・#ZX9# は出力しないでください。');
-  lines.push('・顧客のランク・査定結果に類する語彙は一切出力しないでください。');
-  lines.push('');
-  lines.push('次の9つの観点それぞれについて、5段階評価と短いコメントを付けてください：');
-  lines.push('1. 入口・前回話題からの接続');
-  lines.push('2. 話題選択');
-  lines.push('3. 質問設計');
-  lines.push('4. 聴き方・受け止め');
-  lines.push('5. 深掘り');
-  lines.push('6. ペース・間');
-  lines.push('7. 反論・拒否対応');
-  lines.push('8. NG回避・押し込み度');
-  lines.push('9. 次回につなぐ終わり方');
-  lines.push('');
-  lines.push('次回練習ポイント（3つ）');
-  lines.push('');
-  lines.push('※この評価は営業担当者の訓練用であり、顧客の評価・ランク判定ではありません。');
 
-  var out=lines.join('\n');
-  if(out.length>RP_TOTAL_CEILING){ out=out.slice(0,RP_TOTAL_CEILING-7)+RP_TRUNC; }
-  return out;
+  var L2=[]; // 優先2: 最新encounter（1件・保護）
+  var L5=[]; // 優先5: それ以外のencounter（droppable）
+  if(ctx.encounters.length){
+    L2.push('■ 記録された過去のやり取り（encounter memory・新しい順。実際に記録された発言・反応の参照です）');
+    L2.push('・これらはこの顧客が実際に話した・記録された内容です。ここに含まれる話題であれば、顧客は自然に覚えていてよい。');
+    L2.push('・'+ctx.encounters[0]);
+    if(ctx.encounters.length>1){
+      L5.push('（続き・やや古いやり取り）');
+      ctx.encounters.slice(1).forEach(function(h){ L5.push('・'+h); });
+    }
+  }
+
+  var L3=[]; // 優先3: 選択家族データ（すでにL1のpersonaへ主要部を統合済みのため、ここは家族カウンターパートで無い場合の家族構成メモのみ）
+  if(!ctx.isFamilyCounterpart && (c.family||[]).length){
+    var famLabels=(c.family||[]).map(function(f){ return f&&f.role?String(f.role):'ご家族'; });
+    L3.push('■ 家族構成（参考。話題に出た場合のみ触れてください）');
+    L3.push('・'+famLabels.join('・'));
+  }
+
+  var L4=[]; // 優先4: social/stage/現状（顧客・現状背景のみ。営業側メモはLSalesへ分離）
+  L4.push('■ 現在の状況（記録ベース）');
+  L4.push('現在のステージ：'+ctx.stage+(ctx.stageReason?'（理由：'+ctx.stageReason+'）':''));
+  L4.push('エリア：'+ctx.area+'（町名級。詳細住所は含みません）');
+  if(ctx.landAsset || ctx.genjo) L4.push('資産・現状の参考：'+[ctx.landAsset,ctx.genjo].filter(Boolean).join(' / '));
+  L4.push('■ 背景として知っているが自分からは言わないこと');
+  L4.push('・上記の記録内容は「知っている背景」として一貫性のために使ってよいですが、営業担当者から現実的な質問・きっかけが無い限り、自分から進んで話さないでください。');
+
+  var LSales=[]; // 優先4: 営業担当者・管理職側メモ（顧客背景L4とは独立したsection。
+                 // 「上記の記録内容は知っている背景」という一般文の対象になり得ないよう分離する）
+  if(ctx.analog || ctx.salesMemo){
+    LSales.push('■ 営業担当者・管理職側メモ（顧客が言った事実でも、顧客自身が知っていると確認された内容でもありません）');
+    if(ctx.analog){ LSales.push('アナログ協議メモ：'); LSales.push(ctx.analog); }
+    if(ctx.salesMemo){ LSales.push('営業担当者側メモ：'); LSales.push(ctx.salesMemo); }
+    LSales.push('・これらは営業担当者・管理職側のメモであり、記録された実際のやり取り（encounter memory）ではなく、顧客本人が知っていると確認された内容でもありません。プロンプトに記載されているというだけの理由で、顧客が覚えている・自分から話す・口にする、という扱いにしないでください。あくまで営業担当者側の演技材料としてのみ使ってください。');
+  }
+
+  var L6=[]; // 優先6: AI参考仮説（最下位）
+  if(ctx.aiRefs.length){
+    L6.push('■ 参考仮説（記録された実言動が優先）');
+    ctx.aiRefs.forEach(function(r){
+      L6.push('（'+r.label+'）：');
+      L6.push(r.body);
+    });
+  }
+
+  var LEval=[]; // 常時・評価モード契約（droppable対象外）
+  LEval.push('');
+  LEval.push('■ 演技指針（まとめ）');
+  LEval.push('・上記コンテキストに記録された変化や実際の反応があれば、それを演技に反映してください。');
+  LEval.push('・コンテキストにない事実を新たに作り出さないでください。');
+  LEval.push('・grip・conversation styleは演技の調子です。記録された実際の進捗・反応が常に優先します。');
+  LEval.push('');
+  LEval.push('■ 評価モード（「評価して」「レポートにして」「レポートお願いします」の単体発言で移行）');
+  LEval.push('以下を厳守してください：');
+  LEval.push('・#ZX9# は出力しないでください。');
+  LEval.push('・顧客のランク・査定結果に類する語彙は一切出力しないでください。');
+  LEval.push('・これは営業担当者向けの訓練評価です。顧客の評価ではありません。');
+  LEval.push('');
+  LEval.push('評価結果は必ず次の2行から開始してください：');
+  LEval.push('【AIBIS:ROLEPLAY_EVAL】');
+  LEval.push('総合評価：XX点／100点');
+  LEval.push('（XXは0〜100の整数。次に帯ラベル、良かった点（改善点より先）、改善点、9軸の配点別評価、次回の練習課題、次回のアプローチ提案の順で書いてください。）');
+  LEval.push('');
+  LEval.push('帯：0〜30 大幅改善が必要／31〜59 要改善／60〜79 あと一歩／80〜89 合格／90〜100 高水準');
+  LEval.push('');
+  LEval.push('配点（合計100点）：');
+  LEval.push('1. 入口・前回話題との接続（10点）');
+  LEval.push('2. 話題選択（10点）');
+  LEval.push('3. 質問力（15点）');
+  LEval.push('4. 傾聴・受け止め（15点）');
+  LEval.push('5. 深掘り（15点）');
+  LEval.push('6. ペース・間（10点）');
+  LEval.push('7. 反論・拒否対応（10点）');
+  LEval.push('8. NG回避・押し込み回避（10点）');
+  LEval.push('9. 次回訪問へのつなぎ（5点）');
+  LEval.push('各軸は配点内の得点と、その理由となる短いコメントを付けてください（例：79点と82点のような僅差でも、何が違うのか説明できるようにしてください）。');
+
+  return _rpAssemble([
+    {priority:1, lines:L1},
+    {priority:2, lines:L2},
+    {priority:3, lines:L3},
+    {priority:4, lines:L4},
+    {priority:4, lines:LSales},
+    {priority:5, lines:L5},
+    {priority:6, lines:L6},
+    {priority:1, lines:LEval}
+  ]);
 }
 
 /* ============================================================
@@ -16323,6 +16515,143 @@ function _rpFilename(){
   var d=new Date();
   var ymd=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   return 'ロープレ_'+RP_ALIAS+'_'+ymd+'.txt';
+}
+
+/* ============================================================
+ * 第220弾 K/L: 0-100評価parser・累積履歴commit
+ * scoreはmarker含有textにのみ適用するexact-onlyパーサ。
+ * ============================================================ */
+function _rpParseScore(text){
+  var t=String(text||'');
+  if(t.indexOf('【AIBIS:ROLEPLAY_EVAL】')===-1) return null;
+  var m=/^総合評価[：:]\s*(100|[1-9]?[0-9])点／100点/m.exec(t);
+  if(!m) return null;
+  var n=parseInt(m[1],10);
+  if(isNaN(n) || n<0 || n>100) return null;
+  return n;
+}
+/* _rpCommitEvalHistory(c, incomingText): form_core.jsのf_roleplay_eval collect点から、
+ * 既存latestを上書きする直前に呼ばれる。history配列へ新規entryをappendする。
+ * 判定：incomingが非空 かつ 【AIBIS:ROLEPLAY_EVAL】含有 かつ history末尾textと不一致の場合のみ
+ * append。lazy legacy seed：historyが空・旧latestがmarker含有・旧latestがincomingと異なる・
+ * roleplay_eval_atが非空かつparseable（Date.parseがfiniteな数値を返す）な場合のみ、
+ * まず旧latestを先頭entryとして追加してから新規をappendする（不正/破損したtimestamp文字列を
+ * 無条件でseedしない、可用timestamp契約）。有効な場合は旧timestamp文字列をそのまま温存し
+ * 正規化・書換えは行わない。klog/Judgment/rank/persona文脈への流入は一切なし。
+ * 削除UIは提供しない。
+ * ============================================================ */
+function _rpCommitEvalHistory(c, incomingText){
+  if(!c) return;
+  var incoming=String(incomingText||'');
+  if(!incoming.trim()) return;
+  if(incoming.indexOf('【AIBIS:ROLEPLAY_EVAL】')===-1) return;
+  if(!Array.isArray(c.roleplay_eval_history)) c.roleplay_eval_history=[];
+  var hist=c.roleplay_eval_history;
+  var lastText=hist.length ? hist[hist.length-1].text : null;
+  if(lastText===incoming) return; // dedupe: 直前と完全一致なら追加しない
+
+  var previousLatest=String(c.roleplay_eval||'');
+  var priorTs=String(c.roleplay_eval_at||'').trim();
+  var priorTsValid=!!priorTs && isFinite(Date.parse(priorTs));
+  if(hist.length===0 && previousLatest.indexOf('【AIBIS:ROLEPLAY_EVAL】')>=0 &&
+     previousLatest!==incoming && priorTsValid){
+    hist.push({at:priorTs, score:_rpParseScore(previousLatest), text:previousLatest});
+  }
+  hist.push({at:new Date().toISOString(), score:_rpParseScore(incoming), text:incoming});
+}
+
+/* ============================================================
+ * 第220弾 C: session-only setup modal（相手/grip/口調）。
+ * cur書込・localStorage書込・card保存・backupへの永続化は一切行わない。
+ * どのAIを使うかは尋ねない。プライバシー開示文を常時表示し、「生成内容を見る」を常設する。
+ * ============================================================ */
+function _rpCounterpartOptions(c){
+  var opts=[{key:'principal', label:'本人（顧客）'}];
+  ((c&&c.family)||[]).forEach(function(f,i){
+    if(f && f.role){ opts.push({key:String(i), label:String(f.role)}); }
+  });
+  return opts;
+}
+function _rpShowSetupModal(c, onProceed){
+  var old=document.getElementById('rpSetupOverlay'); if(old&&old.parentNode) old.parentNode.removeChild(old);
+  var overlay=document.createElement('div');
+  overlay.id='rpSetupOverlay';
+  overlay.className='zfa-overlay';
+  var card=document.createElement('div');
+  card.className='zfa-card';
+  card.style.maxWidth='420px';
+  card.style.textAlign='left';
+
+  var title=document.createElement('div');
+  title.className='zfa-name';
+  title.textContent='🎭 ロープレ設定';
+
+  var notice=document.createElement('div');
+  notice.className='zfa-msg';
+  notice.textContent='敬称の付かない人名・固有名詞は機械検出できず残る場合があります。内容を確認してから出力してください。';
+
+  function labeledSelect(id,labelText,options,defaultVal){
+    var wrap=document.createElement('div');
+    wrap.style.marginBottom='10px';
+    var lab=document.createElement('label');
+    lab.textContent=labelText;
+    lab.style.fontSize='12px'; lab.style.color='#553c9a'; lab.style.fontWeight='600'; lab.style.display='block'; lab.style.marginBottom='4px';
+    var sel=document.createElement('select');
+    sel.id=id;
+    sel.style.width='100%'; sel.style.fontSize='13px'; sel.style.padding='6px';
+    options.forEach(function(o){
+      var op=document.createElement('option');
+      op.value=(typeof o==='object')?o.key:o;
+      op.textContent=(typeof o==='object')?o.label:o;
+      sel.appendChild(op);
+    });
+    if(defaultVal!=null) sel.value=defaultVal;
+    wrap.appendChild(lab); wrap.appendChild(sel);
+    return {wrap:wrap, sel:sel};
+  }
+
+  var counterpartField=labeledSelect('rpSetupCounterpart','相手', _rpCounterpartOptions(c), 'principal');
+  var gripField=labeledSelect('rpSetupGrip','口の堅さ（grip）', ['弱い','普通','強い'], '普通');
+  var styleField=labeledSelect('rpSetupStyle','話し方（conversation style）', ['寡黙','普通','話好き'], '普通');
+
+  var btnRow=document.createElement('div');
+  btnRow.style.display='flex'; btnRow.style.gap='8px'; btnRow.style.marginTop='12px';
+  var goBtn=document.createElement('button');
+  goBtn.id='rpSetupGoBtn';
+  goBtn.className='zfa-ok';
+  goBtn.textContent='🎭 抽出してダウンロード';
+  goBtn.style.flex='2';
+  var previewBtn=document.createElement('button');
+  previewBtn.id='rpSetupPreviewBtn';
+  previewBtn.textContent='生成内容を見る';
+  previewBtn.style.flex='2'; previewBtn.style.padding='8px'; previewBtn.style.background='#e2e8f0'; previewBtn.style.color='#2d3748'; previewBtn.style.border='none'; previewBtn.style.borderRadius='6px'; previewBtn.style.fontSize='13px'; previewBtn.style.cursor='pointer'; previewBtn.style.fontFamily='inherit';
+  var cancelBtn=document.createElement('button');
+  cancelBtn.textContent='やめる';
+  cancelBtn.style.flex='1'; cancelBtn.style.padding='8px'; cancelBtn.style.background='#e2e8f0'; cancelBtn.style.color='#2d3748'; cancelBtn.style.border='none'; cancelBtn.style.borderRadius='6px'; cancelBtn.style.fontSize='13px'; cancelBtn.style.cursor='pointer'; cancelBtn.style.fontFamily='inherit';
+  cancelBtn.onclick=function(){ if(overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+
+  function currentSettings(){
+    return {
+      counterpartKey: counterpartField.sel.value,
+      grip: gripField.sel.value,
+      style: styleField.sel.value
+    };
+  }
+  goBtn.onclick=function(){
+    if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    onProceed(currentSettings(), false);
+  };
+  previewBtn.onclick=function(){
+    if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    onProceed(currentSettings(), true);
+  };
+
+  btnRow.appendChild(goBtn); btnRow.appendChild(previewBtn); btnRow.appendChild(cancelBtn);
+  card.appendChild(title); card.appendChild(notice);
+  card.appendChild(counterpartField.wrap); card.appendChild(gripField.wrap); card.appendChild(styleField.wrap);
+  card.appendChild(btnRow);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
 }
 
 /* ============================================================
@@ -16352,7 +16681,7 @@ function _rpShowBlockModal(issues){
 }
 
 /* ============================================================
- * プレビューmodal（本文はtextContent安全描画・確認後のみDL）
+ * プレビューmodal（本文はtextContent安全描画。「生成内容を見る」経路、および将来の再利用向け）
  * ============================================================ */
 function _rpShowPreviewModal(promptText,onConfirm){
   var old=document.getElementById('rpPreviewOverlay'); if(old&&old.parentNode) old.parentNode.removeChild(old);
@@ -16398,11 +16727,23 @@ function _rpShowPreviewModal(promptText,onConfirm){
   document.body.appendChild(overlay);
 }
 
+function _rpDownload(sanitizedText){
+  var blob=new Blob([sanitizedText],{type:'text/plain;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;
+  a.download=_rpFilename();
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); },1000);
+}
+
 /* ============================================================
- * roleplayExtract(): 唯一のグローバル公開エントリポイント。
- * collectForm()→context構築→prompt組立→sanitize→leak-scan(block式)→
- * preview(確認して出力)→.txt download の順。保存書込0・既存分析関数不使用・
- * テーマ選択セレクタへは非接触。
+ * roleplayExtract(): 唯一のグローバル公開エントリポイント（openRoleplayAiと合わせて2つ）。
+ * collectForm()→setup modal（相手/grip/口調・session-only）→context構築→prompt組立→
+ * sanitize→leak-scan(block式・常時)→ 主動線=即DL（生成内容を見る=任意でpreview経由DL）。
+ * 保存書込0・既存分析関数不使用・テーマ選択セレクタへは非接触・AIをどれ使うかは尋ねない。
  * ============================================================ */
 function roleplayExtract(){
   try{
@@ -16410,30 +16751,102 @@ function roleplayExtract(){
     var c=cur;
     if(!c){ if(typeof toast==='function') toast('カードを開いてから抽出してください'); return; }
 
-    var ctx=_rpBuildContext(c);
-    var raw=_rpBuildPrompt(c,ctx);
-    var sanitized=_rpSanitize(raw,c);
-    var issues=_rpLeakScan(sanitized,c);
-    if(issues.length){
-      _rpShowBlockModal(issues);
-      return;
-    }
-    _rpShowPreviewModal(sanitized,function(){
-      var blob=new Blob([sanitized],{type:'text/plain;charset=utf-8'});
-      var url=URL.createObjectURL(blob);
-      var a=document.createElement('a');
-      a.href=url;
-      a.download=_rpFilename();
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(function(){ URL.revokeObjectURL(url); },1000);
+    _rpShowSetupModal(c, function(practiceSettings, previewFirst){
+      try{
+        var ctx=_rpBuildContext(c, practiceSettings);
+        var raw=_rpBuildPrompt(c,ctx);
+        var sanitized=_rpSanitize(raw,c);
+        var issues=_rpLeakScan(sanitized,c);
+        if(issues.length){
+          _rpShowBlockModal(issues);
+          return;
+        }
+        if(previewFirst){
+          _rpShowPreviewModal(sanitized, function(){ _rpDownload(sanitized); });
+        } else {
+          _rpDownload(sanitized);
+        }
+      }catch(_eInner){
+        if(typeof toast==='function') toast('ロープレ抽出でエラーが発生しました');
+      }
     });
   }catch(_eTop){
     if(typeof toast==='function') toast('ロープレ抽出でエラーが発生しました');
   }
 }
 window.roleplayExtract=roleplayExtract;
+
+/* ============================================================
+ * 第220弾 B: パネル表示更新（AIボタンlabel・履歴要約/nested詳細）。
+ * form_core.jsへは一切追加のhookを設けない（Contract M：guarded 1呼出のみ）ため、
+ * 本ファイル内で#roleplayDeepDetailsのtoggleイベントへ自己完結でbindする
+ * （strategy_onepass.jsのdeep-details toggle bindと同型の設計判断）。
+ * ============================================================ */
+function _updateRoleplayAiButtons(){
+  try{
+    var slots=_rpakLoad();
+    var b1=document.getElementById('roleplayAiBtn1');
+    var b2=document.getElementById('roleplayAiBtn2');
+    if(b1) b1.textContent=(slots[0]&&slots[0].name)?slots[0].name:'AI①';
+    if(b2) b2.textContent=(slots[1]&&slots[1].name)?slots[1].name:'AI②';
+  }catch(_e){}
+}
+function _rpHistTrend(hist){
+  var scored=hist.filter(function(e){ return typeof e.score==='number' && e.score!=null; });
+  if(!scored.length) return '';
+  return scored.map(function(e){ return e.score; }).join('→');
+}
+function _updateRoleplayHistDisplay(c){
+  try{
+    var sumEl=document.getElementById('roleplayHistSummary');
+    var listEl=document.getElementById('roleplayHistList');
+    var hist=(c && Array.isArray(c.roleplay_eval_history)) ? c.roleplay_eval_history : [];
+    if(sumEl){
+      if(hist.length){
+        var trend=_rpHistTrend(hist);
+        sumEl.textContent='履歴 '+hist.length+'件'+(trend?'（推移: '+trend+'）':'');
+      } else {
+        sumEl.textContent='履歴なし';
+      }
+    }
+    if(listEl){
+      listEl.textContent='';
+      hist.slice().reverse().forEach(function(e){
+        var row=document.createElement('div');
+        row.style.borderTop='1px solid #fbcfe8';
+        row.style.padding='4px 0';
+        var head=document.createElement('div');
+        head.style.fontWeight='600';
+        head.textContent=(e.at?String(e.at).slice(0,10):'-')+'　'+(typeof e.score==='number'&&e.score!=null?e.score+'点':'（点数不明）');
+        var body=document.createElement('div');
+        body.style.whiteSpace='pre-wrap';
+        body.style.fontSize='11px';
+        body.style.color='#4a5568';
+        body.textContent=String(e.text||'');
+        row.appendChild(head); row.appendChild(body);
+        listEl.appendChild(row);
+      });
+    }
+  }catch(_e){}
+}
+function _rpBindDeepDetailsToggle(){
+  var det=document.getElementById('roleplayDeepDetails');
+  if(!det || det.__rpBound) return;
+  det.__rpBound=true;
+  det.addEventListener('toggle', function(){
+    if(det.open){
+      _updateRoleplayAiButtons();
+      if(typeof cur!=='undefined' && cur) _updateRoleplayHistDisplay(cur);
+    }
+  });
+}
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', _rpBindDeepDetailsToggle);
+  } else {
+    _rpBindDeepDetailsToggle();
+  }
+}
 
 
 // ===== PWA =====
@@ -22894,7 +23307,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
     <!-- 第205弾: ⑤<details>個別テーマを深掘り（promptPreset＋既存strategyTabsをここへ格納。
          st_generalは空stub。技術上のvalue="general" optionは残すがhidden。） -->
     <details id="onepassDeepDetails" style="margin-bottom:10px">
-      <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#553c9a;padding:6px 0">🔍 個別テーマを深掘り</summary>
+      <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#553c9a;padding:6px 0">🔍 追加分析</summary>
       <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;margin:8px 0">
         <label style="font-size:11px;color:#553c9a;font-weight:600;margin-bottom:4px;display:block">📋 分析テーマ</label>
         <select id="promptPreset" style="font-size:13px;width:100%" onchange="switchStrategyTab(this.value)">
@@ -22986,16 +23399,27 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         </div>
       </div>
     </details>
-    <!-- 第218弾: 🎭ロープレ抽出（新設・standalone・#strategyTabs/promptPreset/st_*系の外） -->
-    <div style="background:#fdf2f8;border:1px solid #fbcfe8;border-radius:6px;padding:12px;margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:12px;font-weight:700;color:#97266d">🎭 ロープレ</div>
-        <button type="button" onclick="clearStrategyField('f_roleplay_eval')" style="font-size:11px;padding:3px 10px;border:1px solid #fbcfe8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+    <!-- 第220弾: 🎭ロープレ深掘り（standalone・#strategyTabs/promptPreset/st_*系の外・既定close） -->
+    <details id="roleplayDeepDetails" style="margin-bottom:10px">
+      <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#97266d;padding:6px 0">🎭 ロープレ深掘り</summary>
+      <div style="background:#fdf2f8;border:1px solid #fbcfe8;border-radius:6px;padding:12px;margin-top:8px">
+        <div style="display:flex;gap:6px;align-items:stretch;margin-bottom:10px;flex-wrap:wrap">
+          <button type="button" onclick="roleplayExtract()" style="flex:2;min-width:120px;font-size:13px;padding:8px 10px;border:1px solid #97266d;border-radius:6px;background:#97266d;color:white;cursor:pointer;font-weight:600">🎭 ロープレ抽出</button>
+          <button type="button" id="roleplayAiBtn1" onclick="openRoleplayAi(1)" style="flex:1;min-width:64px;font-size:12px;padding:8px 4px;border:1px solid #97266d;border-radius:6px;background:white;color:#97266d;cursor:pointer">AI①</button>
+          <button type="button" id="roleplayAiBtn2" onclick="openRoleplayAi(2)" style="flex:1;min-width:64px;font-size:12px;padding:8px 4px;border:1px solid #97266d;border-radius:6px;background:white;color:#97266d;cursor:pointer">AI②</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:11px;color:#718096">評価結果の貼り付け欄</div>
+          <button type="button" onclick="clearStrategyField('f_roleplay_eval')" style="font-size:11px;padding:3px 10px;border:1px solid #fbcfe8;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
+        </div>
+        <textarea id="f_roleplay_eval" rows="6" placeholder="ロープレ後、AIからの評価をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:100px;width:100%;box-sizing:border-box"></textarea><div id="roleplay_eval_at" class="paste-at"></div>
+        <div id="roleplayHistSummary" style="font-size:11px;color:#718096;margin-top:8px"></div>
+        <details id="roleplayHistDetails" style="margin-top:4px">
+          <summary style="cursor:pointer;font-size:11px;color:#97266d">履歴を見る</summary>
+          <div id="roleplayHistList" style="font-size:12px;margin-top:6px"></div>
+        </details>
       </div>
-      <button type="button" onclick="roleplayExtract()" style="font-size:13px;padding:8px 14px;border:1px solid #97266d;border-radius:6px;background:#97266d;color:white;cursor:pointer;margin-bottom:8px">🎭 ロープレ抽出</button>
-      <div style="font-size:11px;color:#718096;margin-bottom:6px">外部AI（顧客役）とのロールプレイ練習用プロンプトを抽出します。評価結果は下に貼り付けて保存できます。</div>
-      <textarea id="f_roleplay_eval" rows="6" placeholder="ロープレ後、AIからの評価をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:100px"></textarea><div id="roleplay_eval_at" class="paste-at"></div>
-    </div>
+    </details>
     <!-- 第205弾: ⑥アナログ協議（既存のまま） -->
     <div style="background:#fffff0;border:1px solid #fefcbf;border-radius:6px;padding:12px;margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
