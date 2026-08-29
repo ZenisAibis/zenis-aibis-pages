@@ -2609,7 +2609,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.18";
+var APP_VERSION = "v11.19";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -7001,55 +7001,62 @@ function updateAiRankDisp(){
     } else { pace.style.display='none'; }
   } else { pace.style.display='none'; }
 }
+// [SUPERSEDED DAN222] 旧autoDetectJudge本体（逐語保存。広範8パターン検出・直接pursuit_judge_ai
+// 書換え・recomputeRank()呼出を含む。DAN222 ai-reference-rank-paste-detection-reliability
+// 設計是正により、単一explicit-label grammar（strategy_onepass.js::onepassExtractAiRefRank /
+// onepassApplyAiRefRank）への委譲へ置換した。以下は歴史的記録であり実行されない:
+//
+// function autoDetectJudge(text){
+//   if(!cur) return;
+//   if(!text||!text.trim()){
+//     updateAiRankDisp(cur.pursuit_judge||'');
+//     return;
+//   }
+//   var patterns=[
+//     /^[①-⑩※\s*#・]*判定[：:]\s*([SABCDEX])\b/im,
+//     /追客[可否]*判定[：:]\s*([SABCDEX])\b/i,
+//     /【[^】]*判定[：:]\s*([SABCDEX])\s*[】]/i,
+//     /判定[結果ランク]*[：:]\s*([SABCDEX])\b/i,
+//     /^[①-⑩※\s*#・]*ランク[：:]\s*([SABCDEX])\b/im,
+//     /\b([SABCDEX])[ランク判定評価]\b/i,
+//     /[★→⇒►▶]\s*([SABCDEX])\b/,
+//     /\*\*([SABCDEX])\*\*/,
+//   ];
+//   var rank=null;
+//   for(var pi=0;pi<patterns.length;pi++){
+//     var m=text.match(patterns[pi]);
+//     if(m){ rank=m[1].toUpperCase(); break; }
+//   }
+//   if(!rank) return;
+//   updateAiRankDisp(rank);
+//   if(!cur) return;
+//   if(cur.pursuit_judge_ai===rank) return;
+//   cur.pursuit_judge_ai=rank; recomputeRank();
+//   toast('✅ 追客判定【'+rank+'】を自動入力しました');
+//   try{
+//    if(cur.my_judge&&cur.my_judge_at&&cur.my_judge_logged!==cur.my_judge_at){
+//     var _lg=JSON.parse(localStorage.getItem('prospect_mekiki_v1')||'[]'); if(!Array.isArray(_lg)) _lg=[];
+//     _lg.push({d:_ymd(new Date()),id:cur.id,nm:cur.name||'',my:cur.my_judge,ai:rank,hit:(cur.my_judge===rank)?1:0});
+//     if(_lg.length>500) _lg=_lg.slice(-500);
+//     localStorage.setItem('prospect_mekiki_v1',JSON.stringify(_lg));
+//     cur.my_judge_logged=cur.my_judge_at;
+//     var _mjMsg=(cur.my_judge===rank)?'🎯 目利き一致！あなた='+cur.my_judge+' ／ AI='+rank:'🔍 判定が分かれた！あなた='+cur.my_judge+' ／ AI='+rank+'（差分こそ教材）';
+//     if(rank==='D'&&!cur.d_trigger){ setTimeout(function(){ try{ toast('⏳ D判定：待ちトリガーと目安時期を入力しよう（追客タブ）'); }catch(_e){} },2800); }
+//     setTimeout(function(){ try{ toast(_mjMsg); }catch(_e){} },1400);
+//    }
+//   }catch(_e){}
+// }
+//
+// DAN222新実装: 関数名・panel binding・window export・updateAiRankDisp呼出契約はすべて不変。
+// 実行body（executable code）のみを、単一explicit-label grammarへの委譲に置換する。
 function autoDetectJudge(text){
   if(!cur) return;
-  // テキストが空の場合は表示だけ現在のランクで更新（ランクは消さない）
   if(!text||!text.trim()){
-    updateAiRankDisp(cur.pursuit_judge||'');
+    updateAiRankDisp();
     return;
   }
-  // Copilotの様々な出力パターンに対応
-  var patterns=[
-    // 「判定：B」「判定: B」（行頭優先）
-    /^[①-⑩※\s*#・]*判定[：:]\s*([SABCDEX])\b/im,
-    // 「追客判定：B」
-    /追客[可否]*判定[：:]\s*([SABCDEX])\b/i,
-    // 「【追客判定：B】」「【判定：B】」
-    /【[^】]*判定[：:]\s*([SABCDEX])\s*[】]/i,
-    // 「判定結果：B」「判定ランク：B」
-    /判定[結果ランク]*[：:]\s*([SABCDEX])\b/i,
-    // 「ランク：B」「ランク: B」
-    /^[①-⑩※\s*#・]*ランク[：:]\s*([SABCDEX])\b/im,
-    // 「Bランク」「B判定」「B評価」
-    /\b([SABCDEX])[ランク判定評価]\b/i,
-    // 「★B」「→B」「⇒B」
-    /[★→⇒►▶]\s*([SABCDEX])\b/,
-    // 「**B**」（マークダウン太字）
-    /\*\*([SABCDEX])\*\*/,
-  ];
-  var rank=null;
-  for(var pi=0;pi<patterns.length;pi++){
-    var m=text.match(patterns[pi]);
-    if(m){ rank=m[1].toUpperCase(); break; }
-  }
-  if(!rank) return;
-  updateAiRankDisp(rank);
-  if(!cur) return;
-  if(cur.pursuit_judge_ai===rank) return;
-  cur.pursuit_judge_ai=rank; recomputeRank();
-  toast('✅ 追客判定【'+rank+'】を自動入力しました');
-  try{
-   if(cur.my_judge&&cur.my_judge_at&&cur.my_judge_logged!==cur.my_judge_at){
-    var _lg=JSON.parse(localStorage.getItem('prospect_mekiki_v1')||'[]'); if(!Array.isArray(_lg)) _lg=[];
-    _lg.push({d:_ymd(new Date()),id:cur.id,nm:cur.name||'',my:cur.my_judge,ai:rank,hit:(cur.my_judge===rank)?1:0});
-    if(_lg.length>500) _lg=_lg.slice(-500);
-    localStorage.setItem('prospect_mekiki_v1',JSON.stringify(_lg));
-    cur.my_judge_logged=cur.my_judge_at;
-    var _mjMsg=(cur.my_judge===rank)?'🎯 目利き一致！あなた='+cur.my_judge+' ／ AI='+rank:'🔍 判定が分かれた！あなた='+cur.my_judge+' ／ AI='+rank+'（差分こそ教材）';
-    if(rank==='D'&&!cur.d_trigger){ setTimeout(function(){ try{ toast('\u23f3 D判定：待ちトリガーと目安時期を入力しよう（追客タブ）'); }catch(_e){} },2800); }
-    setTimeout(function(){ try{ toast(_mjMsg); }catch(_e){} },1400);
-   }
-  }catch(_e){}
+  var rank = onepassExtractAiRefRank(_aiRefLeadWindow(text));
+  onepassApplyAiRefRank(rank);
 }
 window.autoDetectJudge=autoDetectJudge;
 window.updateAiRankDisp=updateAiRankDisp;
@@ -7728,6 +7735,11 @@ function onepassSafeGeneralFallback(target, val, selStart, selEnd, clean, rawOri
     try{ klogCapturePaste('general', rawOriginal, cur, sid); }catch(_eKlog){}
   }
 
+  // DAN222: malformed integrated fallback（AIBISマーカーはあるが構造parse失敗）でも、
+  // lead-window（【AIBIS:行の手前まで・マーカー無しなら最大12行）からexplicit-label rankを
+  // 検出できるようにする。GENERAL本文全体は走査しない。
+  onepassApplyAiRefRank(onepassExtractAiRefRank(_aiRefLeadWindow(clean)));
+
   // 絶対実行禁止: autoDetectJudge。明示呼出のみ（scheduleAibisCommentは呼ばない方を優先・§18）。
   if(typeof autoDetectSummary === 'function') autoDetectSummary(target.value);
   if(typeof autoDetectJob9 === 'function') autoDetectJob9(target.value);
@@ -7761,15 +7773,125 @@ function onepassSafeGeneralFallback(target, val, selStart, selEnd, clean, rawOri
 // 「分析参考ランク: X」へ変更され、あわせてparserをcanonical-onlyへ変更した。
 // 旧label「AI参考ランク」・第213弾top-line bare-letter fallbackは完全撤去する
 // （ChatGPT/Fable統合裁定: 誤検出リスクの高いbare-letter fallbackを撤去する安全側強化）。
+// [SUPERSEDED DAN222] 旧正規表現（逐語保存）: var ONEPASS_AI_REF_RE = /^分析参考ランク[：:]\s*([SABCDEX])\s*$/;
+//   function onepassExtractAiRefRank(prefaceText){
+//     var lines = (typeof prefaceText === 'string' ? prefaceText : '').split('\n');
+//     for(var i=0;i<lines.length;i++){
+//       var m = ONEPASS_AI_REF_RE.exec(lines[i]);
+//       if(m) return m[1];
+//     }
+//     return '';
+//   }
+// DAN222 ai-reference-rank-paste-detection-reliability: Fable 5設計監査（GO/BLOCKER0/MAJOR1/
+// MINOR3/INFO2）+ChatGPT統合裁定に基づき、(1)無害な書式ゆらぎ（前後空白・太字/斜体/コード
+// 包み・箇条書き記号1つ）を許容する正規化層を追加、(2)旧「AI参考ランク」labelをdeprecated
+// exact aliasとして復活（canonical優先・alias単独fallback）、(3)rank_judge.jsの広範8パターン
+// 検出（判定:X等）を完全撤去し単一explicit-label grammarへ委譲、(4)malformed integrated
+// fallback（AIBISマーカーはあるが構造parse失敗）にもlead-window経由でrank検出を追加、
+// (5)目利きログをautoDetectJudgeからonepassApplyAiRefRankのchanged-rank branchへ移設、
+// という設計是正を実装する。broad/bare fallbackは実行不能のまま維持する。
 // ───────────────────────────────────────────
-var ONEPASS_AI_REF_RE = /^分析参考ランク[：:]\s*([SABCDEX])\s*$/;
-function onepassExtractAiRefRank(prefaceText){
-  var lines = (typeof prefaceText === 'string' ? prefaceText : '').split('\n');
+var AI_REF_CANONICAL_LABEL = '分析参考ランク';
+var AI_REF_ALIAS_LABEL = 'AI参考ランク'; // deprecated exact alias
+var AI_REF_WRAP_PAIRS = [['**','**'], ['__','__'], ['`','`'], ['*','*']];
+function _aiRefUnwrapOneLayer(s){
+  for(var w=0; w<AI_REF_WRAP_PAIRS.length; w++){
+    var open = AI_REF_WRAP_PAIRS[w][0], close = AI_REF_WRAP_PAIRS[w][1];
+    if(s.length >= open.length + close.length && s.indexOf(open) === 0 && s.slice(s.length - close.length) === close){
+      return s.slice(open.length, s.length - close.length);
+    }
+  }
+  return s;
+}
+function _aiRefStripListMarker(s){
+  if(s.length===0) return s;
+  var first = s.charAt(0);
+  if(first==='-' || first==='・' || first==='•' || first==='>'){
+    return s.slice(1).replace(/^[\s\u3000]+/, '');
+  }
+  if(first==='*' && s.charAt(1)!=='*'){
+    // 単独*が箇条書き記号か*...*wrapperの開始かを判別する。末尾も単独*で終わる場合は
+    // wrapper候補として扱い、list-marker剥離をしない（step5のwhole-line unwrapへ委ねる）。
+    var last = s.charAt(s.length-1);
+    var secondLast = s.length>=2 ? s.charAt(s.length-2) : '';
+    if(s.length>=3 && last==='*' && secondLast!=='*'){
+      return s;
+    }
+    return s.slice(1).replace(/^[\s\u3000]+/, '');
+  }
+  return s;
+}
+// _aiRefNormalizeLine(line): 1行を正規化する。手順は固定順（仕様）。
+// 1.非stringは安全に空へ 2.前後trim(U+3000含む) 3.先頭list/quote記号を最大1つ除去+続く空白
+// 4.再trim 5.行全体を囲む1層のwrapper(**/__/`` `` /*)を除去 6.再trim
+// （7.は値側wrapperのため呼出元_aiRefMatchLabelで扱う）
+function _aiRefNormalizeLine(line){
+  var s = (typeof line === 'string') ? line : '';
+  s = s.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+  s = _aiRefStripListMarker(s);
+  s = s.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+  s = _aiRefUnwrapOneLayer(s);
+  s = s.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+  return s;
+}
+// _aiRefMatchLabel(normalizedLine, label): 正規化済み1行がlabel[：:]値、の形へ厳密一致するかを
+// 判定する。labelは行頭に完全一致（fused label「AI分析参考ランク」等は不一致）。値側は
+// 1層のwrapper許容後にexactly [SABCDEX] 1文字のみを受理する。
+function _aiRefMatchLabel(normalizedLine, label){
+  if(normalizedLine.indexOf(label) !== 0) return '';
+  var rest = normalizedLine.slice(label.length);
+  if(rest.length===0) return '';
+  var colonChar = rest.charAt(0);
+  if(colonChar !== ':' && colonChar !== '\uFF1A') return '';
+  var valuePart = rest.slice(1).replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+  valuePart = _aiRefUnwrapOneLayer(valuePart);
+  if(/^[SABCDEX]$/.test(valuePart)) return valuePart;
+  return '';
+}
+function _aiRefScanForLabel(lines, label){
   for(var i=0;i<lines.length;i++){
-    var m = ONEPASS_AI_REF_RE.exec(lines[i]);
-    if(m) return m[1];
+    var v = _aiRefMatchLabel(_aiRefNormalizeLine(lines[i]), label);
+    if(v) return v;
   }
   return '';
+}
+// onepassExtractAiRefRank(prefaceText): canonical優先、canonical不成立時のみalias、を返す。
+// 優先順位: canonical全行first-match ＞ alias全行first-match（canonical不成立時のみ）＞ ''。
+function onepassExtractAiRefRank(prefaceText){
+  var lines = (typeof prefaceText === 'string' ? prefaceText : '').split('\n');
+  var canonical = _aiRefScanForLabel(lines, AI_REF_CANONICAL_LABEL);
+  if(canonical) return canonical;
+  return _aiRefScanForLabel(lines, AI_REF_ALIAS_LABEL);
+}
+// _aiRefLeadWindow(text): legacy/malformed委譲専用。【AIBIS:で始まる行の手前で打ち切る
+// （マーカーが無ければ最大12行）。valid integrated経路（parsed.preface）では使用しない。
+function _aiRefLeadWindow(text){
+  var lines = (typeof text === 'string' ? text : '').split('\n');
+  var out = [];
+  for(var i=0;i<lines.length;i++){
+    if(lines[i].replace(/^[\s\u3000]+/, '').indexOf('【AIBIS:') === 0) break;
+    out.push(lines[i]);
+    if(out.length >= 12) break;
+  }
+  return out.join('\n');
+}
+// _aiRefMekikiLog(rank): prospect_mekiki_v1ログ（storage key・record形状・500件capは第194弾以来
+// 不変）。onepassApplyAiRefRankのchanged-rank branchからのみ呼ばれる（invalid/no-rank/
+// same-rank no-opでは呼ばれない＝ログされない）。旧rank_judge.js::autoDetectJudge内の同一
+// ロジックをそのまま移設（D-trigger toast・比較toast semantics含め逐語同等）。
+function _aiRefMekikiLog(rank){
+  try{
+    if(cur.my_judge && cur.my_judge_at && cur.my_judge_logged !== cur.my_judge_at){
+      var _lg = JSON.parse(localStorage.getItem('prospect_mekiki_v1')||'[]'); if(!Array.isArray(_lg)) _lg=[];
+      _lg.push({d:_ymd(new Date()), id:cur.id, nm:cur.name||'', my:cur.my_judge, ai:rank, hit:(cur.my_judge===rank)?1:0});
+      if(_lg.length>500) _lg=_lg.slice(-500);
+      localStorage.setItem('prospect_mekiki_v1', JSON.stringify(_lg));
+      cur.my_judge_logged = cur.my_judge_at;
+      var _mjMsg = (cur.my_judge===rank) ? '🎯 目利き一致！あなた='+cur.my_judge+' ／ AI='+rank : '🔍 判定が分かれた！あなた='+cur.my_judge+' ／ AI='+rank+'（差分こそ教材）';
+      if(rank==='D' && !cur.d_trigger){ setTimeout(function(){ try{ toast('\u23f3 D判定：待ちトリガーと目安時期を入力しよう（追客タブ）'); }catch(_e){} },2800); }
+      setTimeout(function(){ try{ toast(_mjMsg); }catch(_e){} },1400);
+    }
+  }catch(_e){}
 }
 function onepassApplyAiRefRank(rank){
   if(!rank || !/^[SABCDEX]$/.test(rank)) return;
@@ -7782,6 +7904,7 @@ function onepassApplyAiRefRank(rank){
   }
   if(typeof updateAiRankDisp === 'function') updateAiRankDisp();
   if(typeof toast === 'function') toast('🤖 分析参考ランク【'+rank+'】を更新しました（正式ランクは変更していません）');
+  _aiRefMekikiLog(rank);
 }
 
 // ───────────────────────────────────────────
