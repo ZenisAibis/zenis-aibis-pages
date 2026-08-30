@@ -2609,7 +2609,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.19";
+var APP_VERSION = "v11.20";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12856,6 +12856,7 @@ function switchTab(id){
   if(id==='tp'){ document.querySelectorAll('[data-pj]').forEach(function(b){b.classList.toggle('active', !!cur && b.dataset.pj===(cur.pursuit_judge_sel||''));}); if(window.applyPursuitLock) applyPursuitLock(); }
   if(window.updateTabProgress) updateTabProgress();
   fitTabsTop();
+  if(typeof _syncEditBackButton==='function') _syncEditBackButton();
 }
 function updateTabProgress(){
   if(!cur) return;
@@ -12873,7 +12874,12 @@ window.updateTabProgress=updateTabProgress;
  * DAN219でswitchTab('ta')エントリへ相続シナリオgate resync（_updateInheritanceGate()の
  * guarded呼出1点）のみを意図的に追加した。本コメントが担保する不変条件（スクロール処理を
  * 一切追加しない・windowスクロール等を使わない）自体はそのまま成立する。switchTabAndCopy()は
- * 本弾で無接触。 */
+ * 本弾で無接触。
+ * [DAN223追補] switchTab()末尾へ_syncEditBackButton()のguarded呼出1点（左上戻るボタンの
+ * label同期）をさらに追加した。DAN219のentry resyncと同型の「呼出元非依存の不変条件」
+ * （クリック専用副作用ではない）であり、history・スクロール・DOM再構築等の副作用は
+ * 追加していない。第174弾no-scroll不変・DAN219の意図的追加1点は、いずれもそのまま維持した
+ * 上での純追加である。 */
 function _cardScroller(){
   return document.getElementById('editView');
 }
@@ -15932,6 +15938,13 @@ window.openOneDrive=openOneDrive;
 // klog・rank/Judgmentへは一切非接触。window公開はroleplayExtract()・openRoleplayAi()のみ。
 // 正本: DAN220_SONNET5_IMPLEMENTATION_PROMPT_20260826.md、
 //       DAN220_CHATGPT_FABLE_INTEGRATION_ADJUDICATION_20260826.md。
+// ===== 第223弾: stepwise-back-navigation（段階的戻る）拡張 =====
+// roleplay最前面overlay（setup/preview/block）を1段ずつ閉じるための共通close関数
+// _rpCloseFrontOverlay()を新設する。browser_nav.jsのpopstate階層プローブはこの関数へ
+// 検出・close双方を委譲し、overlay ID・優先順の知識を一切持たない（二重実装防止）。
+// setup/previewの「やめる」・overlay外タップの新規2経路もこの1関数へ収束させる。
+// persona生成・context・prompt本文・sanitize・leak-scan・評価履歴・download・filenameは
+// 無改修。正本: DAN223_OPUS_STEPWISE_BACK_NAV_DESIGN_AUDIT_REPORT_20260830.md 4章。
 
 /* ===== 定数（トップレベル・check pin対象） ===== */
 var RP_ALIAS='仮名A様';
@@ -16459,7 +16472,8 @@ function _rpShowSetupModal(c, onProceed){
   var cancelBtn=document.createElement('button');
   cancelBtn.textContent='やめる';
   cancelBtn.style.flex='1'; cancelBtn.style.padding='8px'; cancelBtn.style.background='#e2e8f0'; cancelBtn.style.color='#2d3748'; cancelBtn.style.border='none'; cancelBtn.style.borderRadius='6px'; cancelBtn.style.fontSize='13px'; cancelBtn.style.cursor='pointer'; cancelBtn.style.fontFamily='inherit';
-  cancelBtn.onclick=function(){ if(overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+  /* 第223弾: 「やめる」は共通close経路(_rpCloseFrontOverlay)へ集約する。 */
+  cancelBtn.onclick=function(){ _rpCloseFrontOverlay(); };
 
   function currentSettings(){
     return {
@@ -16482,6 +16496,8 @@ function _rpShowSetupModal(c, onProceed){
   card.appendChild(counterpartField.wrap); card.appendChild(gripField.wrap); card.appendChild(styleField.wrap);
   card.appendChild(btnRow);
   overlay.appendChild(card);
+  /* 第223弾: overlay外タップclose（ev.target===overlayの厳密一致のみ。card内クリックでは閉じない）。 */
+  overlay.addEventListener('click',function(ev){ if(ev.target===overlay) _rpCloseFrontOverlay(); });
   document.body.appendChild(overlay);
 }
 
@@ -16551,12 +16567,31 @@ function _rpShowPreviewModal(promptText,onConfirm){
   var cancelBtn=document.createElement('button');
   cancelBtn.textContent='やめる';
   cancelBtn.style.flex='1'; cancelBtn.style.padding='8px'; cancelBtn.style.background='#e2e8f0'; cancelBtn.style.color='#2d3748'; cancelBtn.style.border='none'; cancelBtn.style.borderRadius='6px'; cancelBtn.style.fontSize='13px'; cancelBtn.style.cursor='pointer'; cancelBtn.style.fontFamily='inherit';
-  cancelBtn.onclick=function(){ if(overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+  /* 第223弾: 「やめる」は共通close経路(_rpCloseFrontOverlay)へ集約する。 */
+  cancelBtn.onclick=function(){ _rpCloseFrontOverlay(); };
   btnRow.appendChild(okBtn); btnRow.appendChild(cancelBtn);
   card.appendChild(title); card.appendChild(notice); card.appendChild(pre); card.appendChild(btnRow);
   overlay.appendChild(card);
+  /* 第223弾: overlay外タップclose（ev.target===overlayの厳密一致のみ。card内クリックでは閉じない）。 */
+  overlay.addEventListener('click',function(ev){ if(ev.target===overlay) _rpCloseFrontOverlay(); });
   document.body.appendChild(overlay);
 }
+
+/* ============================================================
+ * 第223弾: roleplay最前面overlay共通close（stepwise-back-navigation）。
+ * 優先順: rpPreviewOverlay → rpBlockOverlay → rpSetupOverlay。判定・close処理を
+ * この1関数だけへ集約する（新規state・schema・storageなし。true=1枚close、false=対象なし）。
+ * ============================================================ */
+function _rpCloseFrontOverlay(){
+  var id='rpPreviewOverlay';
+  var el=document.getElementById(id);
+  if(!el){ id='rpBlockOverlay'; el=document.getElementById(id); }
+  if(!el){ id='rpSetupOverlay'; el=document.getElementById(id); }
+  if(!el) return false;
+  if(el.parentNode) el.parentNode.removeChild(el);
+  return true;
+}
+window._rpCloseFrontOverlay=_rpCloseFrontOverlay;
 
 function _rpDownload(sanitizedText){
   var blob=new Blob([sanitizedText],{type:'text/plain;charset=utf-8'});
@@ -19113,6 +19148,27 @@ function _navToList(){
   ['editView','plannerView','helpView','setupView','shotgunView','sortieBoardView'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
   var lv=document.getElementById('listView'); if(lv) lv.style.display=(hasFSA&&!isMob)?'flex':'block';
 }
+/* 第223弾: card subview（tr/tp/ta表示中）かどうかの純粋判定。全条件成立時のみtrue。
+ * roleplay overlayはID存在チェックのみ（close処理はroleplay_export.jsの
+ * _rpCloseFrontOverlayへ委譲済みのため、ここでの参照は判定専用で二重実装ではない）。 */
+function _isCardSubviewBack(){
+  var _ev=document.getElementById('editView');
+  if(!_ev || _ev.style.display==='none') return false;
+  var _blockers=['plannerView', 'sortieBoardView', 'shotgunView', 'helpView', 'setupView', 'inboxView', 'sakusenView'];
+  for(var _i=0;_i<_blockers.length;_i++){
+    var _bv=document.getElementById(_blockers[_i]);
+    /* inboxView/sakusenViewは開いたことがない場合style.display===''（CSS/未設定の既定非表示）
+     * のままであり、'none'以外＝表示中と誤判定しないよう、既存_inboxIsOpen()と同じ
+     * 「''もnoneと同じく非表示扱い」の慣例に合わせる。 */
+    if(_bv && _bv.style.display!=='none' && _bv.style.display!=='') return false;
+  }
+  var _gov2=document.getElementById('geoMapOv');
+  if(_gov2 && _gov2.classList.contains('show')) return false;
+  if(document.getElementById('rpSetupOverlay') || document.getElementById('rpPreviewOverlay') || document.getElementById('rpBlockOverlay')) return false;
+  var _at=document.querySelector('.tab.active');
+  var _tb=(_at && _at.dataset) ? _at.dataset.tab : null;
+  return _tb==='tr' || _tb==='tp' || _tb==='ta';
+}
 /* 編集→一覧：履歴の積み重なりに依存せず必ず1回で一覧へ。履歴の先頭をlistに正規化 */
 function editGoList(){
   try{ if(typeof autoCommitEdit==='function') autoCommitEdit(); }catch(e){}
@@ -19126,6 +19182,13 @@ window.editGoList=editGoList;
  * （カードタイトル・中央ロゴが引き続き使う「必ず一覧へ離脱」の意味を保つため）、
  * ボタンだけこちらを使う。_sortieReturnが無ければ従来どおりeditGoList()に委譲する。 */
 function editBack(){
+  /* 第223弾: card subview（tr/tp/ta）表示中はカードtopへ1段だけ戻す。historyには触れない。 */
+  if(typeof _isCardSubviewBack==='function' && _isCardSubviewBack()){
+    try{ switchTab('ti'); }catch(e){}
+    var _ev3=document.getElementById('editView'); if(_ev3) _ev3.scrollTop=0;
+    if(typeof _syncEditBackButton==='function') _syncEditBackButton();
+    return;
+  }
   if(typeof _sortieReturn==='undefined' || !_sortieReturn){ editGoList(); return; }
   try{ if(typeof autoCommitEdit==='function') autoCommitEdit(); }catch(e){}
   if(history.state && history.state.zv==='edit'){
@@ -19169,6 +19232,8 @@ window.editExitToList=editExitToList;
  * 復帰後/完全離脱後など、編集画面の表示状態が変わる箇所から呼ぶ。 */
 function _syncEditBackButton(){
   var btn=document.getElementById('editBackBtn'); if(!btn) return;
+  /* 第223弾: card subview表示中は呼出元非依存で「← 戻る」（DAN219 entry resyncと同型の不変条件）。 */
+  if(typeof _isCardSubviewBack==='function' && _isCardSubviewBack()){ btn.textContent='← 戻る'; return; }
   btn.textContent=(typeof _sortieReturn!=='undefined' && _sortieReturn) ? '← 出陣ボード' : '← 一覧';
 }
 window._syncEditBackButton=_syncEditBackButton;
@@ -19187,12 +19252,36 @@ window.addEventListener('popstate',function(ev){
     return;
   }
   var _gov=document.getElementById('geoMapOv'); if(_gov && _gov.classList.contains('show')){ _gov.classList.remove('show'); try{ if(typeof curId!=='undefined' && curId){ history.pushState({zv:'edit',id:curId},''); } }catch(e){} return; } // 地図オーバーレイは閉じるだけ（土台のカード/光速を維持）
+  /* 第223弾層3: roleplay最前面overlay。editView表示中のみ横取りし、close 1回＋履歴1段
+   * 復元でreturnする（autoCommitEditは通さない）。editView非表示（想定外）では横取りせず、
+   * 残留overlayを最大3回まで有界closeしてから通常処理へ落とす。検出・close処理はすべて
+   * roleplay_export.js側の_rpCloseFrontOverlayへ委譲し、overlay ID・優先順はここに持たない。 */
+  var _rpEv=document.getElementById('editView');
+  if(_rpEv && _rpEv.style.display!=='none'){
+    if(typeof _rpCloseFrontOverlay==='function' && _rpCloseFrontOverlay()){
+      try{ history.pushState({zv:'edit',id:(typeof curId!=='undefined'?curId:null)},''); }catch(e){}
+      return;
+    }
+  } else {
+    var _rpTries=0;
+    while(_rpTries<3 && typeof _rpCloseFrontOverlay==='function' && _rpCloseFrontOverlay()){ _rpTries++; }
+  }
   try{ autoCommitEdit(); }catch(_e){}
   var st=ev.state||{}; var zv=st.zv||'list';
   /* 第164弾: ショットガンが開いている状態でブラウザ戻る→戻るボタンと同じ出口(_sggShowReturn)へ一本化。
    * 戻り先(_sggReturnTo: list/sakusen/edit)を尊重するので、どの入口から来ても「一つ前」へ戻る。 */
   var _sgv=document.getElementById('shotgunView');
   if(_sgv && _sgv.style.display!=='none' && zv!=='shotgun'){ _silent=true; try{ if(typeof sggShowReturn==='function') sggShowReturn(); else _sgv.style.display='none'; }catch(e){} _silent=false; return; }
+  /* 第223弾層6: card subview（tr/tp/ta）からの戻るをカードtopへ1段だけ戻す。下記の
+   * sortie後始末（_sortieReturn消費）より必ず前でreturnし、出陣復帰文脈を保持したまま
+   * カードtopへ戻す（下記より後ろに置くと_sortieReturnを失う回帰になる）。 */
+  if(typeof _isCardSubviewBack==='function' && _isCardSubviewBack()){
+    try{ history.pushState({zv:'edit',id:(typeof curId!=='undefined'?curId:null)},''); }catch(e){}
+    try{ switchTab('ti'); }catch(e){}
+    var _cev=document.getElementById('editView'); if(_cev) _cev.scrollTop=0;
+    if(typeof _syncEditBackButton==='function') _syncEditBackButton();
+    return;
+  }
   /* 第173弾（出陣ボード残留バグ修正）: 明示表示中にブラウザ/端末戻るを行うと、遷移先が
    * 'sortie'以外（例：予定表）でも従来はsortieBoardViewが非表示にならず残留していた。
    * 履歴副作用なしで隠すだけ（_sortieClose()は使わない＝_navReplaceNextを立てない）。
