@@ -236,6 +236,9 @@ textarea{resize:vertical;min-height:80px}
 .jsec h3{color:#c53030;margin-bottom:8px;font-size:14px}
 .jbtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
 @media(max-width:600px){.jbtns{grid-template-columns:1fr}}
+/* 第224弾: PC版追撃(#tp) Judgment 4ボタンを横1列化。#trの再訪3ボタン・モバイル1列・
+ * .jbtns基底(3列)は無改修。screenを必ず付け、印刷(@media print)には波及させない。 */
+@media screen and (min-width:601px){#tp .jbtns{grid-template-columns:repeat(4,1fr)}}
 .jbtn{padding:10px;border:2px solid #cbd5e0;background:white;border-radius:6px;cursor:pointer;font-weight:600;text-align:center;font-size:12px}
 .jbtn.active.jc{background:#38a169;color:white;border-color:#38a169}
 .jbtn.active.js{background:#c53030;color:white;border-color:#c53030}
@@ -766,6 +769,9 @@ body.is-mob .mob-menu{display:inline-block}
   #doukouBtn,.mic-btn,.ibt,.aibis-mic,.aibis-interim{display:none!important}
   #tr .vcard.ri input,#tr .vcard.ri select,#tp .vcard.pi input,#tp .vcard.pi select{min-height:0!important;padding:1px 3px!important}
   #tr .vcard.ri .vh,#tp .vcard.pi .vh{flex-wrap:wrap!important;gap:0.5mm 3mm!important;align-items:baseline!important}
+  /* 第224弾: 提案依頼ボタンの画面上サイズ強化(revisit_panel.html)が印刷へ波及しないよう、
+   * 従来サイズへ復元する。#tp .jbtns 4列化はscreenスコープのため印刷は無影響（別記）。 */
+  #proposalReqBtn{padding:8px 14px!important;font-size:12px!important;min-height:38px!important;flex:0 0 auto!important}
 }
 
 
@@ -2609,7 +2615,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.20";
+var APP_VERSION = "v11.21";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -22465,7 +22471,18 @@ window.toggleEkitoho=toggleEkitoho; window.updateEkitohoBtn=updateEkitohoBtn;
 function toggleProposalReq(){ if(!cur) return; cur.proposal_req=!cur.proposal_req; if(cur.proposal_req){ if(!cur.proposal_req_at) cur.proposal_req_at=todayStr(); } else { cur.proposal_req_at=''; } updateProposalReqBtn(); }
 function updateProposalReqBtn(){
   var btn=document.getElementById('proposalReqBtn'); if(!btn) return;
-  if(cur && cur.proposal_req){ btn.textContent='⭕ 提案依頼取得'; btn.style.background='linear-gradient(135deg,#2f9e44,#2b8a3e)'; btn.style.borderColor='#2b8a3e'; btn.style.color='#fff'; btn.style.boxShadow='0 2px 6px rgba(43,138,62,.3)'; }
+  if(cur && cur.proposal_req){
+    var _label='⭕ 提案依頼取得';
+    var _at=cur.proposal_req_at;
+    var _m=(typeof _at==='string') ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(_at) : null;
+    if(_m){
+      var _y=+_m[1], _mo=+_m[2], _d=+_m[3];
+      var _leap=(_y%4===0 && _y%100!==0) || (_y%400===0);
+      var _dim=[31,_leap?29:28,31,30,31,30,31,31,30,31,30,31];
+      if(_mo>=1 && _mo<=12 && _d>=1 && _d<=_dim[_mo-1]){ _label+=' '+_m[1]+'/'+_m[2]+'/'+_m[3]; }
+    }
+    btn.textContent=_label; btn.style.background='linear-gradient(135deg,#2f9e44,#2b8a3e)'; btn.style.borderColor='#2b8a3e'; btn.style.color='#fff'; btn.style.boxShadow='0 2px 6px rgba(43,138,62,.3)';
+  }
   else { btn.textContent='❌ 提案依頼未取得'; btn.style.background='white'; btn.style.borderColor='#cbd5e0'; btn.style.color='#718096'; btn.style.boxShadow='none'; }
 }
 window.toggleProposalReq=toggleProposalReq; window.updateProposalReqBtn=updateProposalReqBtn;
@@ -23064,7 +23081,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
           <label class="ci"><input type="radio" name="rusu" onchange="onRusuChange()" value="4"><span>4</span></label>
           <label class="ci"><input type="radio" name="rusu" onchange="onRusuChange()" value="5"><span>5</span></label>
         </div>
-          <button type="button" id="proposalReqBtn" onclick="toggleProposalReq()" style="margin-left:auto;flex-shrink:0;padding:8px 14px;border:2px solid #cbd5e0;border-radius:7px;background:white;cursor:pointer;font-family:inherit;font-weight:700;font-size:12px;color:#718096;white-space:nowrap;min-height:38px">❌ 提案依頼未取得</button>
+          <button type="button" id="proposalReqBtn" onclick="toggleProposalReq()" style="flex:1 1 auto;min-width:160px;padding:12px 16px;border:2px solid #cbd5e0;border-radius:7px;background:white;cursor:pointer;font-family:inherit;font-weight:700;font-size:13.5px;color:#718096;white-space:nowrap;min-height:44px">❌ 提案依頼未取得</button>
         </div>
       </div>
     </div>
