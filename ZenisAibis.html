@@ -2615,7 +2615,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.21";
+var APP_VERSION = "v11.22";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -19272,6 +19272,25 @@ window.addEventListener('popstate',function(ev){
     var _rpTries=0;
     while(_rpTries<3 && typeof _rpCloseFrontOverlay==='function' && _rpCloseFrontOverlay()){ _rpTries++; }
   }
+  /* 第225弾層3a-3c: Inbox最前面（pick z1700 > viewer z1600 > view z1500 の優先順）。
+   * push-on-open+自然pop方式のため、closeは直接hideのみでhistoryへ再pushしない
+   * （open時+1・close時-1で正味±0。geoMapOvの「close時にも再push」型は踏襲しない）。
+   * 実体closeはclose*系関数（popstateとオンスクリーンwrapper共通の唯一の実装）へ委譲する。 */
+  var _inbPick=document.getElementById('inboxPick');
+  if(_inbPick && _inbPick.style.display!=='none' && _inbPick.style.display!==''){
+    try{ closeInboxPick(); }catch(e){}
+    return;
+  }
+  var _inbViewer=document.getElementById('inboxViewer');
+  if(_inbViewer && _inbViewer.style.display!=='none' && _inbViewer.style.display!==''){
+    try{ closeInboxPhoto(); }catch(e){}
+    return;
+  }
+  var _inbView=document.getElementById('inboxView');
+  if(_inbView && _inbView.style.display!=='none' && _inbView.style.display!==''){
+    try{ closeInbox(); }catch(e){}
+    return;
+  }
   try{ autoCommitEdit(); }catch(_e){}
   var st=ev.state||{}; var zv=st.zv||'list';
   /* 第164弾: ショットガンが開いている状態でブラウザ戻る→戻るボタンと同じ出口(_sggShowReturn)へ一本化。
@@ -19303,6 +19322,13 @@ window.addEventListener('popstate',function(ev){
     _sortieReturn=null;
     if(typeof _sortieOpenedExplicit!=='undefined') _sortieOpenedExplicit=false;
   }
+  /* 第225弾: 有界Inbox掃除（防御用・1回のみ・historyは一切触れない）。通常は層3a-3cが
+   * 必ず先にreturnするため到達しないが、想定外の残留に対する保険として置く。ループ・
+   * retry・history書込みは行わない。層3a-3c自体を置き換えるものではない。 */
+  ['inboxPick','inboxViewer','inboxView'].forEach(function(_iid){
+    var _iel=document.getElementById(_iid);
+    if(_iel && _iel.style.display!=='none' && _iel.style.display!==''){ _iel.style.display='none'; }
+  });
   _silent=true;
   try{
     if(zv==='shotgun'){ if(typeof sggOpen==='function' && (!_sgv || _sgv.style.display==='none')){ var _lv=document.getElementById('listView'); if(_lv)_lv.style.display='none'; if(_sgv)_sgv.style.display='block'; if(typeof sggRenderAll==='function') sggRenderAll(); } }
@@ -24526,19 +24552,19 @@ window.updateRyokuchiBtn=function(){var btn=document.getElementById("ryokuchiBtn
 </style>
 <div id="inboxView">
   <div class="ih">
-    <button onclick="closeInbox()">← 戻る</button>
+    <button onclick="_inboxViewBackBtn()">← 戻る</button>
     <b id="inboxTitle">📥 インボックス</b>
   </div>
   <div id="inboxBody"></div>
 </div>
 <div id="inboxViewer">
-  <div class="ivt"><button onclick="closeInboxPhoto()">✕</button><b id="ivWhen"></b></div>
+  <div class="ivt"><button onclick="_inboxViewerBackBtn()">✕</button><b id="ivWhen"></b></div>
   <img id="ivImg" alt="">
   <div class="iva"><button onclick="inboxPhotoStep(-1)">‹ 前</button><button onclick="inboxPhotoStep(1)">次 ›</button></div>
 </div>
 <div id="inboxPick">
   <div class="ipc">
-    <div class="iph"><b>🔗 紐付け先のカードを選択</b><button onclick="closeInboxPick()">閉じる</button></div>
+    <div class="iph"><b>🔗 紐付け先のカードを選択</b><button onclick="_inboxPickBackBtn()">閉じる</button></div>
     <div class="ipsort"><span class="sortbar-lab">🔀 並替：</span><div class="sortbar-scroll"><button class="sbtn active" id="psk_lv" onclick="pickSort('lv')">🚶 最新</button><button class="sbtn" id="psk_rv" onclick="pickSort('rv')">🔁 再訪</button><button class="sbtn" id="psk_jw" onclick="pickSort('jw')">⚖ 判定待ち</button><button class="sbtn" id="psk_ad" onclick="pickSort('ad')">🏠 住所</button><button class="sbtn" id="psk_sc" onclick="pickSort('sc')">⭐ スコア</button><button class="sbtn" id="psk_st" onclick="pickSort('st')">📊 心理</button><button class="sbtn" id="psk_pj" onclick="pickSort('pj')">🎯 ランク</button><button class="sbtn" id="psk_pace" onclick="pickSort('pace')">⏰ 遅れ</button><button class="sbtn" id="psk_dt" onclick="pickSort('dt')">📅 初訪</button></div></div>
     <div class="ipsearchrow"><button type="button" class="mic-btn hb" onclick="micStart('inboxPickSearch',this)" title="音声で検索" style="flex-shrink:0;margin-top:0">🎤</button><div style="position:relative;flex:1"><span class="ipsicon">🔍</span><input id="inboxPickSearch" placeholder="名前・担当・住所で検索" oninput="renderInboxPickList()"></div></div>
     <div id="inboxPickList"></div>
@@ -24663,8 +24689,30 @@ document.addEventListener('visibilitychange',function(){
 function openInboxForCard(){ if(!curId){ toast("カードを開いてからどうぞ"); return; } _inboxAttach=curId; _showInbox(); }
 function cardOpenCam(cid){ if(!cid){ toast("カードを開いてからどうぞ"); return; } var u='AibisCam.html?cardId='+encodeURIComponent(cid); try{ window.open(u,'aibiscam'); }catch(e){ location.href=u; } toast('カメラで撮影 → 戻るとこのカードに紐付きます'); }
 window.cardOpenCam=cardOpenCam;
-function _showInbox(){ var v=document.getElementById("inboxView"); if(v) v.style.display="block"; renderInboxBody(); }
-function closeInbox(){ if(window._inboxReturnToCam){ window._inboxReturnToCam=false; try{ location.href="AibisCam.html"; return; }catch(e){} } document.getElementById("inboxView").style.display="none"; var a=_inboxAttach; _inboxAttach=null; if(a){ openCard(a); } }
+function _showInbox(){
+  var v=document.getElementById("inboxView");
+  var _already=v && v.style.display!=="none" && v.style.display!=="";
+  if(v) v.style.display="block";
+  renderInboxBody();
+  /* 第225弾: push-on-open + 自然pop。既に開いている場合は多重pushしない（open1回=push1回）。 */
+  if(!_already){ try{ history.pushState({zv:"inbox"},""); }catch(e){} }
+}
+function closeInbox(){
+  if(window._inboxReturnToCam){ window._inboxReturnToCam=false; try{ location.href="AibisCam.html"; return; }catch(e){} }
+  document.getElementById("inboxView").style.display="none";
+  var a=_inboxAttach; _inboxAttach=null;
+  /* 第225弾F5是正: 「戻るだけ」なのにカード復帰用の実遷移関数呼出（新規history entryを積む
+   * 副作用を持つ）を行っていた旧処理を除去。カードはeditView側で既に生きているため、
+   * 写真表示の再描画だけ行う（履歴非接触）。 */
+  if(a){ try{ if(typeof renderCardPhotos==="function") renderCardPhotos(a); }catch(e){} }
+}
+/* 第225弾: Inbox「← 戻る」用の薄いhistory.backラッパー。自分がpushした所有entryが
+ * 生きている場合だけhistory.back()し、実体closeはpopstate層3cのみが行う。異常時
+ * （直接呼出等でowned entryが無い場合）はアプリ外へ離脱せずcloseInbox()へ直接fallbackする。 */
+function _inboxViewBackBtn(){
+  if(history.state && history.state.zv==="inbox"){ try{ history.back(); return; }catch(e){} }
+  closeInbox();
+}
 function inboxToList(){ window._inboxReturnToCam=false; _inboxAttach=null; var v=document.getElementById("inboxView"); if(v) v.style.display="none"; try{ history.replaceState({zv:"list",id:null},""); }catch(e){} if(typeof _navToList==="function") _navToList(); if(typeof renderCards==="function") renderCards(); }
 window.inboxToList=inboxToList;
 function _cardById(id){ return (typeof cards!=="undefined"&&cards)?cards.find(function(c){return c.id===id;}):null; }
@@ -25055,8 +25103,13 @@ function _delSet(id){ mGet(id).then(function(s){ if(!s) return;
 }); }
 
 /* ---- 紐付けピッカー ---- */
-function openInboxPick(setId){ _pickSetId=setId; document.getElementById("inboxPickSearch").value=""; document.getElementById("inboxPick").style.display="flex"; renderInboxPickList(); }
+function openInboxPick(setId){ _pickSetId=setId; document.getElementById("inboxPickSearch").value=""; var _pk=document.getElementById("inboxPick"); var _already=_pk&&_pk.style.display!=="none"&&_pk.style.display!==""; if(_pk) _pk.style.display="flex"; renderInboxPickList(); if(!_already){ try{ history.pushState({zv:"inboxpick"},""); }catch(e){} } }
 function closeInboxPick(){ document.getElementById("inboxPick").style.display="none"; _pickSetId=null; }
+/* 第225弾: picker「閉じる」用の薄いhistory.backラッパー（closeInbox系と同型）。 */
+function _inboxPickBackBtn(){
+  if(history.state && history.state.zv==="inboxpick"){ try{ history.back(); return; }catch(e){} }
+  closeInboxPick();
+}
 var _pickSortKey="lv", _pickSortDir={};
 function _pickSortArr(arr){
   var k=_pickSortKey;
@@ -25091,7 +25144,7 @@ function renderInboxPickList(){
 function _doLink(cardId){ if(!_pickSetId) return; var sid=_pickSetId; mGet(sid).then(function(s){ if(!s) return; s.cardId=cardId; s.cardName=_cardName(cardId); s.unlinked=false; mPut(s).then(function(){ closeInboxPick(); toast(_cardName(cardId)+" に紐付けました"); renderInboxBody(); try{ _mergePhotoMetaToCard(cardId, s); }catch(e){} }); }); }
 
 /* ---- 写真ビューア ---- */
-function openInboxPhoto(setId,startIdx){ mGet(setId).then(function(s){ if(!s||!s.photos.length) return; _ivSet=s; _ivIdx=(startIdx>0&&startIdx<s.photos.length)?startIdx:0; _showIv(); document.getElementById("inboxViewer").style.display="flex"; }); }
+function openInboxPhoto(setId,startIdx){ mGet(setId).then(function(s){ if(!s||!s.photos.length) return; _ivSet=s; _ivIdx=(startIdx>0&&startIdx<s.photos.length)?startIdx:0; _showIv(); var _vw=document.getElementById("inboxViewer"); var _already=_vw&&_vw.style.display!=="none"&&_vw.style.display!==""; if(_vw) _vw.style.display="flex"; if(!_already){ try{ history.pushState({zv:"inboxviewer"},""); }catch(e){} } }); }
 function _showIv(){ if(!_ivSet) return; var p=_ivSet.photos[_ivIdx]; if(!p) return;
   if(_ivUrl){ try{URL.revokeObjectURL(_ivUrl);}catch(e){} _ivUrl=null; }
   var img=document.getElementById("ivImg");
@@ -25100,6 +25153,11 @@ function _showIv(){ if(!_ivSet) return; var p=_ivSet.photos[_ivIdx]; if(!p) retu
   document.getElementById("ivWhen").textContent=(_ivIdx+1)+"/"+_ivSet.photos.length+(p.w?(" ・ "+p.w+"×"+p.h):""); }
 function inboxPhotoStep(d){ if(!_ivSet) return; _ivIdx=(_ivIdx+d+_ivSet.photos.length)%_ivSet.photos.length; _showIv(); }
 function closeInboxPhoto(){ document.getElementById("inboxViewer").style.display="none"; if(_ivUrl){ try{URL.revokeObjectURL(_ivUrl);}catch(e){} _ivUrl=null; } _ivSet=null; }
+/* 第225弾: viewer✕用の薄いhistory.backラッパー（closeInbox系と同型）。 */
+function _inboxViewerBackBtn(){
+  if(history.state && history.state.zv==="inboxviewer"){ try{ history.back(); return; }catch(e){} }
+  closeInboxPhoto();
+}
 
 /* ---- カード内の計画地写真表示（表示専用） ---- */
 var _cpSets=[], _cpIdx=0, _cpCard=null;
@@ -25148,7 +25206,7 @@ function _imeHints(root){ try{ if(!root) return; if(root.tagName){ var tg=root.t
 /* ---- AibisCam等からのURL遷移：?card=ID でカード / ?inbox でインボックス ---- */
 (function(){ try{
   var sp=new URLSearchParams(location.search||"");
-  var cardId=sp.get("card"), wantInbox=sp.get("inbox"), fromCam=(sp.get("from")==="cam");
+  var cardId=sp.get("card"), wantInbox=sp.has("inbox"), fromCam=(sp.get("from")==="cam");
   if(!cardId && !wantInbox) return;
   var tries=0;
   var run=function(){
@@ -25158,7 +25216,7 @@ function _imeHints(root){ try{ if(!root) return; if(root.tagName){ var tg=root.t
       var done=false;
       if(cardId && typeof openCard==="function" && (cards||[]).some(function(c){return c&&c.id===cardId;})){ openCard(cardId); done=true; if(fromCam && typeof mAll==="function"){ try{ mAll().then(function(all){ var ss=(all||[]).filter(function(s){return s&&s.cardId===cardId&&(s.note||"").trim();}).sort(function(a,b){return (b.ts||0)-(a.ts||0);}); if(ss[0]) _mergePhotoMetaToCard(cardId, ss[0]); }); }catch(_e){} } }
       else if((wantInbox||cardId) && typeof openInbox==="function"){ if(fromCam) window._inboxReturnToCam=true; openInbox(); done=true; }
-      if(done){ try{ history.replaceState({}, "", location.pathname); }catch(_e){} }
+      if(done){ try{ history.replaceState(history.state||{}, "", location.pathname); }catch(_e){} }
     }catch(e){}
   };
   if(document.readyState!=="loading") setTimeout(run,300); else document.addEventListener("DOMContentLoaded",function(){ setTimeout(run,300); });
@@ -25215,6 +25273,8 @@ window.openInbox=openInbox; window.openInboxForCard=openInboxForCard; window.clo
 window.closeInboxPick=closeInboxPick; window.renderInboxPickList=renderInboxPickList;
 window.openInboxPhoto=openInboxPhoto; window.inboxPhotoStep=inboxPhotoStep; window.closeInboxPhoto=closeInboxPhoto;
 window.importPhotoBundle=importPhotoBundle;
+/* 第225弾: 画面上の3close導線（← 戻る／✕／閉じる）用history.backラッパーのwindow公開。 */
+window._inboxViewBackBtn=_inboxViewBackBtn; window._inboxViewerBackBtn=_inboxViewerBackBtn; window._inboxPickBackBtn=_inboxPickBackBtn;
 setTimeout(function(){ try{ updateInboxBadge(); }catch(e){} }, 800);
 </script>
 <!-- ===== 写真インボックス ここまで ===== -->
