@@ -2615,7 +2615,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.22";
+var APP_VERSION = "v11.23";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12516,41 +12516,147 @@ function _sendCards(selected, toEmail, ccEmail, subjPrefix, onDone, copyAddr, bd
   var body='AIBIS '+(subjPrefix||'')+(_isAllSel?' [ALL選択]':'')+brk+'\n'+ts+(extraBody?('\n\n'+extraBody):'');
   var clipAddr=(typeof copyAddr!=='undefined'&&copyAddr!==null&&copyAddr!=='')?copyAddr:(toEmail||'');
   var cardFile=null; try{ cardFile=new File([data],fn,{type:'application/json'}); }catch(_e){}
-  function fallback(files){
-    (files||[]).forEach(function(f){ try{ var url=URL.createObjectURL(f); var a=document.createElement('a'); a.href=url; a.download=(f.name||fn); document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(url); },4000); }catch(_e){} });
-    var q=(ccEmail?'?cc='+ccEmail+'&subject=':'?subject=')+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
-    _mailtoPrompt('mailto:'+(toEmail||'')+q, ((files&&files.length>1)?'宛先は入力済み。①DLした2ファイル（カード＋写真）を添付　②送信してね。':'宛先は入力済み。①DLしたファイルを添付　②送信してね。'));
-    if(onDone) onDone();
+  /* 第226弾是正版(Correction B/C・ChatGPT Light Audit 2026-09-02):
+   * B: fallbackは「1)カードDL実行→2)有限遅延→3)写真DL実行→4)写真DLがcodeレベル例外なく
+   *    完了した場合のみ_confirmPhotoSent開始→5)mailtoPrompt表示」の順で実行する。
+   *    旧実装はsetTimeoutでスケジュールした直後に_confirmPhotoSentを開始しており、
+   *    写真クリック試行の完了を待たずsent確定してしまうタイミング欠陥があった。
+   * C: 再取得コントロールはper-send window[_rdId]グローバルを作らず、_mailtoPrompt
+   *    呼出後にDOM addEventListenerで束縛する（aibisAlertは新規alert表示時に既存
+   *    #aibisAlertOverlayをremoveChildで除去するため、closureはalert DOM生存期間に
+   *    束縛され、除去後は到達不能→収集可能になる）。 */
+  function doDownloadClick(f){
+    return new Promise(function(resolve){
+      try{
+        var url=URL.createObjectURL(f);
+        var a=document.createElement('a');
+        a.href=url; a.download=(f.name||fn);
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ try{ URL.revokeObjectURL(url); }catch(_e){} },4000);
+        resolve(true);
+      }catch(_e){ resolve(false); }
+    });
   }
-  function doShare(files){
+  function fallback(files, photoIds){
+    var cardF=(files&&files[0])?files[0]:null;
+    var photoF=(files&&files.length>1)?files[1]:null;
+
+    function attachRedownload(redlId){
+      if(!photoF) return;
+      var el=document.getElementById(redlId);
+      if(!el) return;
+      el.addEventListener('click', function(ev){
+        ev.preventDefault();
+        try{
+          var url=URL.createObjectURL(photoF);
+          var a=document.createElement('a');
+          a.href=url; a.download=(photoF.name||'photo.json');
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function(){ try{ URL.revokeObjectURL(url); }catch(_e){} },4000);
+        }catch(_e){}
+      });
+    }
+
+    function showPrompt(photoClickOk){
+      var hasPhoto=!!photoF;
+      var redlId='', redlHtml='';
+      if(hasPhoto){
+        redlId='dan226Redl'+Date.now()+Math.random().toString(36).slice(2);
+        redlHtml='<br><a href="#" id="'+redlId+'" style="display:block;text-align:center;padding:8px;margin-top:6px;background:#edf2f7;color:#2d3748;border-radius:7px;text-decoration:none;font-size:12.5px;font-weight:700">📷 写真JSON（'+e(photoF.name||'')+'）をもう一度DL</a>';
+      }
+      var namesNote;
+      if(hasPhoto && photoClickOk){
+        namesNote=('①DLした2ファイル（'+e((cardF&&cardF.name)||'')+' + '+e((photoF&&photoF.name)||'')+'）を添付　②送信してね。'+redlHtml);
+      } else if(hasPhoto && !photoClickOk){
+        namesNote=('①DLしたカードJSON（'+e((cardF&&cardF.name)||'')+'）を添付　②写真JSONの自動DLが完了しなかったため、下のボタンで取得してから添付　③送信してね。'+redlHtml);
+      } else {
+        namesNote=('①DLしたファイル（'+e((cardF&&cardF.name)||'')+'）を添付　②送信してね。');
+      }
+      var q=(ccEmail?'?cc='+ccEmail+'&subject=':'?subject=')+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+      _mailtoPrompt('mailto:'+(toEmail||'')+q, namesNote);
+      if(hasPhoto) attachRedownload(redlId);
+      if(onDone) onDone();
+    }
+
+    var cardStep=cardF?doDownloadClick(cardF):Promise.resolve(true);
+    cardStep.then(function(){
+      if(!photoF){ showPrompt(false); return; }
+      return new Promise(function(resolve){ setTimeout(resolve, 400); })
+        .then(function(){ return doDownloadClick(photoF); })
+        .then(function(photoClickOk){
+          if(photoClickOk && photoIds && photoIds.length && typeof _confirmPhotoSent==='function'){
+            _confirmPhotoSent(photoIds).then(function(){ showPrompt(true); });
+          } else {
+            showPrompt(false);
+          }
+        });
+    });
+  }
+  function doShare(files, photoIds){
     try{ if(clipAddr && navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(clipAddr); } }catch(_e){}
     navigator.share({files:files, title:subj, text:body})
-      .then(function(){ toast(clipAddr?('共有OK。宛先「'+clipAddr+'」をコピー済→宛先に貼り付け'):'共有しました'); if(onDone) onDone(); })
-      .catch(function(err){ if(err && err.name==='AbortError') return; fallback(files); });
+      .then(function(){
+        function afterMark(){ toast(clipAddr?('共有OK。宛先「'+clipAddr+'」をコピー済→宛先に貼り付け'):'共有しました'); if(onDone) onDone(); }
+        if(photoIds && photoIds.length && typeof _confirmPhotoSent==='function'){ _confirmPhotoSent(photoIds).then(afterMark); }
+        else { afterMark(); }
+      })
+      .catch(function(err){ if(err && err.name==='AbortError') return; fallback(files, photoIds); });
   }
   // 写真も同梱：Phone-to-PC=全インボックス（フル退避）／他=送るカードに紐付く写真だけ
+  // 第226弾: DAN226ではphotoScopeの意味は変更しない（ChatGPT §7-4裁定・現行all維持）。
   var photoScope=(subjPrefix==='Phone-to-PC')?'all':'cards';
   var _selIds={}; (selected||[]).forEach(function(c){ if(c&&c.id) _selIds[c.id]=1; });
+  /* 第226弾R1是正: File|nullではなく{status:'none'|'ok'|'error',file,count,sets,reason}を返す。
+   * .catch(()=>null)による無警告縮退を廃し、失敗理由を保持する。sets.forEach宛のsent=true
+   * 事前書込み（R2の原因）はここから完全に除去した（sent確定は配信確定後のみ・inbox.js側）。 */
   var getPhotoFile=function(){
-    if(typeof mAll!=='function'||typeof _buildPhotoBundle!=='function') return Promise.resolve(null);
-    return mAll().then(function(all){
-      all=all||[];
-      var sets=(photoScope==='all')?all:all.filter(function(s){ return s && s.cardId && s.cardId!==MEDIA_INBOX && _selIds[s.cardId]; });
-      if(!sets.length) return null;
-      try{ sets.forEach(function(st){ st.sent=true; mPut(st); }); }catch(_e){} // 送信＝書き出し扱い（インボックスの書き出し済を更新）
-      return _buildPhotoBundle(sets).then(function(bundle){ try{ return new File([JSON.stringify(bundle)],'AIBIS_PHOTOS_'+tag+'_'+(uName||'staff')+'_'+ts+'.json',{type:'application/json'}); }catch(_e){ return null; } });
-    }).catch(function(){ return null; });
-  };
-  getPhotoFile().then(function(photoFile){
-    var files=[]; if(cardFile) files.push(cardFile); if(photoFile) files.push(photoFile);
-    var canShareFiles=(typeof navigator!=='undefined' && navigator.share && navigator.canShare);
-    if(files.length){
-      if(isMob && canShareFiles && navigator.canShare({files:files})){ doShare(files); return; }
-      fallback(files); return;
+    if(typeof mAll!=='function'||typeof _buildPhotoBundle!=='function'){
+      return Promise.resolve({status:'error', file:null, count:0, sets:null, reason:'missing-api'});
     }
-    var blob=new Blob([data],{type:'application/json'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download=fn; a.click(); setTimeout(function(){ URL.revokeObjectURL(url); },1500);
-    var q=(ccEmail?'?cc='+ccEmail+'&subject=':'?subject=')+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
-    _mailtoPrompt('mailto:'+(toEmail||'')+q,'宛先は入力済み。①DLしたファイルを添付　②送信してね。'); if(onDone) onDone();
+    return mAll().then(function(all){
+      if(!Array.isArray(all)){
+        return {status:'error', file:null, count:0, sets:null, reason:'malformed'};
+      }
+      var sets=(photoScope==='all')?all:all.filter(function(s){ return s && s.cardId && s.cardId!==MEDIA_INBOX && _selIds[s.cardId]; });
+      if(!sets.length) return {status:'none', file:null, count:0, sets:[], reason:null};
+      /* 第226弾是正(Correction D・ChatGPT Light Audit 2026-09-02): _buildPhotoBundle(sets)の
+       * 同期throwはPromise chain外で発生するため、Promise.resolve().then(...)でreject化して
+       * からこのブロック内でcatchする。これにより外側mAll catchのreason:'mAll-reject'への
+       * 誤帰属を防ぎ、正しくbundle-failedへ分類する。 */
+      return Promise.resolve().then(function(){ return _buildPhotoBundle(sets); }).then(function(bundle){
+        var file=null;
+        try{ file=new File([JSON.stringify(bundle)],'AIBIS_PHOTOS_'+tag+'_'+(uName||'staff')+'_'+ts+'.json',{type:'application/json'}); }catch(_e){}
+        if(!file) return {status:'error', file:null, count:sets.length, sets:sets, reason:'file-create-failed'};
+        return {status:'ok', file:file, count:sets.length, sets:sets, reason:null};
+      }).catch(function(){
+        return {status:'error', file:null, count:sets.length, sets:sets, reason:'bundle-failed'};
+      });
+    }).catch(function(){
+      return {status:'error', file:null, count:0, sets:null, reason:'mAll-reject'};
+    });
+  };
+  getPhotoFile().then(function(photoResult){
+    function proceedWithFiles(includePhoto){
+      var photoFile=includePhoto?photoResult.file:null;
+      var photoIds=(includePhoto && photoResult.sets)?photoResult.sets.map(function(s){return s.id;}):null;
+      var files=[]; if(cardFile) files.push(cardFile); if(photoFile) files.push(photoFile);
+      var canShareFiles=(typeof navigator!=='undefined' && navigator.share && navigator.canShare);
+      if(files.length){
+        if(isMob && canShareFiles && navigator.canShare({files:files})){ doShare(files, photoIds); return; }
+        fallback(files, photoIds); return;
+      }
+      var blob=new Blob([data],{type:'application/json'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download=fn; a.click(); setTimeout(function(){ URL.revokeObjectURL(url); },1500);
+      var q=(ccEmail?'?cc='+ccEmail+'&subject=':'?subject=')+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+      _mailtoPrompt('mailto:'+(toEmail||'')+q,'宛先は入力済み。①DLしたファイルを添付　②送信してね。'); if(onDone) onDone();
+    }
+    /* 第226弾R1是正: errorをnoneへ無警告縮退させない。onDoneに依存しない位置で明示確認する。
+     * 「カードだけ送る」→ 従来card-only経路（カードJSONは失わない）。「やめる」→ 送信中止
+     * （aibisConfirmの既定no-callback挙動＝何もしない＝sent未更新・onDone未呼出）。 */
+    if(photoResult.status==='error'){
+      aibisConfirm('写真データの読み出しに失敗しました。カードJSONだけ送りますか？', function(){ proceedWithFiles(false); }, 'カードだけ送る', 'やめる');
+      return;
+    }
+    proceedWithFiles(photoResult.status==='ok');
   });
 }
 function mailSelectedToManager(skipWarn, diffIds){
@@ -24919,6 +25025,19 @@ function inboxSendToPC(){
   });
 }
 window.inboxSendToPC=inboxSendToPC;
+/* 第226弾: 写真sent確定の単一実装。list_select_send.jsの_sendCards()から、配信確定後の
+ * タイミングでのみ呼ばれる。inboxSendToPC()自身のmarkSentAndDone内chainと同一方式
+ * （各idをmGet→sent=true→mPutで順次確定。stale pre-read setsを直接mPutしない）。
+ * レコードが既に消失している場合は書込みをスキップする（disappeared record許容）。
+ * inboxSendToPC()本体は無改修。 */
+function _confirmPhotoSent(ids){
+  var chain=Promise.resolve();
+  (ids||[]).forEach(function(id){
+    chain=chain.then(function(){ return mGet(id).then(function(cur){ if(cur){ cur.sent=true; return mPut(cur); } }); });
+  });
+  return chain;
+}
+window._confirmPhotoSent=_confirmPhotoSent;
 function renderInboxBody(){
   var host=document.getElementById("inboxBody");
   if(host) host.innerHTML='<div class="iempty">読み込み中…</div>';
