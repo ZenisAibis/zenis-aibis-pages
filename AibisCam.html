@@ -442,7 +442,7 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.78";
+const APP_VERSION = "cam-v1.79";
 
 /* === 更新バッジ（第158弾A・第159弾で厳密化）: 本体・カメラ共有実装 ===
  * 起動時にPublic版のversion.json（cache-bust付き）を取得し、自分のAPP_VERSIONと比較する。
@@ -577,6 +577,7 @@ const TOKYO_WARDS = {
 
 /* ---------- 状態 ---------- */
 let DB=null, stream=null, track=null, geoWatch=null, lastPos=null;
+let _camGen=0;   // DAN227 D-C: startCamera世代token（旧呼出しが現在画面へstreamを残さないためのguard）
 let mode="quick", targetCard=INBOX, curSet=null, fromAibis=false, facing="environment", torchOn=false, capturing=false;
 let _zoomCap=null,_curZoom=1,_focusPOI=false,_focusModes=[];
 let sendSel=new Set(), sendSeen=new Set();   // 未紐付けの送信選択（idのSet）
@@ -584,13 +585,61 @@ let qaReturnMode=false;                       // 光速入力から ?ret=qa で�
 let _launchedFromMain=false;                  // 本体側（?cardId / ?ret=qa）から起動した＝完了で反映してクローズ。直接起動は完了でインボックスへ
 let viewPhoto=null, pickMode="open", linkTargetId=null, linkFromInbox=false, MUNI=null, micRec=null, kpVal="";
 var _scr="cam";
+/* ---------- DAN227: history状態（push-on-open + natural pop） ---------- */
+var _zcState=null;      // 現在所有しているzc state（pushState/replaceState/popstateの各時点で更新）
+var _silent=false;      // popstate再入場・_zcBack fallback実行中はhistoryへ触れない
+var _launchCid=null;    // 起動時cardId（root再入場F8修正用）
+var _zcBackBusy=false;  // 端末戻る相当の発行直後、次のpopstateまで再発行禁止（安全弁800ms）
+function enterRoot(){ if(_launchCid){ enterCamera(_launchCid); } else { enterQuick(); } }
+function _closeViewer(){ $("viewer").classList.add("hide"); viewPhoto=null; viewSet=null; }
+function _closeMap(){ $("mapEdit").classList.add("hide"); }
+function _closeKeypad(){ $("keypad").classList.add("hide"); }
+function _closeCfg(){ $("camCfg").classList.add("hide"); }
+function _zcBack(tag, fallback){
+  var cur=history.state;
+  if(cur && cur.zc===tag){
+    if(_zcBackBusy) return;
+    _zcBackBusy=true;
+    setTimeout(function(){ _zcBackBusy=false; },800);
+    try{ history.back(); }
+    catch(e){ _zcBackBusy=false; _silent=true; try{ fallback&&fallback(); }catch(_e){} _silent=false; }
+  } else {
+    _silent=true;
+    try{ fallback&&fallback(); }catch(e){}
+    _silent=false;
+  }
+}
 function _aibisBack(){
   if(_scr==="set"){ openInbox(); return; }
-  if(_scr==="inbox"){ enterQuick(); return; }
+  if(_scr==="inbox"){ enterRoot(); return; }
   if(_scr==="pick"){ if(pickMode==="link"){ if(linkFromInbox){ linkFromInbox=false; openInbox(); } else { openSet(linkTargetId); } } else { enterQuick(); } return; }
   if(_scr==="gal"){ if(openGallery._fromCam){ enterCamera(targetCard); } else { openPick("open"); } return; }
 }
-window.addEventListener("popstate", function(){ if(_scr && _scr!=="cam"){ _aibisBack(); try{ history.pushState({ac:1},""); }catch(e){} } });
+/* 単一popstate owner。優先順位固定：層0 aibisAlertOverlay ＞ 層1 viewer/map/keypad/cfg ＞ 層2 screen再入場。 */
+window.addEventListener("popstate", function(ev){
+  _zcBackBusy=false;
+  var prev=_zcState;
+  var st=ev.state||{};
+  if($("aibisAlertOverlay")){
+    closeAibisAlert();
+    try{ if(prev){ history.pushState(prev,""); } }catch(e){}
+    _zcState=history.state;
+    return;
+  }
+  _zcState=st; // 層1の早期returnより必ず前で更新する（DAN227是正A）
+  if(!$("viewer").classList.contains("hide")){ _closeViewer(); return; }
+  if(!$("mapEdit").classList.contains("hide")){ _closeMap(); return; }
+  if(!$("keypad").classList.contains("hide")){ _closeKeypad(); return; }
+  if(!$("camCfg").classList.contains("hide")){ _closeCfg(); return; }
+  _silent=true;
+  var zc=st.zc;
+  if(zc==="inbox"){ openInbox(); }
+  else if(zc==="set"){ openSet(st.id); }
+  else if(zc==="pick"){ linkTargetId=st.lt||null; openPick(st.mode||"open"); }
+  else if(zc==="root"||zc==null){ if(_scr!=="cam"){ enterRoot(); } }
+  /* else: viewer/map/keypad/cfg等のoverlayタグがforward復活・stale状態として届いた場合はno-op（対象overlay非表示のため自動再openしない・例外なし） */
+  _silent=false;
+});
 let leafMap=null, meTargetId=null;
 
 const $ = id => document.getElementById(id);
@@ -706,10 +755,13 @@ async function boot(){
   loadMuni();
   const p=new URLSearchParams(location.search), cid=p.get("cardId");
   if(p.get("ret")==="qa") qaReturnMode=true;
+  _launchCid = cid || null;
   if(cid){ fromAibis=true; enterCamera(cid); } else { enterQuick(); }
   _launchedFromMain = !!cid || qaReturnMode;
   try{ if(_launchedFromMain){ var _vl=$("vLink"); if(_vl) _vl.style.display="none"; } }catch(e){}
-  try{ history.pushState({ac:1},""); }catch(e){}
+  /* DAN227: boot時は常にrootへ正規化（reload等で残った非root stateも上書きする） */
+  try{ history.replaceState({zc:"root", cid:_launchCid}, "", ""); }catch(e){}
+  _zcState=history.state;
 }
 
 /* ---------- 画面遷移 ---------- */
@@ -726,14 +778,26 @@ function configureHeader(){
 async function enterQuick(){ _scr="cam"; mode="quick"; targetCard=INBOX; curSet=null; configureHeader(); show("cam"); await startCamera(); renderSetPanel(); await updateRightCount(); }
 async function enterCamera(cardId){ _scr="cam"; mode="card"; targetCard=cardId; curSet=null; configureHeader(); show("cam"); await startCamera(); renderSetPanel(); await updateRightCount(); }
 async function openSet(id){
-  const s=await idbGet(id); if(!s) return;
+  const _wasSilent=_silent;
+  const s=await idbGet(id);
+  if(!s){
+    if(_wasSilent){ _silent=true; openInbox(); _silent=false; } // E2E#17: set不在時はpushせずsilent inbox fallback
+    return;
+  }
   _scr="set";
   curSet=id; targetCard=s.cardId;
   mode=(s.cardId&&s.cardId!==INBOX)?"card":"quick"; fromAibis=false;
+  if(!_wasSilent && !(history.state && history.state.zc==="set" && history.state.id===id)){
+    try{ history.pushState({zc:"set", id:id},""); }catch(e){}
+    _zcState=history.state;
+  }
   configureHeader(); show("cam"); await startCamera(); renderSetPanel(); await updateRightCount();
 }
 
-$("rightBtn").addEventListener("click",()=>{ stopCamera(); openInbox(); });
+$("rightBtn").addEventListener("click",()=>{
+  if(_scr==="set"){ _zcBack("set", _aibisBack); }
+  else { stopCamera(); openInbox(); }
+});
 async function updateRightCount(){
   const n=await idbCountByCard(INBOX); const el=$("leftCount"); if(!el) return;
   el.textContent=n; el.classList.remove("warn","over");
@@ -743,11 +807,16 @@ async function updateRightCount(){
 /* ---------- カメラ制御 ---------- */
 async function startCamera(){
   $("camErr").classList.add("hide"); stopCamera();
+  const _myCamGen=_camGen;   // DAN227 D-C: stopCamera()直後の世代を記録（旧呼出しはこの値より小さくなる）
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ showCamErr("このブラウザはカメラに対応していません。"); return; }
   try{
-    try{ stream=await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:{ideal:facing}, width:{ideal:2560}, height:{ideal:1440} } }); }
-    catch(_e1){ stream=await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:{ideal:facing} } }); } // 高解像度で固まる端末向けフォールバック
+    let _s;
+    try{ _s=await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:{ideal:facing}, width:{ideal:2560}, height:{ideal:1440} } }); }
+    catch(_e1){ _s=await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:{ideal:facing} } }); } // 高解像度で固まる端末向けフォールバック
+    if(_myCamGen!==_camGen){ try{ _s.getTracks().forEach(t=>t.stop()); }catch(e){} return; } // D-C: 世代不一致＝画面離脱済み。streamを採用せず破棄
+    stream=_s;
     const v=$("video"); v.srcObject=stream; await v.play().catch(()=>{});
+    if(_myCamGen!==_camGen){ return; } // await後の再確認（video/DOMへの採用直前）
     track=stream.getVideoTracks()[0];
     const caps=track.getCapabilities?track.getCapabilities():{};
     _zoomCap=(caps.zoom && typeof caps.zoom.max==="number" && caps.zoom.max>caps.zoom.min)?caps.zoom:null;
@@ -760,13 +829,14 @@ async function startCamera(){
     $("shutter").disabled=false;
     drawGuide(); initLevel(); initCompass(); startGeo();
   }catch(e){
+    if(_myCamGen!==_camGen) return; // D-C: 世代不一致時は既に別呼出しが主導権を持つためエラー表示も抑制
     let m="カメラを起動できませんでした。";
     if(e&&e.name==="NotAllowedError") m="カメラの使用が許可されていません。ブラウザの権限設定でこのサイトのカメラを許可してください。";
     else if(e&&e.name==="NotFoundError") m="カメラが見つかりませんでした。";
     showCamErr(m);
   }
 }
-function stopCamera(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; track=null; } stopGeo(); }
+function stopCamera(){ _camGen++; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; track=null; } stopGeo(); }
 function showCamErr(msg){ $("camErrMsg").textContent=msg; $("camErr").classList.remove("hide"); $("shutter").disabled=true; }
 function drawGuide(){ $("guide").innerHTML='<g class="grid"><line x1="33.3" y1="0" x2="33.3" y2="100"/><line x1="66.6" y1="0" x2="66.6" y2="100"/><line x1="0" y1="33.3" x2="100" y2="33.3"/><line x1="0" y1="66.6" x2="100" y2="66.6"/></g>'; }
 let _levelOn=false;
@@ -986,7 +1056,8 @@ $("doneBtn").addEventListener("click",async()=>{
   curSet=null;
   try{ mediaPing(); }catch(e){}
   if(_launchedFromMain){ _closeToMain(); }   // 本体側から起動＝反映してクローズ
-  else { try{ stopCamera(); }catch(e){} openInbox(); }  // 直接起動＝インボックスページへ
+  else if(_scr==="set"){ _zcBack("set", _aibisBack); }  // 直接起動・set再入場中＝pop
+  else { try{ stopCamera(); }catch(e){} openInbox(); }  // 直接起動・root＝forward push
 });
 
 /* ---------- 仕分けパネル ---------- */
@@ -1056,7 +1127,15 @@ async function destroyOrReturn(id){
 $("vDelSet").addEventListener("click",()=>{ if(!curSet) return; destroyOrReturn(curSet); });
 
 /* 番地キーパッド */
-function openKeypad(){ if(!curSet) return; kpVal=$("vBanchi").value||""; $("kpVal").textContent=kpVal||"—"; $("keypad").classList.remove("hide"); }
+function openKeypad(){
+  if(!curSet) return;
+  kpVal=$("vBanchi").value||""; $("kpVal").textContent=kpVal||"—";
+  if(!_silent && !(history.state && history.state.zc==="keypad")){
+    try{ history.pushState({zc:"keypad"},""); }catch(e){}
+    _zcState=history.state;
+  }
+  $("keypad").classList.remove("hide");
+}
 $("vBanchi").addEventListener("click",openKeypad);
 $("keypad").querySelectorAll(".kpgrid button").forEach(b=>b.addEventListener("click",()=>{
   const k=b.dataset.k;
@@ -1067,15 +1146,23 @@ $("keypad").querySelectorAll(".kpgrid button").forEach(b=>b.addEventListener("cl
 }));
 $("kpClear").addEventListener("click",()=>{ kpVal=""; $("kpVal").textContent="—"; });
 $("kpDone").addEventListener("click",async()=>{
-  $("keypad").classList.add("hide"); $("vBanchi").value=kpVal;
-  const s=await idbGet(curSet); if(!s) return;
-  if((s.banchi||"")!==kpVal){ s.banchi=kpVal; await idbPut(s); fillAddr(s); toast("番地を保存"); }
+  $("vBanchi").value=kpVal;
+  const s=await idbGet(curSet);
+  if(s && (s.banchi||"")!==kpVal){ s.banchi=kpVal; await idbPut(s); fillAddr(s); toast("番地を保存"); }
+  _zcBack("keypad", _closeKeypad);
 });
-$("keypad").addEventListener("click",e=>{ if(e.target===$("keypad")) $("keypad").classList.add("hide"); });
+$("keypad").addEventListener("click",e=>{ if(e.target===$("keypad")) _zcBack("keypad", _closeKeypad); });
 
 /* ---------- インボックス ---------- */
-async function openInbox(){ _scr="inbox"; stopCamera(); show("inbox"); await renderInbox(); showStorage("inbStore"); }
-$("inbBack").addEventListener("click",()=>{ history.back(); });
+async function openInbox(){
+  _scr="inbox"; stopCamera(); show("inbox");
+  if(!_silent && !(history.state && history.state.zc==="inbox")){
+    try{ history.pushState({zc:"inbox"},""); }catch(e){}
+    _zcState=history.state;
+  }
+  await renderInbox(); showStorage("inbStore");
+}
+$("inbBack").addEventListener("click",()=>{ _zcBack("inbox", _aibisBack); });
 async function renderInbox(){
   const all=(await idbAll()).sort((a,b)=>b.ts-a.ts);
   const unlinked=all.filter(s=>!s.cardId||s.cardId===INBOX);
@@ -1171,14 +1258,22 @@ function loadCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)||"{}")|
 function cfgEmail(){ const c=loadCfg(); return (c.email||localStorage.getItem("prospect_self_v1")||"").trim(); }
 function camMailApp(){ let p='auto'; try{ p=localStorage.getItem('prospect_sendmail_v1')||'auto'; }catch(e){} if(p==='outlook'||p==='gmail'||p==='pick') return p; const em=(cfgEmail()||'').toLowerCase(); if(!em) return 'pick'; if(/gmail\./.test(em)) return 'gmail'; return 'outlook'; }
 function camMailJa(a){ return a==='outlook'?'Outlook':(a==='gmail'?'Gmail':'メールアプリ'); }
-function openCfg(){ const c=loadCfg(); $("cfgEmail").value=c.email||localStorage.getItem("prospect_self_v1")||""; $("cfgName").value=c.name||""; try{ _pwaCamSync(); }catch(e){} $("camCfg").classList.remove("hide"); }
+function openCfg(){
+  const c=loadCfg(); $("cfgEmail").value=c.email||localStorage.getItem("prospect_self_v1")||""; $("cfgName").value=c.name||"";
+  try{ _pwaCamSync(); }catch(e){}
+  if(!_silent && !(history.state && history.state.zc==="cfg")){
+    try{ history.pushState({zc:"cfg"},""); }catch(e){}
+    _zcState=history.state;
+  }
+  $("camCfg").classList.remove("hide");
+}
 $("inbCfgBtn").addEventListener("click",openCfg);
-$("cfgCancel").addEventListener("click",()=>$("camCfg").classList.add("hide"));
-$("camCfg").addEventListener("click",e=>{ if(e.target===$("camCfg")) $("camCfg").classList.add("hide"); });
+$("cfgCancel").addEventListener("click",()=>{ _zcBack("cfg", _closeCfg); });
+$("camCfg").addEventListener("click",e=>{ if(e.target===$("camCfg")) _zcBack("cfg", _closeCfg); });
 $("cfgSave").addEventListener("click",()=>{
   const email=($("cfgEmail").value||"").trim(), name=($("cfgName").value||"").trim();
   try{ localStorage.setItem(CFG_KEY, JSON.stringify({email,name})); }catch(e){}
-  $("camCfg").classList.add("hide"); toast("送信設定を保存しました");
+  _zcBack("cfg", _closeCfg); toast("送信設定を保存しました");
 });
 
 /* ---------- PCへ送る（共有/ダウンロード） ---------- */
@@ -1240,12 +1335,19 @@ function openPick(m){
   $("pickInbox").classList.toggle("hide", pickMode==="link");
   $("pickTitle").textContent = pickMode==="link" ? "🔗 紐付け先のカード" : "⌘ カード一覧";
   $("pickSub").textContent  = pickMode==="link" ? "このデータを紐付けるカードを選択" : "カードを選んで撮影・閲覧";
+  if(!_silent){
+    var _lt=linkTargetId||null;
+    if(!(history.state && history.state.zc==="pick" && history.state.mode===pickMode && history.state.lt===_lt)){
+      try{ history.pushState({zc:"pick", mode:pickMode, lt:_lt},""); }catch(e){}
+      _zcState=history.state;
+    }
+  }
   renderSortBar(); renderPicker($("pickSearch").value); show("pick");
   if(pickMode!=="link") updatePickInbox();
 }
 async function updatePickInbox(){ const n=await idbCountByCard(INBOX), el=$("pickInboxCount"); if(el) el.textContent=n; }
 $("pickInbox").addEventListener("click",()=>openInbox());
-$("pickBack").addEventListener("click",()=>{ history.back(); });
+$("pickBack").addEventListener("click",()=>{ _zcBack("pick", _aibisBack); });
 
 /* ===== 本体「一覧」と同じ並び替え（移植・配点/ペースは2026-06確定値） ===== */
 var sortKey="lv", sortDir={};
@@ -1624,7 +1726,8 @@ async function onPickCard(cardId){
     aibisConfirm(cardLabel(cardId)+" を紐付けしますか？", async()=>{
       const old=s.cardId; s.cardId=cardId; s.cardName=(findCard(cardId)||{}).name||""; await idbPut(s);
       await refreshIndex(cardId); await refreshIndex(old);
-      toast(cardLabel(cardId)+" に紐付けました"); pickMode="open"; if(linkFromInbox){ linkFromInbox=false; openInbox(); } else { openSet(linkTargetId); }
+      toast(cardLabel(cardId)+" に紐付けました");
+      _zcBack("pick", _aibisBack); // pickMode="link"のまま維持（異常時fallbackの分岐先を破壊しない。DAN227是正C）
     }, "紐付ける", "やめる");
   } else { fromAibis=false; enterCamera(cardId); }
 }
@@ -1657,9 +1760,14 @@ const fmtMB = b => b? (b>1073741824? (b/1073741824).toFixed(1)+"GB" : Math.round
 /* ---------- 単写真ビューア（左右フリックでめくる） ---------- */
 let viewSet=null, viewIdx=0;
 async function openPhoto(setId,pid){
+  const _wasSilent=_silent;
   const s=await idbGet(setId); if(!s) return;
   const i=s.photos.findIndex(p=>p.pid===pid); if(i<0) return;
   viewSet=s; showPhotoAt(i);
+  if(!_wasSilent && !(history.state && history.state.zc==="viewer")){
+    try{ history.pushState({zc:"viewer"},""); }catch(e){}
+    _zcState=history.state;
+  }
   $("viewer").classList.remove("hide");
 }
 function showPhotoAt(i){
@@ -1675,7 +1783,7 @@ $("viewer").addEventListener("touchend",e=>{
   const t=e.changedTouches[0], dx=t.clientX-_tsx, dy=t.clientY-_tsy;
   if(Math.abs(dx)>45 && Math.abs(dx)>Math.abs(dy)){ if(dx<0) showPhotoAt(viewIdx+1); else showPhotoAt(viewIdx-1); }
 },{passive:true});
-$("vClose").addEventListener("click",()=>{ $("viewer").classList.add("hide"); viewPhoto=null; viewSet=null; });
+$("vClose").addEventListener("click",()=>{ _zcBack("viewer", _closeViewer); });
 $("vDelPhoto").addEventListener("click",()=>{
   if(!viewPhoto) return;
   aibisConfirm("この写真を削除しますか？", async()=>{
@@ -1688,7 +1796,7 @@ $("vDelPhoto").addEventListener("click",()=>{
   if(!screens.inbox.classList.contains("hide")) renderInbox();
   if(!screens.gal.classList.contains("hide")) renderGallery();
   await updateRightCount(); toast("削除しました");
-  if(closed){ $("viewer").classList.add("hide"); viewPhoto=null; viewSet=null; }
+  if(closed){ _zcBack("viewer", _closeViewer); }
   else { viewSet=s; showPhotoAt(Math.min(viewIdx, s.photos.length-1)); } // 残りを表示し続ける
   }, "削除する", "やめる");
 });
@@ -1702,6 +1810,7 @@ function loadLeaflet(){
   });
 }
 $("vFix").addEventListener("click",async()=>{
+  const _wasSilent=_silent;
   const s=await idbGet(curSet); if(!s||s.lat==null){ toast("位置情報がありません"); return; }
   meTargetId=curSet;
   try{ await loadLeaflet(); }
@@ -1712,6 +1821,10 @@ $("vFix").addEventListener("click",async()=>{
       },()=>toast("現在地を取得できませんでした"),{enableHighAccuracy:true,maximumAge:0,timeout:15000});
     } else toast("地図も現在地も利用できません");
     return;
+  }
+  if(!_wasSilent && !(history.state && history.state.zc==="map")){
+    try{ history.pushState({zc:"map"},""); }catch(e){}
+    _zcState=history.state;
   }
   $("mapEdit").classList.remove("hide"); setTimeout(()=>initLeaflet(s.lat,s.lng),60);
 });
@@ -1726,12 +1839,12 @@ $("meHere").addEventListener("click",()=>{
   if(!navigator.geolocation){ toast("現在地に未対応"); return; }
   navigator.geolocation.getCurrentPosition(pos=>{ if(leafMap) leafMap.setView([pos.coords.latitude,pos.coords.longitude],18); },()=>toast("現在地を取得できませんでした"),{enableHighAccuracy:true,maximumAge:0,timeout:15000});
 });
-$("meCancel").addEventListener("click",()=>$("mapEdit").classList.add("hide"));
+$("meCancel").addEventListener("click",()=>{ _zcBack("map", _closeMap); });
 $("meSave").addEventListener("click",async()=>{
-  if(!leafMap){ $("mapEdit").classList.add("hide"); return; }
-  const c=leafMap.getCenter(); const s=await idbGet(meTargetId); if(!s){ $("mapEdit").classList.add("hide"); return; }
+  if(!leafMap){ _zcBack("map", _closeMap); return; }
+  const c=leafMap.getCenter(); const s=await idbGet(meTargetId); if(!s){ _zcBack("map", _closeMap); return; }
   s.lat=c.lat; s.lng=c.lng; s.acc=null; s.addrPending=true; await idbPut(s);
-  $("mapEdit").classList.add("hide"); fillAddr(s); resolveAddr(meTargetId); toast("位置を修正しました");
+  _zcBack("map", _closeMap); fillAddr(s); resolveAddr(meTargetId); toast("位置を修正しました");
 });
 
 /* ---------- util ---------- */
