@@ -2615,7 +2615,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.24";
+var APP_VERSION = "v11.25";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -22559,7 +22559,7 @@ function updateFamHeadcountBtn(){
   }
 }
 window.toggleFamHeadcount=toggleFamHeadcount; window.updateFamHeadcountBtn=updateFamHeadcountBtn;
-function toggleAssetType(){ if(!cur) return; cur.asset_type=!cur.asset_type; applyAssetSeal(); }
+function toggleAssetType(){ if(!cur) return; cur.asset_type=!cur.asset_type; applyAssetSeal(); if(typeof setDirty==='function') setDirty(true); }
 function applyAssetSeal(){ var sec=document.getElementById('secTochi'); if(!sec) return; var on=!!(cur&&cur.asset_type); sec.classList.toggle('asset-sealed',on); var b=document.getElementById('assetBtn'); if(b){ b.classList.toggle('on',on); b.textContent=on?'🏢 アセット系 ✓':'🏢 アセット系'; } }
 window.toggleAssetType=toggleAssetType; window.applyAssetSeal=applyAssetSeal;
 function toggleDoukou(){
@@ -22569,6 +22569,7 @@ function toggleDoukou(){
   cur.mgr_involve=order[i];
   _deriveDoukou(cur);
   updateDoukouBtn();
+  if(typeof setDirty==='function') setDirty(true);
 }
 function updateDoukouBtn(){
   var btn=document.getElementById('doukouBtn'); if(!btn) return;
@@ -22588,6 +22589,7 @@ function toggleEkitoho(){
   var i=order.indexOf(cur.ekitoho||''); i=(i+1)%order.length;
   cur.ekitoho=order[i];
   updateEkitohoBtn();
+  if(typeof setDirty==='function') setDirty(true);
 }
 function updateEkitohoBtn(){
   var btn=document.getElementById('ekitohoBtn'); if(!btn) return;
@@ -22600,7 +22602,7 @@ function updateEkitohoBtn(){
   btn.textContent=sm.t; btn.style.background=sm.bg; btn.style.borderColor=sm.bd; btn.style.color=sm.fg; btn.style.boxShadow=sm.sh;
 }
 window.toggleEkitoho=toggleEkitoho; window.updateEkitohoBtn=updateEkitohoBtn;
-function toggleProposalReq(){ if(!cur) return; cur.proposal_req=!cur.proposal_req; if(cur.proposal_req){ if(!cur.proposal_req_at) cur.proposal_req_at=todayStr(); } else { cur.proposal_req_at=''; } updateProposalReqBtn(); }
+function toggleProposalReq(){ if(!cur) return; cur.proposal_req=!cur.proposal_req; if(cur.proposal_req){ if(!cur.proposal_req_at) cur.proposal_req_at=todayStr(); } else { cur.proposal_req_at=''; } updateProposalReqBtn(); if(typeof setDirty==='function') setDirty(true); }
 function updateProposalReqBtn(){
   var btn=document.getElementById('proposalReqBtn'); if(!btn) return;
   if(cur && cur.proposal_req){
