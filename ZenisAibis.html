@@ -2061,6 +2061,54 @@ body.is-mob .mob-menu{display:inline-block}
     </div>
 
     <div class="msec">
+      <div class="mttl" onclick="mtoggle(this)">🩺 保存できないとき／自己診断 <span class="marr">▶</span></div>
+      <div class="mbdy" style="display:none">
+        <button type="button" data-zsd-open="1" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#2c5282;color:#fff;border:none;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 保存トラブル自己診断を開く</button>
+        <b style="color:#2c5282">PC保存の基本構造</b><br>
+        PC版は「① ブラウザ内（この端末）」と「② OneDriveなど自動保存先の実ファイル」の
+        <b>2か所</b>に保存します。💾保存を押すと、まずブラウザ内へ保存し、続けて自動保存先ファイルへの
+        書き込みを行います。<b>この2つは別経路です。</b>ブラウザ内保存だけ成功し、自動保存先ファイルへの
+        書き込みだけ失敗する、ということが起こり得ます。<br><br>
+        <b style="color:#c05621">保存処理が長時間終わらない場合</b><br>
+        通常、保存は数秒以内に終わります。15秒以上たっても終わらないときは、アプリが自動で
+        「保存トラブル自己診断」を1回だけ案内します。放置せず診断を開いてください。<br><br>
+        <b style="color:#c05621">同じAibisを複数タブ／ウィンドウで開いている場合の注意</b><br>
+        同じPCの同じブラウザ・同じプロファイルで、同じAibisを2つ以上のタブ・ウィンドウで
+        開いていると、保存の競合や上書きの原因になることがあります。診断は可能な範囲でこれを
+        検知し、注意として表示します（wizardを開いている間は自動的に最新状態へ更新されます）。<br>
+        <span style="font-size:11px;color:#718096">※ この検知には範囲があります。<b>別のChromeプロファイル・別のブラウザ・別の端末で開いている場合は検知できません。</b>
+        「他に開いていない」という表示も含め、検知結果は確定ではなく参考情報です。</span><br><br>
+        <b style="color:#c53030">① まず「端末内に緊急保存」→ ② その場で「フルバックアップ」</b><br>
+        保存トラブル自己診断の「🛟 現在の内容を端末内に緊急保存」は、今ブラウザが持っている
+        内容をこの端末内だけに退避する機能です（自動保存先ファイルへは書き込みません）。
+        <b>緊急保存に成功したら、その場で続けて「📦 フルバックアップを作成」</b>を行い、写真込みの
+        独立したファイルとして控えを確保してください。端末内保存はブラウザのデータが消えると
+        一緒に失われるため、フルバックアップだけが独立したファイルとして残ります。<br><br>
+        <b style="color:#c53030">⚠ ブラウザの再起動・再読込は、①②のあとで</b><br>
+        PC自動保存先のJSONがブラウザ内より古い状態のまま再起動・再読込すると、起動時に
+        <b>古い保存先データが読み込まれ、今の変更が失われる可能性があります。</b>
+        （状況によって結果は異なり、必ず失われると決まっているわけではありません。保存時刻の
+        新旧だけで内容の正しさが決まるものでもありません。）だからこそ、①端末内緊急保存・
+        ②フルバックアップを先に済ませてから、再起動・再読込は<b>必要な場合だけ</b>行ってください。
+        バックアップさえ確保できていれば、あとから内容を確認しながら復旧を判断できます。<br><br>
+        <b style="color:#2c5282">③ 保存先の再設定（必要な場合のみ、①②のあとで）</b><br>
+        診断からそのまま「💾 自動保存先を再設定する」「📋 コピー保存先を再設定」を実行できます。
+        <b>まず①②でデータを守ってから</b>行ってください。迷ったときはまず診断を開いてください。<br><br>
+        <b style="color:#553c9a">診断情報のコピー</b><br>
+        診断画面の「📋 診断情報をコピー」で、保存処理の状態・エラー種別・複数session検知結果
+        などのサマリーだけをコピーできます（コピーは押した時点の最新状態です）。
+        <b>お客様のお名前・住所・カード内容は含まれません。</b>
+        開発者へ問い合わせる際は、このサマリーだけを共有してください。カードのスクリーンショット
+        や本文の共有は不要です。<br><br>
+        <span style="font-size:11px;color:#718096">保存トラブルの原因は状況によって異なり、「ダウンロードが原因」「OneDriveが原因」と一律には
+        断定できません。診断はあくまで参考情報であり、まずは①端末内緊急保存・②フルバックアップで
+        データを守ることを優先してください。「⏪1つ前に戻す」等の復元操作は万能ではなく、必ず
+        正しい状態へ戻せるとは限りません。復旧を急いで上書きせず、①②のバックアップを手元に
+        残したまま、内容を確認しながら判断してください。</span>
+      </div>
+    </div>
+
+    <div class="msec">
       <div class="mttl" onclick="mtoggle(this)">⚠ 大切なこと <span class="marr">▶</span></div>
       <div class="mbdy" style="display:none">
         ・入力後は必ず「💾 保存」を押してください<br>
@@ -2615,7 +2663,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.25";
+var APP_VERSION = "v11.26";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -2980,28 +3028,65 @@ function readFile(handle, cb) {
     }).catch(function(){ readLS(); toast('⚠ ファイル読込に失敗したため、端末内データで表示しました'); cb(); });
   }).catch(function(){ readLS(); cb(); });
 }
+// 第229弾: writeFileのphase/error.nameをvolatile観測（診断専用side-channel）。
+// 目的：保存滞留の自己診断（save_diagnostic_wizard.js）がinflight/最終error/最終成功時刻を
+// 参照できるようにする。観測専用に限定し、以下は一切変更しない：timeout追加なし、
+// Promise.raceなし、cb呼出し回数・cb(ok)の値・各経路の既存分岐は無変更、writer強制解除なし、
+// exclusive/abort契約は無変更、payload（JSON.stringify(cards,...)）は無変更、成功/失敗Toast
+// 文言・分岐も無変更。保存する値はerror.nameのみ（message/stack/path/file名/cards内容は
+// 一切保持しない）。状態はwriteFile自身のfunction property（writeFile._diag）に持たせる
+// 自己完結構成（doSaveCards._busy等と同型の既存パターン）。新規window exportは行わない。
 function writeFile(handle, cb) {
+  if (!writeFile._diag) { writeFile._diag = { phase:'idle', inflightStartTime:null, lastErrorName:null, lastErrorPhase:null, lastErrorTime:null, lastSuccessTime:null }; }
+  writeFile._diag.phase = 'permission';
+  writeFile._diag.inflightStartTime = Date.now();
   checkPerm(handle, function(ok){
-    if (!ok){ toast('💡 ファイルへのアクセスを許可してください'); return cb && cb(false); }
+    if (!ok){
+      writeFile._diag.phase = 'idle';
+      writeFile._diag.lastErrorPhase = 'permission';
+      writeFile._diag.lastErrorTime = Date.now();
+      toast('💡 ファイルへのアクセスを許可してください'); return cb && cb(false);
+    }
     // 第182弾: {mode:'exclusive'}を併用（Chrome/Edge 121+）。doSaveCardsの共有キューが
     // 同一タブ内の同時書込みを既に防ぐため、ここでの競合reject自体は同一タブでは
     // 通常発生しない。別タブ等キューの外側でcreateWritableが競合した場合の二層目の
     // 防御として位置づける。未対応環境ではmode指定は無視され既存のsiloed挙動のまま
     // （後退なし）。競合時はcatchでcb(false)へ落とし、成功Toastは出さない（既存契約どおり）。
+    writeFile._diag.phase = 'createWritable';
     handle.createWritable({mode:'exclusive'}).then(function(w){
       // 第184弾: write()/close()失敗後にwriterを閉じずに放置すると、exclusiveモード下で
       // GCまでロックが残存し得る（第182弾監査の残留観察）。失敗時はabort()でストリームを
       // 明示的に破棄してからcb(false)を返す。abort自体の成否・所要時間はcb(ok)の値・回数へ
       // 一切反映しない（既存契約どおりcb(false)は各経路で必ず1回）。createWritable失敗時は
       // writer未生成のためabort対象がなく、直下のcatchは無変更のまま。
+      writeFile._diag.phase = 'write';
       w.write(JSON.stringify(cards,null,2)).then(function(){
-        w.close().then(function(){ cb && cb(true); }).catch(function(e){
-          w.abort(e).catch(function(){}).then(function(){ cb && cb(false); });
+        writeFile._diag.phase = 'close';
+        w.close().then(function(){
+          writeFile._diag.phase = 'idle';
+          writeFile._diag.lastSuccessTime = Date.now();
+          cb && cb(true);
+        }).catch(function(e){
+          writeFile._diag.phase = 'abort';
+          writeFile._diag.lastErrorName = (e && e.name) || 'UnknownError';
+          writeFile._diag.lastErrorPhase = 'close';
+          writeFile._diag.lastErrorTime = Date.now();
+          w.abort(e).catch(function(){}).then(function(){ writeFile._diag.phase = 'idle'; cb && cb(false); });
         });
       }).catch(function(e){
-        w.abort(e).catch(function(){}).then(function(){ cb && cb(false); });
+        writeFile._diag.phase = 'abort';
+        writeFile._diag.lastErrorName = (e && e.name) || 'UnknownError';
+        writeFile._diag.lastErrorPhase = 'write';
+        writeFile._diag.lastErrorTime = Date.now();
+        w.abort(e).catch(function(){}).then(function(){ writeFile._diag.phase = 'idle'; cb && cb(false); });
       });
-    }).catch(function(){ cb && cb(false); });
+    }).catch(function(e){
+      writeFile._diag.phase = 'idle';
+      writeFile._diag.lastErrorName = (e && e.name) || 'UnknownError';
+      writeFile._diag.lastErrorPhase = 'createWritable';
+      writeFile._diag.lastErrorTime = Date.now();
+      cb && cb(false);
+    });
   });
 }
 
@@ -3191,20 +3276,32 @@ window.restoreBackup=restoreBackup; window.doRestoreBackup=doRestoreBackup;
 // 状態はdoSaveCards自身のプロパティ（._busy／._pending）に持たせる自己完結構成
 // （第180弾のundoCardEdit._busyと同じ確立済みパターン）。モジュール直下に別途
 // varを置かないため、関数単体の抽出・移動でも状態初期化漏れが起きない。
+// 第229弾: busy/flush/pendingの時刻・件数をvolatile観測（診断専用side-channel）。
+// 目的：保存滞留の自己診断が「今、保存処理が進行中か・どれくらい経過したか・保留何件か」を
+// 参照できるようにする。観測専用に限定し、既存queue semantics（合流方式・busy/pending制御・
+// saveLS→FSA順序・callback契約）は一切変更しない。状態はdoSaveCards自身のfunction property
+// （doSaveCards._diag）に持たせる自己完結構成（._busy/._pendingと同型の既存パターン）。
+// 新規window exportは行わない。
 function doSaveCards(cb) {
+  if (!doSaveCards._diag) { doSaveCards._diag = { busyStartTime:null, currentFlushStartTime:null, pendingCount:0, busyEndTime:null }; }
   if (doSaveCards._busy) {
     // 実行中：新規writerを増やさず、保留1件へ合流する。
     if (!doSaveCards._pending) doSaveCards._pending = [];
     doSaveCards._pending.push(cb);
+    doSaveCards._diag.pendingCount = doSaveCards._pending.length;
     return;
   }
   doSaveCards._busy = true;
+  doSaveCards._diag.busyStartTime = Date.now();
+  doSaveCards._diag.busyEndTime = null;
   (function flush(fcb) {
+    doSaveCards._diag.currentFlushStartTime = Date.now();
     var okLS = saveLS();
     function finish(ok) {
       try { fcb && fcb(ok); } catch (e) { /* callback例外はキュー進行を止めない */ }
       var pending = doSaveCards._pending;
       doSaveCards._pending = null;
+      doSaveCards._diag.pendingCount = 0;
       if (pending && pending.length) {
         // 合流：保留中に来た全要求は、ここから始まる新しい1回のflush結果をまとめて受け取る。
         // flush開始時点（＝ここ）の最新cardsを保存対象にする。
@@ -3215,6 +3312,7 @@ function doSaveCards(cb) {
         });
       } else {
         doSaveCards._busy = false;
+        doSaveCards._diag.busyEndTime = Date.now();
       }
     }
     if (!okLS) { finish(false); return; }
@@ -16951,6 +17049,21 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
     S8: '保存先は正常に読めています。'
   };
 
+  // ---- 第229弾: 保存滞留・複数session診断・鮮度参考 定数（観測専用・診断表示のみ） ----
+  var ZSD_STALL_THRESHOLD_MS = 15000;   // R4: 15秒以上の滞留で能動通知（Date.now()差分で判定）
+  var ZSD_STALL_POLL_MS = 2000;         // stall監視の見直し間隔。判定自体はtick数ではなくDate.now()差分
+  var ZSD_BC_NAME = 'zenis_aibis_zsd_session_v1'; // R3: BroadcastChannel名（顧客情報を含まない固定文字列）
+  var ZSD_PEER_STALE_MS = 75000;        // Fable 5.1 CODE AUDIT是正（MAJOR-A4）：background tabでの
+                                         // timer throttling等により実際は生存しているpeerを短時間で
+                                         // pruneしてしまうと「他に開いていない」という偽陰性を作る。
+                                         // heartbeat間隔(10秒)に対し十分な猶予(75秒以上)を持たせる。
+                                         // 二重起動を長時間"確定"表示し続ける目的ではなく、あくまで
+                                         // false-negative抑制のための値（旧値30000msから変更）。
+  var ZSD_HEARTBEAT_MS = 10000;
+  var ZSD_FRESH_TOL_MS = 5000;          // R6: 数秒差は「ほぼ同時」扱い（推奨5秒）
+  var ZSD_PHASE_LABELS = { idle:'待機中', permission:'許可確認中', createWritable:'書込み準備中', write:'書込み中', close:'保存確定中', abort:'異常終了処理中' };
+  var TONE_COLOR = { ok:'#276749', info:'#4a5568', warn:'#c05621' };
+
   // ---- open時read-only診断 ----
   // 許可API: loadHandleCb / handle.queryPermission / (granted時のみ)handle.getFile / file.text() / JSON.parse / Array.isArray
   // 禁止: checkPerm, requestPermission, readFile, readLS, writeFile, saveLS, doSaveCards, saveHandle, saveCopyHandle,
@@ -17027,11 +17140,16 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
     var t = '📋 コピー保存先：' + (r.copyLive ? '有効' : '未設定') + '／この端末の記憶：' + (r.copyIdb ? 'あり' : 'なし');
     return zel('div', { text: t, style: 'margin-top:10px;padding:8px 10px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#4a5568' });
   }
+  // Fable 5.1 CODE AUDIT是正（MAJOR-B2）：保存トラブル時はまずデータを守ることを優先する。
+  // フルバックアップを先頭へ配置し、見出しで優先順位を明示する。保存先の再設定はその後に
+  // 続く操作として扱う（core保存semanticsは無変更・ボタンの並び順とラベルのみの変更）。
   function zsdActionsNode(noteHost){
     var wrap = zel('div', { style: 'margin-top:2px' });
+    wrap.appendChild(zel('div', { text: 'まずデータを守る', style: 'font-size:11px;font-weight:800;color:#c05621;margin-top:6px' }));
+    wrap.appendChild(zel('button', { text: '📦 フルバックアップを作成', type: 'button', style: BTN_PRIMARY, onclick: zsdGoFullBackup }));
+    wrap.appendChild(zel('div', { text: 'バックアップを確保したあとで（必要な場合のみ）', style: 'font-size:11px;font-weight:800;color:#4a5568;margin-top:10px' }));
     wrap.appendChild(zel('button', { text: '💾 自動保存先を再設定する', type: 'button', style: BTN_SECOND, onclick: zsdResetupMain }));
     wrap.appendChild(zel('button', { text: '📋 コピー保存先を再設定', type: 'button', style: BTN_SECOND, onclick: zsdResetupCopy }));
-    wrap.appendChild(zel('button', { text: '📦 フルバックアップを作成', type: 'button', style: BTN_SECOND, onclick: zsdGoFullBackup }));
     return wrap;
   }
 
@@ -17041,6 +17159,9 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
 
     if (r.state === 'S1') {
       zsdBodyEl.appendChild(zel('div', { text: ZSD_TEXT.S1, style: BOX_INFO }));
+      // 第229弾: S1（スマホ/FSA非対応）でも保存滞留・複数session検知は成立するため補助診断を表示する。
+      // 補助診断自体の例外はS1〜S8本体表示を壊さないようここでtry/catchする。
+      try { zsdAppendSupplemental(zsdBodyEl, r); } catch (exSup229) {}
       return;
     }
 
@@ -17063,6 +17184,352 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
 
     zsdBodyEl.appendChild(zsdActionsNode(noteHost));
     zsdBodyEl.appendChild(zsdCopyInfoNode(r));
+
+    // 第229弾: 補助診断（保存滞留・複数session・鮮度参考・診断コピー）をS1〜S8本体の下へ追加する。
+    // 例外はS1〜S8本体表示を壊さないようここでtry/catchする。
+    try { zsdAppendSupplemental(zsdBodyEl, r); } catch (exSup229) {}
+  }
+
+  // ---- 第229弾: 保存滞留・複数session診断・鮮度参考（補助診断・観測専用） ----
+  // 方針：S1〜S8「保存先の基礎診断」を後退させず、その下へ純増する。第201弾の既存契約
+  // （open経路read-only・新規window export 0・innerHTML代入0・localStorage直接書込0）を継承する。
+  // 顧客データ・担当者名・メール・カード名・file名・path・URL・error.message/stackは
+  // 一切保持・送信・表示・コピーしない。
+
+  function zsdKvRow(label, value, tone){
+    var valEl = zel('span', { text: value, style: 'font-weight:700;color:' + (TONE_COLOR[tone] || '#2d3748') });
+    var row = zel('div', { style: 'display:flex;justify-content:space-between;gap:8px;padding:3px 0;font-size:12px;color:#4a5568' }, [
+      zel('span', { text: label }),
+      valEl
+    ]);
+    row._zsdValEl = valEl; // 非同期解決後の値差し替え用（鮮度参考のみ使用）
+    return row;
+  }
+  function zsdReplaceKvValue(row, newValue){
+    try { if (row && row._zsdValEl) row._zsdValEl.textContent = newValue; } catch (exRep) {}
+  }
+
+  // ---- R2観測の読み取り（doSaveCards自身のfunction property。書込み・呼出しは一切しない）----
+  function zsdSaveProcessState(){
+    try {
+      if (typeof doSaveCards === 'undefined' || !doSaveCards._diag || !doSaveCards._busy) {
+        return { label: '正常', tone: 'ok', stalled: false, elapsedSec: null };
+      }
+      var d = doSaveCards._diag;
+      if (d.busyStartTime == null) { return { label: '正常', tone: 'ok', stalled: false, elapsedSec: null }; }
+      var elapsedMs = Date.now() - d.busyStartTime;
+      var elapsedSec = Math.max(0, Math.round(elapsedMs / 1000));
+      if (elapsedMs >= ZSD_STALL_THRESHOLD_MS) {
+        return { label: '長時間滞留（約' + elapsedSec + '秒経過）', tone: 'warn', stalled: true, elapsedSec: elapsedSec };
+      }
+      return { label: '処理中（約' + elapsedSec + '秒経過）', tone: 'info', stalled: false, elapsedSec: elapsedSec };
+    } catch (exState) {
+      return { label: '判定不能', tone: 'info', stalled: false, elapsedSec: null };
+    }
+  }
+  function zsdReadDoSaveCardsDiag(){
+    try {
+      if (typeof doSaveCards === 'undefined' || !doSaveCards._diag) return { pendingCount: 0 };
+      return { pendingCount: doSaveCards._diag.pendingCount || 0 };
+    } catch (exDsc) { return { pendingCount: 0 }; }
+  }
+
+  // ---- R1観測の読み取り（writeFile自身のfunction property。書込み・呼出しは一切しない）----
+  function zsdReadWriteFileDiag(){
+    try {
+      if (typeof writeFile === 'undefined' || !writeFile._diag) return { phaseLabel: '情報なし（未実行）', errorLabel: '情報なし（未実行）' };
+      var d = writeFile._diag;
+      var phaseLabel = ZSD_PHASE_LABELS[d.phase] || '情報なし';
+      var errorLabel = d.lastErrorName ? d.lastErrorName : 'エラーなし';
+      return { phaseLabel: phaseLabel, errorLabel: errorLabel };
+    } catch (exWf) { return { phaseLabel: '判定不能', errorLabel: '判定不能' }; }
+  }
+
+  // ---- R3: BroadcastChannelによる同一Aibis session検知（fail-soft・非永続・顧客情報0）----
+  // ChatGPT一次品質ゲート差し戻しMAJOR-1是正：BroadcastChannel自体はtypeof上存在するが
+  // constructor（new BroadcastChannel(...)）がSecurityError等でthrowする環境では、
+  // 従来はzsdPeerInfo()が「typeof BroadcastChannel==='undefined'」しか見ておらず、
+  // 初期化が実際には失敗しているにもかかわらずpeer 0＝「検知なし」という偽陰性を返していた。
+  // volatileな初期化状態zsdBcStatus（'unsupported'|'ready'|'error'）をこのモジュール内だけで
+  // 保持し、constructor失敗時は明示的に'error'として「判定不能」を返す（「検知なし」にしない）。
+  // 自動retry・channel再生成・永続化・global exportは行わない。
+  var zsdBcStatus = 'unsupported'; // 'unsupported' | 'ready' | 'error'
+  var zsdSessionId = null;
+  var zsdBcChannel = null;
+  var zsdPeers = {};
+  // Fable 5.1 CODE AUDIT是正（MAJOR-A2）：wizard表示中にhello/heartbeat/bye/stale pruneで
+  // peer状態が変わった場合、開きっぱなしの診断行を非同期に更新する。zsdActivePeerRow/
+  // zsdActivePeerNoteElはwizardが開いている間だけ有効な参照で、zsdClose()で必ずnullへ戻す
+  // （閉じている間は不要なDOM操作を一切しない）。S1〜S8全体の再診断は行わない
+  // （このpeer行だけのピンポイント更新）。新規timerは追加せず、既存heartbeat interval
+  // （ZSD_HEARTBEAT_MS）とonmessage受信の両方から呼ぶ。
+  var zsdActivePeerRow = null;
+  var zsdActivePeerNoteEl = null;
+  function zsdRefreshPeerDisplay(){
+    try {
+      if (!zsdActivePeerRow) return; // wizard非表示中は何もしない
+      if (!(zsdEls() && zsdOverlayEl.style.display === 'flex')) { zsdActivePeerRow = null; zsdActivePeerNoteEl = null; return; }
+      var info = zsdPeerInfo();
+      zsdReplaceKvValue(zsdActivePeerRow, info.label);
+      try { if (zsdActivePeerRow._zsdValEl) zsdActivePeerRow._zsdValEl.style.color = TONE_COLOR[info.tone] || '#2d3748'; } catch (exColor) {}
+      if (zsdActivePeerNoteEl) {
+        zsdActivePeerNoteEl.textContent = info.note || '';
+        zsdActivePeerNoteEl.style.display = info.note ? '' : 'none';
+      }
+    } catch (exRefresh) {}
+  }
+  function zsdRandomSessionId(){
+    return 'zsd_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  }
+  function zsdAnnounce(type){
+    if (!zsdBcChannel) return;
+    try { zsdBcChannel.postMessage({ type: type, sid: zsdSessionId, t: Date.now() }); } catch (exPost) {}
+  }
+  function zsdPruneStalePeers(){
+    var now = Date.now();
+    var changed = false;
+    Object.keys(zsdPeers).forEach(function(sid){ if (now - zsdPeers[sid] > ZSD_PEER_STALE_MS) { delete zsdPeers[sid]; changed = true; } });
+    return changed;
+  }
+  function zsdPeerCount(){ zsdPruneStalePeers(); return Object.keys(zsdPeers).length; }
+  function zsdInitBroadcast(){
+    if (typeof BroadcastChannel === 'undefined') { zsdBcStatus = 'unsupported'; return; } // fail-soft: 非対応環境
+    try {
+      zsdSessionId = zsdRandomSessionId();
+      zsdBcChannel = new BroadcastChannel(ZSD_BC_NAME);
+      zsdBcChannel.onmessage = function(ev){
+        try {
+          var d = ev && ev.data;
+          if (!d || typeof d !== 'object' || d.sid === zsdSessionId) return; // 自分自身は無視
+          if (d.type === 'hello') { zsdPeers[d.sid] = Date.now(); zsdAnnounce('heartbeat'); }
+          else if (d.type === 'heartbeat') { zsdPeers[d.sid] = Date.now(); }
+          else if (d.type === 'bye') { delete zsdPeers[d.sid]; }
+          zsdRefreshPeerDisplay(); // MAJOR-A2: wizard表示中ならこの1行だけ即時反映
+        } catch (exMsg) {}
+      };
+      zsdBcStatus = 'ready';
+      zsdAnnounce('hello');
+      if (typeof setInterval === 'function') {
+        setInterval(function(){
+          try {
+            zsdAnnounce('heartbeat');
+            zsdPruneStalePeers();
+            zsdRefreshPeerDisplay(); // MAJOR-A2: 既存heartbeat intervalを流用した定期refresh（新規timer追加なし）
+          } catch (exHb) {}
+        }, ZSD_HEARTBEAT_MS);
+      }
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('pagehide', function(){ try { zsdAnnounce('bye'); } catch (exBye) {} });
+      }
+    } catch (exInit) {
+      // fail-soft: 構築自体が例外を投げる環境でも診断を壊さない。ただし「検知なし」という
+      // 偽陰性を出さないよう、状態を明示的に'error'へ記録する。自動retryはしない
+      // （このtick内で再度newを試みない。次回ページ読込まで再試行しない）。
+      zsdBcStatus = 'error';
+      zsdBcChannel = null;
+    }
+  }
+  // Fable 5.1 CODE AUDIT是正（MAJOR-A1）：wizardを開くたびに、channelがready（構築済み）の
+  // 場合のみhelloを1回だけ再送する。channel再生成・retry・新規timer追加は行わない。
+  // page読込時の既存hello（zsdInitBroadcast内）はそのまま維持し、本関数はopen 1回につき
+  // 追加でちょうど1回だけhelloを送る（既存peerはheartbeatで応答し、自分側もそれをonmessageで
+  // 受け取ってzsdPeersへ反映する＝既存契約のまま）。
+  function zsdAnnounceOnOpen(){
+    if (zsdBcStatus !== 'ready') return;
+    zsdAnnounce('hello');
+  }
+  function zsdPeerInfo(){
+    try {
+      if (zsdBcStatus === 'unsupported') {
+        return { status: 'unsupported', count: 0, label: '判定不能（このブラウザでは検知できません）', tone: 'info', note: null };
+      }
+      if (zsdBcStatus === 'error') {
+        return { status: 'error', count: 0, label: '判定不能（同一session検知を開始できませんでした）', tone: 'info', note: null };
+      }
+      var n = zsdPeerCount();
+      // Fable 5.1 CODE AUDIT是正（MAJOR-A5）：peer 0を「検知なし」と断定表示しない。
+      // BroadcastChannelは同一origin・同一browser profile内のtab/windowしか検知できず、
+      // 瞬間的なpeer 0は「他に開いていない」ことの確定的な証拠にはならない。
+      if (n <= 0) {
+        return { status: 'ready', count: 0, label: 'この検知範囲では、現在ほかのAibis sessionは確認できません（参考）', tone: 'ok',
+          note: '※同じChrome・同じプロファイル内のtab/windowのみが検知対象です。別Chromeプロファイル・別ブラウザ・別端末は検知できません。0件は「他に開いていない」ことの確定ではありません。' };
+      }
+      return { status: 'ready', count: n, label: '同じAibisが別タブ／ウィンドウで開いている可能性があります', tone: 'warn',
+        note: '※別Chrome・別プロファイル・別端末は検知できません。二重起動の確定ではありません。' };
+    } catch (exPeer) { return { status: 'error', count: 0, label: '判定不能', tone: 'info', note: null }; }
+  }
+
+  // ---- R4: 保存滞留の能動通知（Date.now()差分判定・同stall中は1回のみ・自動復旧なし）----
+  var zsdLastNotifiedBusyStart = null;
+  function zsdCheckStall(){
+    try {
+      if (typeof doSaveCards === 'undefined' || !doSaveCards._diag || !doSaveCards._busy) return;
+      // 診断UIを既に開いている間は能動通知を抑止する（ユーザーは既に状況を見ている・
+      // aibisAlertがwizard overlayと重なり操作を妨げる事故を防ぐ）。wizardを閉じた後も
+      // 同一stallが続いていれば次tickで通常どおり通知される（zsdLastNotifiedBusyStartは
+      // ここでは更新しないため、抑止は「先送り」であり「握りつぶし」ではない）。
+      if (zsdEls() && zsdOverlayEl.style.display === 'flex') return;
+      var d = doSaveCards._diag;
+      if (d.busyStartTime == null) return;
+      var elapsedMs = Date.now() - d.busyStartTime;
+      if (elapsedMs >= ZSD_STALL_THRESHOLD_MS && zsdLastNotifiedBusyStart !== d.busyStartTime) {
+        zsdLastNotifiedBusyStart = d.busyStartTime;
+        zsdNotifyStall();
+      }
+    } catch (exStall) {}
+  }
+  function zsdNotifyStall(){
+    try {
+      if (typeof aibisAlert !== 'function') return;
+      aibisAlert('⚠ 保存処理が長時間完了していません。現在の内容を守るため、保存トラブル自己診断を開いてください。<br><br>'
+        + '<button data-zsd-open="1" type="button" style="' + BTN_PRIMARY + '">🩺 保存トラブル自己診断を開く</button>');
+    } catch (exNotify) {}
+  }
+
+  // ---- 4-1: 端末内緊急保存（user click起点・1clickにつきsaveLS({skipBackup:true})を最大1回）----
+  // 禁止：doSaveCards経由／writeFile呼出／_busy解除／pending削除／自動実行／retry（実装指示§4-1）。
+  function zsdEmergencySave(host){
+    return function(){
+      zclear(host);
+      var ok = false;
+      try { ok = (typeof saveLS === 'function') ? saveLS({ skipBackup: true }) : false; } catch (exEmg) { ok = false; }
+      if (ok) {
+        host.appendChild(zel('div', { text: '✅ 現在のAibisデータを端末内へ退避しました。PC自動JSONは更新されていない可能性があります。', style: 'margin-top:8px;color:#276749;font-size:12px;font-weight:700' }));
+        // Fable 5.1 CODE AUDIT是正（MAJOR-B1）：再起動・再読込前にバックアップを確保する
+        // 安全な順序を明示する（過剰な断定はしない。startup読込順序自体はDAN229では変更しない）。
+        host.appendChild(zel('div', { text: '⚠ この状態では、まだブラウザの再起動・再読込をしないでください。PC自動保存先が古いままだと、起動時に古い内容が読み込まれ、今の変更が失われる可能性があります。先に「📦 フルバックアップを作成」で控えを確保してください。', style: 'margin-top:6px;color:#c05621;font-size:12px;font-weight:700' }));
+        host.appendChild(zel('button', { text: '📦 フルバックアップを作成', type: 'button', style: BTN_SECOND, onclick: zsdGoFullBackup }));
+      } else {
+        host.appendChild(zel('div', { text: '端末内への緊急保存に失敗しました。フルバックアップの作成をお試しください。', style: 'margin-top:8px;color:#c53030;font-size:12px' }));
+      }
+    };
+  }
+
+  // ---- R6: 鮮度参考比較（表示のみ。自動上書き・自動復元・起動block・書換えは一切行わない）----
+  function zsdReadLastSavedTs(){
+    try {
+      if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') return null;
+      var raw = localStorage.getItem(LSDK);
+      if (!raw) return null;
+      var t = new Date(raw).getTime();
+      return isNaN(t) ? null : t;
+    } catch (exTs) { return null; }
+  }
+  function zsdFreshnessLabel(lsTs, fileTs){
+    if (lsTs == null || fileTs == null) return '比較不能';
+    var diff = lsTs - fileTs;
+    if (Math.abs(diff) <= ZSD_FRESH_TOL_MS) return 'ほぼ同時';
+    return diff > 0 ? 'browser側保存時刻の方が新しい（参考）' : 'PC保存先の方が新しい（参考）';
+  }
+  function zsdAppendFreshness(hostEl, freshnessState){
+    try {
+      var row = zsdKvRow('鮮度（参考）', '確認中…');
+      hostEl.appendChild(row);
+      var lsTs = zsdReadLastSavedTs();
+      fHandle.getFile().then(function(file){
+        var fileTs = (file && typeof file.lastModified === 'number') ? file.lastModified : null;
+        var label = zsdFreshnessLabel(lsTs, fileTs);
+        freshnessState.label = label;
+        zsdReplaceKvValue(row, label);
+      }).catch(function(){
+        freshnessState.label = '比較不能';
+        zsdReplaceKvValue(row, '比較不能');
+      });
+    } catch (exFresh) {
+      try { freshnessState.label = '比較不能'; zsdReplaceKvValue(hostEl, '比較不能'); } catch (ex2) {}
+    }
+  }
+
+  // ---- 4-2: 診断サマリーのclipboardコピー（診断情報のみ。navigator.clipboard非対応時はfail-soft）----
+  // コピー可能情報は実装指示§4-2の許可列挙のみ。顧客名・住所・card本文・cards JSON・担当者名・
+  // メール・file名・path・URL・error.message・stack・localStorage rawは絶対に含めない。
+  function zsdCopyDiagSummary(host, r, saveState, wf, dsc, freshnessState){
+    return function(){
+      zclear(host);
+      // Fable 5.1 CODE AUDIT是正（MAJOR-A3）：描画時点でclosureに固定したpeerInfoではなく、
+      // クリックした瞬間に最新のzsdPeerInfo()を再取得する。constructor error/unsupported時の
+      // 「判定不能」契約はzsdPeerInfo自体が担保するため、ここでの扱いは変更しない。
+      var peerInfo = zsdPeerInfo();
+      var permLabel = 'N/A';
+      if (r && r.state === 'S4') permLabel = '未確認(prompt)';
+      else if (r && r.state === 'S5') permLabel = '拒否(denied)';
+      else if (r && (r.state === 'S6' || r.state === 'S7' || r.state === 'S8')) permLabel = '許可済み(granted)';
+      var lines = [
+        'APP_VERSION: ' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '不明'),
+        '基礎診断状態: ' + (r && r.state ? r.state : '不明'),
+        'FSA対応: ' + (typeof hasFSA !== 'undefined' ? (hasFSA ? 'あり' : 'なし') : '不明'),
+        'permission分類: ' + permLabel,
+        '保存処理: ' + saveState.label,
+        'stall有無: ' + (saveState.stalled ? 'あり' : 'なし'),
+        'stall経過秒: ' + (saveState.elapsedSec == null ? 'N/A' : String(saveState.elapsedSec)),
+        'FSA phase: ' + wf.phaseLabel,
+        'error種別: ' + wf.errorLabel,
+        '保存待ち件数: ' + dsc.pendingCount,
+        'BroadcastChannel対応: ' + (peerInfo.status === 'ready' ? 'あり' : (peerInfo.status === 'unsupported' ? 'なし' : '判定不能')),
+        'peer数: ' + (peerInfo.status === 'ready' ? String(peerInfo.count) : '判定不能'),
+        '鮮度（参考）: ' + (freshnessState ? freshnessState.label : '判定不能')
+      ];
+      var text = lines.join('\n');
+      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(function(){
+          zclear(host);
+          host.appendChild(zel('div', { text: '✅ 診断情報をコピーしました。', style: 'margin-top:6px;color:#276749;font-size:12px' }));
+        }).catch(function(){
+          zclear(host);
+          host.appendChild(zel('div', { text: 'コピーに失敗しました。', style: 'margin-top:6px;color:#c53030;font-size:12px' }));
+        });
+      } else {
+        host.appendChild(zel('div', { text: 'このブラウザではコピー機能に対応していません。', style: 'margin-top:6px;color:#a0aec0;font-size:12px' }));
+      }
+    };
+  }
+
+  // ---- 補助診断セクション本体の組み立て ----
+  function zsdAppendSupplemental(hostEl, r){
+    var sec = zel('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px dashed #cbd5e0' });
+    sec.appendChild(zel('div', { text: '🔎 保存の詳しい状態（補助診断）', style: 'font-size:12px;font-weight:800;color:#4a5568;margin-bottom:6px' }));
+
+    var saveState = zsdSaveProcessState();
+    var peerInfo = zsdPeerInfo();
+    var dsc = zsdReadDoSaveCardsDiag();
+    var wf = { phaseLabel: '対象外（この端末はPC自動保存を使用しません）', errorLabel: '対象外' };
+    var freshnessState = { label: '比較不能' };
+
+    sec.appendChild(zsdKvRow('保存処理', saveState.label, saveState.tone));
+    var peerRow = zsdKvRow('同一Aibis session', peerInfo.label, peerInfo.tone);
+    sec.appendChild(peerRow);
+    var peerNoteEl = zel('div', { text: peerInfo.note || '', style: 'font-size:11px;color:#a0aec0;margin:-2px 0 6px' + (peerInfo.note ? '' : ';display:none') });
+    sec.appendChild(peerNoteEl);
+    // Fable 5.1 CODE AUDIT是正（MAJOR-A2）：この行への参照を保持し、wizard表示中の非同期peer
+    // 変化（hello/heartbeat/bye/stale prune）をzsdRefreshPeerDisplay()経由で反映できるようにする。
+    zsdActivePeerRow = peerRow;
+    zsdActivePeerNoteEl = peerNoteEl;
+
+    if (hasFSA) {
+      wf = zsdReadWriteFileDiag();
+      sec.appendChild(zsdKvRow('直近の書込みphase', wf.phaseLabel));
+      sec.appendChild(zsdKvRow('直近のerror種別', wf.errorLabel));
+    }
+    sec.appendChild(zsdKvRow('保存待ち件数', String(dsc.pendingCount)));
+
+    if (saveState.stalled) {
+      sec.appendChild(zel('div', { text: '⚠ 保存が長時間終わっていません。まずは端末内へ退避してください。', style: BOX_WARN + ';margin-top:6px' }));
+      var emgHost = zel('div', {});
+      sec.appendChild(zel('button', { text: '🛟 現在の内容を端末内に緊急保存', type: 'button', style: BTN_PRIMARY, onclick: zsdEmergencySave(emgHost) }));
+      sec.appendChild(emgHost);
+    }
+
+    var copyHost = zel('div', {});
+    sec.appendChild(zel('button', { text: '📋 診断情報をコピー', type: 'button', style: BTN_SECOND, onclick: zsdCopyDiagSummary(copyHost, r, saveState, wf, dsc, freshnessState) }));
+    sec.appendChild(copyHost);
+
+    hostEl.appendChild(sec);
+
+    if (hasFSA && fHandle && typeof fHandle.getFile === 'function') {
+      zsdAppendFreshness(sec, freshnessState);
+    } else {
+      sec.appendChild(zsdKvRow('鮮度（参考）', '比較不能'));
+    }
   }
 
   // ---- overlay開閉 ----
@@ -17080,6 +17547,9 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
     if (!zsdEls()) return;
     zsdOverlayEl.style.display = 'none';
     document.removeEventListener('keydown', zsdEscHandler);
+    // MAJOR-A2: 閉じている間は非同期refreshが不要なDOM操作をしないよう参照を手放す。
+    zsdActivePeerRow = null;
+    zsdActivePeerNoteEl = null;
   }
   function zsdOpen(){
     if (!zsdEls()) return;
@@ -17087,6 +17557,9 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
     zclear(zsdBodyEl);
     zsdBodyEl.appendChild(zel('div', { text: '診断しています…', style: 'color:#718096;font-size:12px' }));
     document.addEventListener('keydown', zsdEscHandler);
+    // MAJOR-A1: open 1回につき追加でちょうど1回だけhelloを再送し、既存peerの再発見を試みる
+    // （channel再生成・retry・新規timer追加は行わない）。
+    try { zsdAnnounceOnOpen(); } catch (exOpenHello) {}
     zsdDiagnose(zsdRender);
   }
 
@@ -17116,6 +17589,14 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
       zsdOpen();
     }
   });
+
+  // ---- 第229弾: 補助診断の常時観測を開始する ----
+  // BroadcastChannel初期化・stall監視ともfail-soft（非対応環境・vm sandbox等でも例外を投げない）。
+  // open操作は一切発生させない（診断UIの自動表示・自動遷移は行わない。R4の能動通知のみ例外）。
+  zsdInitBroadcast();
+  if (typeof setInterval === 'function') {
+    setInterval(zsdCheckStall, ZSD_STALL_POLL_MS);
+  }
 
 })();
 
