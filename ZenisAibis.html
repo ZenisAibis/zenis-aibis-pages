@@ -2069,6 +2069,13 @@ body.is-mob .mob-menu{display:inline-block}
         <b>2か所</b>に保存します。💾保存を押すと、まずブラウザ内へ保存し、続けて自動保存先ファイルへの
         書き込みを行います。<b>この2つは別経路です。</b>ブラウザ内保存だけ成功し、自動保存先ファイルへの
         書き込みだけ失敗する、ということが起こり得ます。<br><br>
+        <b style="color:#2c5282">起動時に2か所の内容が違う場合</b><br>
+        PC版の起動時に「端末内データ」と「PC保存先」の内容が違う場合は、<b>端末内データを安全側として先に表示し、PC保存先を自動では採用しません。</b>
+        画面に両方の件数と保存時刻の参考情報を表示するので、「端末内データで開き続ける」または「PC保存先で開く」を明示的に選んでください。
+        <b>保存時刻の新旧だけで正しい方を自動判定することはありません。</b>何も選ばず画面を閉じた場合も端末内データを維持します。<br>
+        「PC保存先で開く」を選んだ場合は、端末内の直前状態を既存の「1つ前に戻す」用へ退避してからPC保存先を採用します。
+        <b>直前状態の安全な退避を確認できない場合は、PC保存先への切替自体を中止し、端末内データを維持します。</b>
+        読込に5秒以上かかった場合も、あとから返ったPC保存先を勝手に置き換えることはありません。<br><br>
         <b style="color:#c05621">保存処理が長時間終わらない場合</b><br>
         通常、保存は数秒以内に終わります。15秒以上たっても終わらないときは、アプリが自動で
         「保存トラブル自己診断」を1回だけ案内します。放置せず診断を開いてください。<br><br>
@@ -2085,12 +2092,11 @@ body.is-mob .mob-menu{display:inline-block}
         独立したファイルとして控えを確保してください。端末内保存はブラウザのデータが消えると
         一緒に失われるため、フルバックアップだけが独立したファイルとして残ります。<br><br>
         <b style="color:#c53030">⚠ ブラウザの再起動・再読込は、①②のあとで</b><br>
-        PC自動保存先のJSONがブラウザ内より古い状態のまま再起動・再読込すると、起動時に
-        <b>古い保存先データが読み込まれ、今の変更が失われる可能性があります。</b>
-        （状況によって結果は異なり、必ず失われると決まっているわけではありません。保存時刻の
-        新旧だけで内容の正しさが決まるものでもありません。）だからこそ、①端末内緊急保存・
-        ②フルバックアップを先に済ませてから、再起動・再読込は<b>必要な場合だけ</b>行ってください。
-        バックアップさえ確保できていれば、あとから内容を確認しながら復旧を判断できます。<br><br>
+        現在版は起動時に端末内とPC保存先の内容が違えば自動採用を止めますが、保存トラブル中は
+        どちらが最新かを時刻だけで断定できません。①端末内緊急保存・②フルバックアップを先に済ませてから、
+        再起動・再読込は<b>必要な場合だけ</b>行ってください。再起動後に差異確認が出た場合も、内容を確認するまで
+        PC保存先を選ばず、端末内データを安全側として維持できます。バックアップさえ確保できていれば、
+        あとから内容を確認しながら復旧を判断できます。<br><br>
         <b style="color:#2c5282">③ 保存先の再設定（必要な場合のみ、①②のあとで）</b><br>
         診断からそのまま「💾 自動保存先を再設定する」「📋 コピー保存先を再設定」を実行できます。
         <b>まず①②でデータを守ってから</b>行ってください。迷ったときはまず診断を開いてください。<br><br>
@@ -2663,7 +2669,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.26";
+var APP_VERSION = "v11.27";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6354,6 +6360,210 @@ function doSaveCards(cb) {
 
 
 // ===== 初期化 =====
+// ===== 第230弾: startup-freshness-guard（PC起動時の保存先file自動上書き防止） =====
+// 方針：browser(LocalStorage)を安全側の既定値とし、PC保存先fileは非破壊probeだけ行う。
+// 内容が異なる場合はtimestampで正しさを決めず、利用者が明示的にPC側を選んだときだけ
+// 既存saveLS()を1回使って「現在SK→1世代前backup→PC candidateをSK」の順に採用する。
+// readFile()/writeFile()/doSaveCards()/saveLS()の既存契約、storage key/schemaは変更しない。
+var _sfg230State = null;
+
+function _sfg230SafeCards(raw){
+  if(raw == null) return [];
+  try { var p=JSON.parse(raw); return Array.isArray(p)?p:[]; } catch(_e){ return []; }
+}
+function _sfg230FutureCount(arr){
+  var n=0;
+  try{
+    (arr||[]).forEach(function(c){
+      if(c && typeof c.schemaVersion==='number' && isFinite(c.schemaVersion) &&
+         typeof CURRENT_SCHEMA_VERSION==='number' && c.schemaVersion>CURRENT_SCHEMA_VERSION) n++;
+    });
+  }catch(_e){}
+  return n;
+}
+function _sfg230FmtTs(v){
+  if(v==null || v==='') return '不明';
+  var d=new Date(v); if(!isFinite(d.getTime())) return '不明';
+  try{return d.toLocaleString('ja-JP');}catch(_e){return d.toISOString();}
+}
+function _sfg230BrowserSnapshot(){
+  var raw=null, hadKey=false, savedTs=null;
+  try{ raw=localStorage.getItem(SK); hadKey=(raw!==null); }catch(_e){ raw=null; hadKey=false; }
+  try{ savedTs=localStorage.getItem(LSDK); }catch(_e2){ savedTs=null; }
+  var arr=_sfg230SafeCards(raw);
+  return { raw:raw, hadKey:hadKey, cards:arr, serialized:JSON.stringify(arr), savedTs:savedTs };
+}
+function _sfg230ProbeFile(handle, cb){
+  var done=false;
+  function finish(v){ if(done) return; done=true; cb(v); }
+  try{
+    handle.getFile().then(function(file){
+      var lm=null; try{ if(file && isFinite(Number(file.lastModified))) lm=Number(file.lastModified); }catch(_e){}
+      try{
+        file.text().then(function(txt){
+          var p;
+          try{ p=JSON.parse(txt); }catch(_e2){ return finish({status:'invalid-json', cards:null, lastModified:lm, futureCount:0}); }
+          if(!Array.isArray(p)) return finish({status:'invalid-format', cards:null, lastModified:lm, futureCount:0});
+          finish({status:'valid', cards:p, serialized:JSON.stringify(p), lastModified:lm, futureCount:_sfg230FutureCount(p)});
+        }).catch(function(){ finish({status:'read-error', cards:null, lastModified:lm, futureCount:0}); });
+      }catch(_e3){ finish({status:'read-error', cards:null, lastModified:lm, futureCount:0}); }
+    }).catch(function(){ finish({status:'file-error', cards:null, lastModified:null, futureCount:0}); });
+  }catch(_e4){ finish({status:'file-error', cards:null, lastModified:null, futureCount:0}); }
+}
+function _sfg230ShowBrowser(){
+  // 5秒fallback後は利用者が既に操作を始めている可能性があるため、
+  // late probe完了時にreadLS()で画面中のin-memory変更を巻き戻さない。
+  if(!bootDone){ readLS(); showList(); }
+}
+function _sfg230ClearChoice(){
+  _sfg230State=null;
+}
+function _sfg230ChoiceHtml(browserSnap, fileProbe, late){
+  var strongEmpty = fileProbe.cards.length===0 && browserSnap.cards.length>0;
+  var future = fileProbe.futureCount||0;
+  var msg='<b>⚠ 端末内データとPC保存先に差があります</b><br><br>'
+    +'端末内：<b>'+browserSnap.cards.length+'件</b>（保存時刻・参考：'+_sfg230FmtTs(browserSnap.savedTs)+'）<br>'
+    +'PC保存先：<b>'+fileProbe.cards.length+'件</b>（更新時刻・参考：'+_sfg230FmtTs(fileProbe.lastModified)+'）<br><br>'
+    +'<span style="font-size:11px;color:#718096">時刻だけでは、どちらが正しい内容かは決められません。何も選ばず閉じた場合も端末内データを維持します。</span>';
+  if(strongEmpty) msg+='<br><br><b style="color:#c53030">PC保存先は0件です。端末内データを消さないため自動では採用しません。</b>';
+  if(future>0) msg+='<br><br><b style="color:#c53030">PC保存先に現在のアプリより新しい形式のカードが'+future+'件あります。自動では採用しません。</b>';
+  if(late) msg+='<br><br><span style="font-size:11px;color:#b7791f">読込に時間がかかったため、現在の画面は端末内データを維持しています。</span>';
+  msg+='<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px">'
+    +'<button type="button" data-sfg230-choice="browser" onclick="_sfg230ChooseBrowser()" style="background:#2c5282;color:white;border:none;border-radius:7px;padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">端末内データで開き続ける（安全側）</button>'
+    +'<button type="button" data-sfg230-choice="pc" onclick="_sfg230ChoosePc()" style="background:#805ad5;color:white;border:none;border-radius:7px;padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">PC保存先で開く</button>'
+    +'</div>';
+  return msg;
+}
+function _sfg230OfferChoice(browserSnap, fileProbe, late){
+  var priorBackupRaw=null, priorBackupMeta=null, priorBackupHad=false, priorBackupMetaHad=false;
+  try{ priorBackupRaw=localStorage.getItem(BACKUP_KEY); priorBackupHad=(priorBackupRaw!==null); }catch(_e){}
+  try{ priorBackupMeta=localStorage.getItem(BACKUP_META); priorBackupMetaHad=(priorBackupMeta!==null); }catch(_e2){}
+  _sfg230State={
+    browserRaw:browserSnap.raw,
+    browserHadKey:browserSnap.hadKey,
+    browserSavedTs:browserSnap.savedTs,
+    fileCards:fileProbe.cards,
+    priorBackupRaw:priorBackupRaw,
+    priorBackupHad:priorBackupHad,
+    priorBackupMeta:priorBackupMeta,
+    priorBackupMetaHad:priorBackupMetaHad,
+    autoBackupSuppressedHad:Object.prototype.hasOwnProperty.call(window,'_autoBackupQuotaSuppressed'),
+    autoBackupSuppressedValue:!!window._autoBackupQuotaSuppressed
+  };
+  aibisAlert(_sfg230ChoiceHtml(browserSnap,fileProbe,late));
+  try{
+    var ov=document.getElementById('aibisAlertOverlay');
+    if(ov) ov.addEventListener('click',function(ev){ if(ev.target===ov) _sfg230ClearChoice(); });
+  }catch(_e2){}
+}
+function _sfg230ChooseBrowser(){
+  _sfg230ClearChoice();
+  try{ closeAibisAlert(); }catch(_e){}
+  try{ toast('✅ 端末内データを維持して開きました'); }catch(_e2){}
+}
+function _sfg230RestoreBrowserAfterFailedAdopt(st){
+  try{
+    if(st.browserHadKey) localStorage.setItem(SK, st.browserRaw);
+    else localStorage.removeItem(SK);
+  }catch(_e){}
+  try{
+    if(st.browserSavedTs!==null && st.browserSavedTs!==undefined) localStorage.setItem(LSDK,st.browserSavedTs);
+    else localStorage.removeItem(LSDK);
+  }catch(_e2){}
+  try{
+    if(st.priorBackupHad) localStorage.setItem(BACKUP_KEY,st.priorBackupRaw);
+    else localStorage.removeItem(BACKUP_KEY);
+  }catch(_e3){}
+  try{
+    if(st.priorBackupMetaHad) localStorage.setItem(BACKUP_META,st.priorBackupMeta);
+    else localStorage.removeItem(BACKUP_META);
+  }catch(_e4){}
+  try{
+    if(st.autoBackupSuppressedHad) window._autoBackupQuotaSuppressed=st.autoBackupSuppressedValue;
+    else delete window._autoBackupQuotaSuppressed;
+  }catch(_e5){}
+  readLS();
+  try{ showList(); }catch(_e6){}
+}
+function _sfg230NeedsBackup(st){
+  return !!(st && st.browserHadKey && st.browserRaw && st.browserRaw!=='[]');
+}
+function _sfg230ChoosePc(){
+  var st=_sfg230State;
+  if(!st || !Array.isArray(st.fileCards)) return;
+  try{ closeAibisAlert(); }catch(_e){}
+  // browser側に実データがあるのに既存saveLSの自動退避が抑止中なら、
+  // 「PCを採用したが直前browserを戻せない」状態を作らない。採用自体をfail-closedする。
+  if(_sfg230NeedsBackup(st) && window._autoBackupQuotaSuppressed){
+    _sfg230ClearChoice();
+    try{ aibisAlert('⚠ 端末内の直前状態を安全に退避できないため、PC保存先への切替は行いませんでした。<br><br>先に「📦 フルバックアップを作成」で現在の端末内データを確保してから、必要に応じて再起動して選び直してください。'); }catch(_e2){}
+    return;
+  }
+  // saveLS()がbackupを作る時点ではSKはまだbrowser側のまま。
+  // cardsだけcandidateへ差し替え、既存saveLS()を1回呼ぶことでbackup-before-adoptを成立させる。
+  cards=st.fileCards;
+  var ok=false;
+  try{ ok=saveLS(); }catch(_e3){ ok=false; }
+  // saveLSはQuota fallback時に「現在SKの保存は成功・1世代前退避は省略」でtrueを返し得る。
+  // browser側に実データがある場合は、BACKUP_KEYへ直前browserが実際に退避できたことまで確認して
+  // 初めてPC採用を成功扱いする。確認できなければbrowser/既存backup/LSDKへrollbackする。
+  var backupConfirmed=true;
+  if(ok && _sfg230NeedsBackup(st)){
+    try{ backupConfirmed=(localStorage.getItem(BACKUP_KEY)===st.browserRaw); }catch(_e4){ backupConfirmed=false; }
+  }
+  if(!ok || !backupConfirmed){
+    _sfg230RestoreBrowserAfterFailedAdopt(st);
+    _sfg230ClearChoice();
+    try{ aibisAlert('⚠ PC保存先への切替は完了していません。端末内の直前状態を安全に退避できなかったため、端末内データへ戻しました。<br><br>先に「📦 フルバックアップを作成」で現在のデータを確保してください。'); }catch(_e5){}
+    return;
+  }
+  lastSaveSnapshot=JSON.stringify(cards);
+  try{ showList(); }catch(_e6){}
+  _sfg230ClearChoice();
+  try{ toast('✅ PC保存先で開きました。端末内の直前状態は「1つ前に戻す」用に退避しました'); }catch(_e7){}
+}
+try{ window._sfg230ChooseBrowser=_sfg230ChooseBrowser; window._sfg230ChoosePc=_sfg230ChoosePc; }catch(_e){}
+
+function _sfg230AutoAdoptNoBrowser(browserSnap, fileProbe){
+  // browser SK key自体が無い場合だけ従来互換の自動採用を許可する。
+  // future schemaは自動採用せず明示選択へ回す。
+  if(browserSnap.hadKey || fileProbe.status!=='valid' || fileProbe.futureCount>0) return false;
+  var json=fileProbe.serialized;
+  try{ localStorage.setItem(SK,json); }catch(_e){ return false; }
+  cards=fileProbe.cards;
+  lastSaveSnapshot=json;
+  showList();
+  try{ toast('✅ PC保存先から'+cards.length+'件を読み込みました'); }catch(_e2){}
+  return true;
+}
+function _sfg230HandleProbe(browserSnap, fileProbe, late){
+  if(fileProbe.status!=='valid'){
+    _sfg230ShowBrowser();
+    var m = fileProbe.status==='invalid-json' || fileProbe.status==='invalid-format'
+      ? '⚠ PC保存先ファイルの内容を安全に確認できないため、端末内データで表示しました。PC保存先は自動採用していません。'
+      : '⚠ PC保存先ファイルを読み込めないため、端末内データで表示しました。PC保存先は自動採用していません。';
+    try{ aibisAlert(m); }catch(_e){}
+    return;
+  }
+
+  // 5秒fallback後はbrowser key欠落時もlate fileを自動採用しない。
+  // さらにfallback後は利用者が既に編集を始めている可能性があるため、
+  // current sessionでPC候補を明示採用させること自体を行わない。差異警告だけに限定する。
+  if(late){
+    if(browserSnap.serialized!==fileProbe.serialized){
+      try{ aibisAlert('⚠ PC保存先の読込が遅れて完了し、端末内データとの差を確認しました。<br><br><b>この起動中は端末内データを維持し、PC保存先は採用しません。</b><br>保存中の作業を守るため、PC保存先への切替は行いません。必要ならフルバックアップを確保したうえで再起動し、起動時の差異確認から選択してください。'); }catch(_e){}
+    }
+    return;
+  }
+
+  if(_sfg230AutoAdoptNoBrowser(browserSnap,fileProbe)) return;
+
+  _sfg230ShowBrowser();
+  if(browserSnap.serialized===fileProbe.serialized) return;
+  _sfg230OfferChoice(browserSnap,fileProbe,false);
+}
+
+// ===== 初期化 =====
 function init() {
   uName     = localStorage.getItem(UNK) || '';
   mgrEmail  = localStorage.getItem(MEK) || '';
@@ -6388,13 +6598,14 @@ function init() {
   }
 
   // PC版：IndexedDBから保存先ハンドルを読込（非同期）
-  // 安全網：許可ダイアログ・OneDrive同期等で読込が返らない場合、
-  // 5秒で強制的にローカルデータから一覧を表示し「固まったまま」を防ぐ。
+  // 第230弾: 5秒fallback後にlate fileが返っても自動採用しないため、fallback成立を別flagで保持する。
+  var startupFallbackFired230=false;
   setTimeout(function(){
     if(!bootDone){
+      startupFallbackFired230=true;
       readLS();
       showList();
-      toast('⚠ 読込に時間がかかったためローカルデータで表示しました（💾保存で同期再開）');
+      toast('⚠ 読込に時間がかかったためローカルデータで表示しました（PC保存先は自動採用しません）');
     }
   }, 5000);
 
@@ -6402,27 +6613,33 @@ function init() {
     fHandle = handle || null;
     copyHandle = cHandle || null;
 
-    // 保存先未設定 → 初期設定（dev版はローカルデータで素通り）
+    // 保存先未設定 → 初期設定（dev版はローカルデータで素通り）。
+    // ただし5秒fallback後にcallbackが遅れて返った場合は、既に利用者が編集を始めている可能性がある。
+    // そのsessionではreadLS()/showSetup()で画面を巻き戻さず、browser表示を固定する。
     if (!fHandle || !copyHandle) {
+      if(startupFallbackFired230){
+        try{ aibisAlert('⚠ 保存先の確認が遅れて完了しました。この起動中は端末内データを維持します。必要ならフルバックアップを確保したうえで、初期設定から保存先を確認してください。'); }catch(_e){}
+        return;
+      }
       if (window.IS_DEV) { readLS(); showList(); return; }
       showSetup(); return;
     }
 
-    // 保存先あり → パーミッション確認してファイル読込
+    // 保存先あり → パーミッション確認後、fileを非破壊probeする。
+    // 旧readFile()は正常配列を即SK/cardsへ採用するため、startupでは呼ばない。
     checkPerm(fHandle, function(ok){
       if (!ok) {
-        // パーミッション取得失敗でもfHandleは消さない
-        readLS(); showList();
+        // パーミッション取得失敗でもfHandleは消さない。
+        // 5秒fallback後ならin-memory編集保護のためreadLS()で巻き戻さない。
+        if(!startupFallbackFired230){ readLS(); showList(); }
         setTimeout(function(){
           aibisAlert('💾 保存先ファイルへのアクセス許可が必要だよ！<br><br>「💾 保存」ボタンを押すと許可ダイアログが出るよ。<br>許可すると自動保存が再開されるよ😊');
         }, 800);
         return;
       }
-      readFile(fHandle, function(){
-        showList();
-        setTimeout(function(){
-          toast('✅ OneDriveから'+cards.length+'件を読み込みました');
-        }, 500);
+      var browserSnap230=_sfg230BrowserSnapshot();
+      _sfg230ProbeFile(fHandle,function(fileProbe230){
+        _sfg230HandleProbe(browserSnap230,fileProbe230,startupFallbackFired230);
       });
     });
   });
