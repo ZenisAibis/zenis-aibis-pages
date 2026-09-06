@@ -2669,7 +2669,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.27";
+var APP_VERSION = "v11.28";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -7877,12 +7877,13 @@ window.handleAiPaste = handleAiPaste;
 //           aibis_comment.js はbyte不変（本ファイルは既存関数を呼ぶだけで、それらを編集しない）。
 
 // ───────────────────────────────────────────
-// §9 marker語彙（恒久・11件）。大小文字/全半角の補正は行わない（勝手な補正禁止）。
+// §9 marker語彙（DAN231: 補助STANCEを追加して12件）。大小文字/全半角の補正は行わない（勝手な補正禁止）。
+// STANCEはGENERAL内包の表示材料であり、独立theme/klog kind/保存schemaを増やさない。
 // ───────────────────────────────────────────
-var ONEPASS_KNOWN_RE = /^【AIBIS:(GENERAL|NEXT_VISIT|MOTIVATION|PERSONALITY|OBJECTION|HEARING|TRAINING|INHERITANCE|OPTIONS|MISSING|CAUTION)】$/;
+var ONEPASS_KNOWN_RE = /^【AIBIS:(GENERAL|NEXT_VISIT|MOTIVATION|PERSONALITY|OBJECTION|HEARING|TRAINING|INHERITANCE|STANCE|OPTIONS|MISSING|CAUTION)】$/;
 var ONEPASS_SHAPE_RE = /^【AIBIS:[^】\n]*】$/;
 // GENERAL区画へ内包する副見出し（独立themeにしない。klog新themeを増やさない）。
-var ONEPASS_GENERAL_SUB = { OPTIONS: 1, MISSING: 1, CAUTION: 1 };
+var ONEPASS_GENERAL_SUB = { STANCE: 1, OPTIONS: 1, MISSING: 1, CAUTION: 1 };
 // 8テーマmarker→STRATEGY_THEMESキーの対応（strategy_tabs.js・不可触のSTRATEGY_THEMESと同じ8値）。
 var ONEPASS_THEME_KEY = {
   GENERAL: 'general', NEXT_VISIT: 'next_visit', MOTIVATION: 'motivation',
@@ -7937,7 +7938,7 @@ function onepassParse(cleanText){
   }
   var preface = lines.slice(0, markerLines[0].index).join('\n');
 
-  // GENERAL集約分（preface＋GENERAL＋OPTIONS＋MISSING＋CAUTION）はklog側で1entryへ結合されるため、
+  // GENERAL集約分（preface＋GENERAL＋STANCE＋OPTIONS＋MISSING＋CAUTION）はklog側で1entryへ結合されるため,
   // 結合後の合計もここで検査する（個々のraw自体は上のloopで既に検査済み・ここは結合分のみ追加検査）。
   var genParts = sections.filter(function(sec){ return sec.marker==='GENERAL' || ONEPASS_GENERAL_SUB[sec.marker]; });
   var genLen = preface.length + genParts.reduce(function(n,sec){ return n + sec.raw.length + 1; }, 0);
@@ -9840,6 +9841,89 @@ var ZSTRAT_GATE_AXES = ['contact','family','asset','motivation'];
 var ZSTRAT_APP_EVENT_FIELDS = { stage:1, revisit_judge:1, pursuit_judge_sel:1, proposal_req:1 };
 var ZSTRAT_LEVEL_RANK = { '未着手':0, '断片':1, '把握':2 };
 
+// ───────────────────────────────────────────
+// DAN231 next-action-stance: AI参考姿勢（保存値ではなくcouncil rawTextから毎回derive）。
+// Human明示判断 > 記録事実 > AI参考。ここでは下方向クランプのみ行い、自動昇格しない。
+// ───────────────────────────────────────────
+var ZSTRAT_STANCE_LABEL = {
+  LISTEN:'まだ聞く', STEP:'軽い一歩', TEST_CLOSE:'テストクロージング', PROPOSE:'明確提案',
+  CLARIFY:'判断条件を整理', STEP_BACK:'いったん引く', TRUST:'信頼づくり（体験へ）'
+};
+var ZSTRAT_STANCE_KEYS = { LISTEN:1, STEP:1, TEST_CLOSE:1, PROPOSE:1, CLARIFY:1, STEP_BACK:1, TRUST:1 };
+
+function zStratParseStanceBody(body){
+  try{
+    var lines = String(body||'').split('\n');
+    var first = -1;
+    for(var i=0;i<lines.length;i++){ if(lines[i].trim()){ first=i; break; } }
+    if(first < 0) return null;
+    var m = /^姿勢:\s*([A-Z_]+)\s*$/.exec(lines[first].trim());
+    if(!m || !ZSTRAT_STANCE_KEYS[m[1]]) return null;
+    var out = { key:m[1], label:ZSTRAT_STANCE_LABEL[m[1]], reason:'', purpose:'', phrase:'', plus:'', minus:'', strongMinus:'', trust:'', ng:'' };
+    var map = { '根拠':'reason', '目的':'purpose', '一言':'phrase', '＋':'plus', '－':'minus', '強－':'strongMinus', '信頼':'trust', 'NG':'ng' };
+    var seen = {};
+    for(var j=first+1;j<lines.length;j++){
+      var s=lines[j].trim();
+      if(!s) continue;
+      if(/^姿勢:/.test(s)) return null; // duplicate grammarはfail-closed
+      var hit=/^(根拠|目的|一言|＋|－|強－|信頼|NG):\s*(.*)$/.exec(s);
+      if(hit){
+        if(seen[hit[1]]) return null; // 固定labelも各1行。重複は曖昧さを残さずfail-closed。
+        seen[hit[1]] = 1;
+        out[map[hit[1]]] = hit[2].trim();
+      }
+    }
+    // Fable設計の固定行契約。欠落/空欄の参考姿勢は表示せず、OPTIONS等だけを残す。
+    if(!out.reason || !out.purpose || !out.phrase || !out.plus || !out.minus || !out.strongMinus || !out.trust || !out.ng) return null;
+    return out;
+  }catch(_e){ return null; }
+}
+
+function _zStratStanceKey(s, key, clampReason){
+  if(!s || !ZSTRAT_STANCE_KEYS[key]) return null;
+  return {
+    key:key, label:ZSTRAT_STANCE_LABEL[key], reason:s.reason||'', purpose:s.purpose||'', phrase:s.phrase||'',
+    plus:s.plus||'', minus:s.minus||'', strongMinus:s.strongMinus||'', trust:s.trust||'', ng:s.ng||'',
+    sourceKey:s.key, clampReason:clampReason||''
+  };
+}
+
+function zStratProposeGate(card, axes){
+  if(!card || !zStratGateOk(axes)) return false;
+  var stage = Number(card.stage);
+  if(!(stage===4 || stage===5 || stage===6)) return false;
+  if(card.family_headcount !== true) return false;
+  var ownerKpMet = (card.family||[]).some(function(f){ return !!(f && f.met===true && (f.owner===true || f.kp===true)); });
+  if(!ownerKpMet) return false;
+  var am = card.am_checks || {}, tk = card.tk_checks || {};
+  if(!(am.kazoku===true || tk.kazoku_apo===true)) return false;
+  if(!(card.proposal_req===true || card.pursuit_judge_sel==='A見込み' || card.pursuit_judge_sel==='追撃継続')) return false;
+  if(card.revisit_judge==='打ち切り' || card.pursuit_judge_sel==='打ち切り') return false;
+  return true;
+}
+
+function zStratClampStance(card, axes, stance){
+  if(!stance || !card) return null;
+  // Human terminal judgment is stronger than AI text: hide the AI stance entirely.
+  if(card.revisit_judge==='打ち切り' || card.pursuit_judge_sel==='打ち切り') return null;
+  // 材料不足ではAIが強い姿勢を返してもLISTENへ下げる。
+  if(!zStratGateOk(axes)) return _zStratStanceKey(stance, 'LISTEN', '材料ゲート未充足');
+  // Human「変化待ち」＋明示triggerはSTEP_BACKを上限にする。既にLISTENなら上方向へ上げない。
+  if(card.pursuit_judge_sel==='変化待ち' && String(card.d_trigger||'').trim()){
+    if(stance.key==='LISTEN' || stance.key==='STEP_BACK') return _zStratStanceKey(stance, stance.key, stance.key==='STEP_BACK' ? '変化待ちトリガー' : '');
+    return _zStratStanceKey(stance, 'STEP_BACK', '変化待ちトリガー');
+  }
+  // PROPOSEだけは決定論gateを満たさなければTEST_CLOSEへ降格。上方向への自動昇格はしない。
+  if(stance.key==='PROPOSE' && !zStratProposeGate(card, axes)) return _zStratStanceKey(stance, 'TEST_CLOSE', 'PROPOSEゲート未充足');
+  return _zStratStanceKey(stance, stance.key, '');
+}
+
+function zStratDeriveStance(card, council, axes){
+  if(!council) return null;
+  var parsed = zStratParseStanceBody(zStratExtractSectionBody(council, 'STANCE'));
+  return zStratClampStance(card, axes, parsed);
+}
+
 function _zStratLevelAtLeast(level, threshold){
   return (ZSTRAT_LEVEL_RANK[level]||0) >= (ZSTRAT_LEVEL_RANK[threshold]||0);
 }
@@ -9919,6 +10003,7 @@ function zStratDeriveState(card){
     var hasNew = zStratHasNewInfoAfterCouncil(council, readResult, card);
     var optionLine = zStratExtractOptionLine(council);
     var dateMD = zStratFmtMD(council.occurredAt);
+    var stance231 = zStratDeriveStance(card, council, deriveResult.axes);
     // 第208弾: 現行council(id)に対するactiveなnext_action_responseを、既存1回のknowledgeReadV1
     // 結果(readResult.responses)からfilterするだけで解決する。第二read・第二onepassParse・独自
     // sort・日時比較によるbindingは一切行わない。responsesは既にread側で決定順にsort済みのため
@@ -9928,7 +10013,7 @@ function zStratDeriveState(card){
     })[0] || null;
     // 第206弾: 状態C/DもAxes共有を追加。呼出元（zAxisStripRender）へ渡すためだけの追記であり、
     // 既存のcouncil/optionLine/dateMD契約・C/D判定ロジックは1文字も変更しない。
-    return { state: hasNew ? 'C' : 'D', council: council, optionLine: optionLine, dateMD: dateMD, axes: deriveResult.axes, confirmResponse: confirmResponse208 };
+    return { state: hasNew ? 'C' : 'D', council: council, optionLine: optionLine, dateMD: dateMD, axes: deriveResult.axes, confirmResponse: confirmResponse208, stance: stance231 };
   }catch(_eAll){
     return { state:null }; // fail-closed: 例外時はC/Dは主張しない
   }
@@ -9978,9 +10063,15 @@ function zStratFmtMD(iso){
 function zStratRenderCandidateBox(d){
   var box = document.getElementById('onepassCandidateBox');
   if(!box) return; // strategy_panel.html未反映環境（VM試験等）では何もしない
+  var stanceEl = document.getElementById('onepassStanceText');
+  var stanceReasonEl = document.getElementById('onepassStanceReason');
+  var stanceDetailEl = document.getElementById('onepassStanceDetail');
   var optEl = document.getElementById('onepassOptionsText');
   var missEl = document.getElementById('onepassMissingText');
   var cautEl = document.getElementById('onepassCautionText');
+  if(stanceEl) stanceEl.textContent = '';
+  if(stanceReasonEl) stanceReasonEl.textContent = '';
+  if(stanceDetailEl) stanceDetailEl.textContent = '';
   if(optEl) optEl.textContent = '';
   if(missEl) missEl.textContent = '';
   if(cautEl) cautEl.textContent = '';
@@ -9989,9 +10080,23 @@ function zStratRenderCandidateBox(d){
   var optionsBody = zStratExtractSectionBody(d.council, 'OPTIONS');
   var missingBody = zStratExtractSectionBody(d.council, 'MISSING');
   var cautionBody = zStratExtractSectionBody(d.council, 'CAUTION');
-  if(!optionsBody && !missingBody && !cautionBody){ box.style.display = 'none'; return; } // パース失敗等は非表示
+  var stance = d.stance || null;
+  if(!stance && !optionsBody && !missingBody && !cautionBody){ box.style.display = 'none'; return; } // パース失敗等は非表示
 
   box.style.display = '';
+  if(stanceEl) stanceEl.textContent = stance ? ('参考姿勢（AI）: ' + stance.label) : '';
+  if(stanceReasonEl) stanceReasonEl.textContent = stance && stance.reason ? ('理由: ' + stance.reason) : '';
+  if(stanceDetailEl && stance){
+    var stanceParts = [];
+    if(stance.purpose) stanceParts.push('目的: ' + stance.purpose);
+    if(stance.phrase) stanceParts.push('一言: ' + stance.phrase);
+    if(stance.plus) stanceParts.push('＋: ' + stance.plus);
+    if(stance.minus) stanceParts.push('－: ' + stance.minus);
+    if(stance.strongMinus) stanceParts.push('強－: ' + stance.strongMinus);
+    if(stance.trust) stanceParts.push('信頼: ' + stance.trust);
+    if(stance.ng) stanceParts.push('NG: ' + stance.ng);
+    stanceDetailEl.textContent = stanceParts.join('\n');
+  }
   if(optEl) optEl.textContent = optionsBody;
   if(missEl) missEl.textContent = missingBody ? ('不足: ' + missingBody) : '';
   if(cautEl) cautEl.textContent = cautionBody ? ('注意: ' + cautionBody) : '';
@@ -10398,6 +10503,12 @@ function zConfirmCardRender(card, d){
     }));
 
     box.appendChild(_zConfirmEl('div', { text: '次の一手候補: ' + optLine, style: _zConfirmRowStyle() }));
+    // DAN231: AI stanceはd.stance（strategy_current_nav.jsで1回derive済み）だけを表示し、
+    // ここでSTANCE本文を再parseしない。Human採用/却下/保留とは別行・別prefixを維持する。
+    if(d.stance){
+      box.appendChild(_zConfirmEl('div', { text: '参考姿勢: ' + d.stance.label, style: _zConfirmRowStyle('#553c9a') }));
+      if(d.stance.reason) box.appendChild(_zConfirmEl('div', { text: '理由: ' + d.stance.reason, style: _zConfirmRowStyle('#4a5568') }));
+    }
     if(missLine) box.appendChild(_zConfirmEl('div', { text: '未確認: ' + missLine, style: _zConfirmRowStyle('#a0623a') }));
     if(cautLine) box.appendChild(_zConfirmEl('div', { text: '注意: ' + cautLine, style: _zConfirmRowStyle('#975a16') }));
 
@@ -15795,6 +15906,13 @@ function genPrompt(anon,presetOverride){
     7:'今は「7決心」。契約・申込が取れた段階。事例化と次の関係構築へ。'
   };
   if(c.stage!==''&&c.stage!=null && _stageTone[+c.stage]) lines.push('■ ステージ別トーン指示\n  '+_stageTone[+c.stage]);
+  if(preset==='general'){
+    lines.push('◆【参考姿勢（next-action stance）】これはAIの参考材料であり、正式ランク・スコア・自動昇格ではない。担当者/課長の明示判断を最優先し、記録事実を次に優先する。強い材料があっても根拠なく上方向へ昇格しない。');
+    lines.push('◆【顕在化シグナル】他社比較・士業相談・相続税額/評価額への具体発言・家族内協議・資料要求/保管・固定資産税/空室/修繕等の具体悩み・相続トラブルへの強い反応・自己学習は「自分ごと化」の根拠。ただし単独でPROPOSEにしない。');
+    lines.push('◆【降格シグナル】明確な断り・時期未到来・反応低下・信頼不足・家族/決定者未確認は、好材料より優先して慎重側へ。打ち切りのHuman判断があれば参考姿勢を出さず、変化待ち＋待ちトリガーならSTEP_BACKを上限とし、LISTEN等の慎重側を上方向へ上げない。');
+    lines.push('◆【PROPOSE条件】明確提案は、材料ゲート充足・stage4〜6・家族人数把握・owner/KP面談済・家族合意または家族同席アポ・提案依頼またはHuman判断(A見込み/追撃継続)が揃う場合だけ候補にする。不足時はTEST_CLOSE以下へ。');
+    lines.push('◆【信頼不足】会社・建物・管理・契約後・営業行為への不安、または「業者・プランへの信頼」が決め手なら、反論で押さずTRUSTを使う。体験候補はイベント／完成見学／建築現場／本社／ショールーム／専門担当面談／入居後物件／管理現場から、その顧客の不足している信頼に合う1つだけを選び、過去会話由来の自然な再訪理由へつなぐ。');
+  }
   if(preset!=='general'){
     lines.push('◆【問答無用のE】間口9m以下、または土地面積150㎡以下は、他条件に優先して必ずE（初期除外）。ただし間口・面積が未入力、またはアセット系の場合は適用しない。E＝「この土地では計画が成り立たない」の機械的判定であり打切ではない。E判定時は「他に所有地がないか」の確認を必ず次アクションに挙げる（他の土地があれば別途再評価）');
     lines.push('◆ 追客判定は慎重に。A・Sは本当に可能性が高い案件のみ。【A・Sの最低条件】「土地資産規模」が入力済み かつ「家族人数把握」がコンプリート。どちらか未達ならA・SにせずB以下とし、不足項目を挙げて次に何を確認すべきかを促す');
@@ -15907,6 +16025,26 @@ function genPrompt(anon,presetOverride){
       });
     });
     lines.push('  家族人数把握：'+(c.family_headcount?'コンプリート':'不足'));
+    lines.push('');
+  }
+  if(preset==='general'){
+    var _am231=c.am_checks||{}, _tk231=c.tk_checks||{};
+    var _ownerKpMet231=(c.family||[]).filter(function(f){return f&&f.met&&(f.owner||f.kp);}).map(function(f){
+      return (f.role||'家族')+(f.owner?'[所有者]':'')+(f.kp?'[KP]':'');
+    });
+    var _amNames231={jikoshikin:'自己資金',kakutei:'確定申告・決算書',nayose:'名寄帳',kazoku:'家族合意',nouki:'納期設定'};
+    var _amDone231=Object.keys(_amNames231).filter(function(k){return _am231[k]===true;}).map(function(k){return _amNames231[k];});
+    lines.push('■ 参考姿勢の判断材料（Human明示判断＞記録事実＞AI参考）');
+    lines.push('  家族人数把握：'+(c.family_headcount?'完了':'未完了'));
+    lines.push('  面談済owner/KP：'+(_ownerKpMet231.length?_ownerKpMet231.join('・'):'なし'));
+    lines.push('  案件化確認済：'+(_amDone231.length?_amDone231.join('・'):'なし'));
+    lines.push('  家族同席アポ：'+(_tk231.kazoku_apo===true?'あり':'なし'));
+    lines.push('  提案依頼：'+(c.proposal_req===true?'あり':'なし')+(c.proposal_req_quality?('（質:'+c.proposal_req_quality+'）'):''));
+    lines.push('  Human追撃Judgment：'+(c.pursuit_judge_sel||'未設定'));
+    lines.push('  Human再訪Judgment：'+(c.revisit_judge||'未設定'));
+    lines.push('  決断の決め手：'+(c.tk_key||'未設定'));
+    lines.push('  自己資金方法：'+(c.am_fund||'未設定')+' ／ 納期目安：'+(c.am_nouki_when||'未設定'));
+    lines.push('  待ちトリガー：'+(c.d_trigger||'未設定')+(c.d_trigger_when?('（'+c.d_trigger_when+'）'):''));
     lines.push('');
   }
   if(c.ai_summary){
@@ -16141,15 +16279,15 @@ function genPrompt(anon,presetOverride){
     ]);
     _pushPromptGoodBadContract(lines,'Ⅱ 今日投げかける言葉');
   } else {
-    // general（第205弾: 戦略協議1往復統合onepass。8テーマ+OPTIONS/MISSING/CAUTIONを固定見出しで
+    // general（第231弾: 戦略協議1往復統合onepass。8テーマ+STANCE/OPTIONS/MISSING/CAUTIONを固定見出しで
     // 1回のAI回答へ集約する。既存7テーマ分岐(next_visit〜inheritance)は意味変更しない。
     lines.push('【総合戦略協議｜1回の回答で8項目すべてに答えてください】');
-    lines.push('以下、固定の見出し行（【AIBIS:xxx】）ごとに区切って、8つの分析テーマ＋補助3項目、合計11区画すべてに回答してください。');
+    lines.push('以下、固定の見出し行（【AIBIS:xxx】）ごとに区切って、8つの分析テーマ＋補助4項目、合計12区画すべてに回答してください。');
     lines.push('※ 課長との協議内容（フォーアイズ/シックスアイズ）が記録されている場合は、組織的に検討された前向き材料として反映してください。');
     lines.push('');
     lines.push('【厳守・出力形式】');
     lines.push('・各区画は見出し行だけを単独の行に書き、装飾・番号付け・改変（全角化や記号追加など）をしないこと。見出し行の直後から本文を書く。');
-    lines.push('・見出しの出力順は自由（前後してよい）。ただし11見出しすべてを漏れなく出力すること。');
+    lines.push('・見出しの出力順は自由（前後してよい）。ただし12見出しすべてを漏れなく出力すること。');
     lines.push('・見出し行自体の前後に空行や説明を挟んでもよいが、見出し文字列そのものは変更しない。');
     lines.push('・回答の最初の1行目に、必ず「分析参考ランク: X」（Xは半角の S/A/B/C/D/E/X のいずれか1文字）とだけ書く。これはAIの参考値であり正式ランクではない（正式ランクは人間のJudgmentでのみ確定する）。この行は最初の【AIBIS:】見出しより前に置く。');
     lines.push('・上記1行目の「分析参考ランク: X」行を除き、回答のどこにも「判定：」という表記や、S/A/B/C/D/E/Xの追客ランク記号は出力しないでください（正式ランクは人間が別途判断します）。');
@@ -16164,6 +16302,11 @@ function genPrompt(anon,presetOverride){
       '焦らせる期限・キャンペーン煽り',
       'ステージ飛ばしのクロージング'
     ]);
+    lines.push('');
+    lines.push('【AIBIS:STANCE】');
+    lines.push('次回行動の「参考姿勢」を、次の7キーから必ず1つだけ選ぶ：LISTEN / STEP / TEST_CLOSE / PROPOSE / CLARIFY / STEP_BACK / TRUST。正式ランク・スコア・確定判断ではなく、人間が考えるための材料として出力する。');
+    lines.push('先頭の非空行は厳密に「姿勢: <KEY>」。続けて各1行で「根拠:」「目的:」「一言:」「＋:」「－:」「強－:」「信頼:」「NG:」を出す。根拠には可能なら〔日付・記録〕を含め、推測だけで強い姿勢にしない。');
+    lines.push('＋は前向き反応時の具体行動、－は軽い拒否時の判断条件整理、強－は引いて確認1問だけ、信頼はクロージングを止めて体験1つ、NGは押し込み・反論量産・同一提案再押し等の禁止行動を書く。');
     lines.push('');
     lines.push('【AIBIS:NEXT_VISIT】');
     lines.push('次の訪問で何をすべきか、①訪問タイミング ②最初の一言 ③会話の流れ(3〜5ステップ) ④想定される反応と切り返し ⑤次回アポへの繋ぎ方 の順で具体的に。');
@@ -16195,7 +16338,7 @@ function genPrompt(anon,presetOverride){
     lines.push('次の一手の有力候補を2〜3案、それぞれ理由つきで書いてください。断定はせず「まず確認したいこと」「様子を見る」等の含みを持たせてよい。これは人間が選ぶための材料であり、AIが決定するものではない。');
     lines.push('');
     lines.push('【AIBIS:MISSING】');
-    lines.push('現時点でヒアリング・確認が不足している項目を2〜3件、簡潔に挙げてください。');
+    lines.push('現時点でヒアリング・確認が不足している項目を2〜3件、簡潔に挙げてください。PROPOSE条件が1つでも未充足なら、最重要の不足1点について「次に聞く1問: ○○」を必ず1つだけ添えてください（決定者／家族意向／売却・保有／資金・借入／相続課題／嫌がる点／過去提案の拒否理由から、記録に合うものを選ぶ）。');
     lines.push('');
     lines.push('【AIBIS:CAUTION】');
     lines.push('今はしない方がよいこと・急がない方がよい理由を書いてください。断定的な禁止命令ではなく助言のトーンで。');
@@ -24063,10 +24206,13 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       <textarea id="f_ai_general" rows="14" placeholder="AI分析の回答をここに貼り付け" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:260px" oninput="scheduleAibisComment('general');autoDetectJudge(this.value);autoDetectSummary(this.value);autoDetectJob9(this.value)" onpaste="handleAiPaste(event)"></textarea>
       <div id="ac_general" style="display:none;margin-top:8px;background:#fffbeb;border:1px solid #f6e05e;border-radius:6px;padding:8px;font-size:12px;color:#744210"></div>
     </div>
-    <!-- 第205弾: ④OPTIONS/MISSING/CAUTION整理表示（render時にcouncil rawTextから再parse。新規保存schema無し） -->
+    <!-- 第231弾: STANCE＋OPTIONS/MISSING/CAUTION整理表示。すべてcouncil rawTextからread-only deriveし新規保存schema無し。 -->
     <div id="onepassCandidateBox" style="display:none;background:#f0fff4;border:1px solid #9ae6b4;border-radius:6px;padding:10px;margin-bottom:8px">
       <div style="font-size:11px;font-weight:700;color:#276749;margin-bottom:4px">有力候補（AI）</div>
-      <div id="onepassOptionsText" style="font-size:12px;color:#2d3748;white-space:pre-wrap"></div>
+      <div id="onepassStanceText" style="font-size:12px;font-weight:700;color:#553c9a;white-space:pre-wrap"></div>
+      <div id="onepassStanceReason" style="font-size:11px;color:#4a5568;margin-top:3px;white-space:pre-wrap"></div>
+      <div id="onepassStanceDetail" style="font-size:11px;color:#4a5568;margin-top:4px;white-space:pre-wrap"></div>
+      <div id="onepassOptionsText" style="font-size:12px;color:#2d3748;white-space:pre-wrap;margin-top:6px"></div>
       <div id="onepassMissingText" style="font-size:11px;color:#a0623a;margin-top:6px;white-space:pre-wrap"></div>
       <div id="onepassCautionText" style="font-size:11px;color:#975a16;margin-top:6px;white-space:pre-wrap"></div>
     </div>
