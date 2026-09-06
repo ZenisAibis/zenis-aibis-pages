@@ -2669,7 +2669,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.28";
+var APP_VERSION = "v11.29";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -9899,6 +9899,7 @@ function zStratProposeGate(card, axes){
   if(!(am.kazoku===true || tk.kazoku_apo===true)) return false;
   if(!(card.proposal_req===true || card.pursuit_judge_sel==='A見込み' || card.pursuit_judge_sel==='追撃継続')) return false;
   if(card.revisit_judge==='打ち切り' || card.pursuit_judge_sel==='打ち切り') return false;
+  if(card.pursuit_judge_sel==='変化待ち') return false; // DAN232追加: Human変化待ちはd_trigger有無に関わらずPROPOSE不可
   return true;
 }
 
@@ -15909,8 +15910,8 @@ function genPrompt(anon,presetOverride){
   if(preset==='general'){
     lines.push('◆【参考姿勢（next-action stance）】これはAIの参考材料であり、正式ランク・スコア・自動昇格ではない。担当者/課長の明示判断を最優先し、記録事実を次に優先する。強い材料があっても根拠なく上方向へ昇格しない。');
     lines.push('◆【顕在化シグナル】他社比較・士業相談・相続税額/評価額への具体発言・家族内協議・資料要求/保管・固定資産税/空室/修繕等の具体悩み・相続トラブルへの強い反応・自己学習は「自分ごと化」の根拠。ただし単独でPROPOSEにしない。');
-    lines.push('◆【降格シグナル】明確な断り・時期未到来・反応低下・信頼不足・家族/決定者未確認は、好材料より優先して慎重側へ。打ち切りのHuman判断があれば参考姿勢を出さず、変化待ち＋待ちトリガーならSTEP_BACKを上限とし、LISTEN等の慎重側を上方向へ上げない。');
-    lines.push('◆【PROPOSE条件】明確提案は、材料ゲート充足・stage4〜6・家族人数把握・owner/KP面談済・家族合意または家族同席アポ・提案依頼またはHuman判断(A見込み/追撃継続)が揃う場合だけ候補にする。不足時はTEST_CLOSE以下へ。');
+    lines.push('◆【降格シグナル】明確な断り・時期未到来・反応低下・信頼不足・家族/決定者未確認は、好材料より優先して慎重側へ。打ち切りのHuman判断があれば参考姿勢を出さず、変化待ち＋待ちトリガーならSTEP_BACKを上限とし、LISTEN等の慎重側を上方向へ上げない。変化待ちのHuman判断があれば、待ちトリガー未設定でもPROPOSEを候補にしない。');
+    lines.push('◆【PROPOSE条件】明確提案は、材料ゲート充足・stage4〜6・家族人数把握・owner/KP面談済・家族合意または家族同席アポ・提案依頼またはHuman判断(A見込み/追撃継続)かつHuman判断が変化待ち・打ち切りでない、が揃う場合だけ候補にする。不足時はTEST_CLOSE以下へ。');
     lines.push('◆【信頼不足】会社・建物・管理・契約後・営業行為への不安、または「業者・プランへの信頼」が決め手なら、反論で押さずTRUSTを使う。体験候補はイベント／完成見学／建築現場／本社／ショールーム／専門担当面談／入居後物件／管理現場から、その顧客の不足している信頼に合う1つだけを選び、過去会話由来の自然な再訪理由へつなぐ。');
   }
   if(preset!=='general'){
