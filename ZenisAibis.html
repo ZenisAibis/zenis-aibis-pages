@@ -366,6 +366,36 @@ html.pczoom .tabs .tab .ic{font-size:15px}
 .hand-right .hb{order:99}
 .hb-rev{margin-right:auto}
 .hand-right .hb-rev{order:99;margin-right:0;margin-left:auto}
+/* 第237弾 CP2: 利き手（prospect_hand_v1、既存setHand/applyHand経由）レイアウト統合。
+   新規hand-row系は必ずbody.is-mob配下に限定し、PC（body:not(.is-mob)）の既存layoutへは
+   一切差分を出さない。JSでのDOM並び替えは行わず、CSSのorder/grid-template-columnsのみで
+   実現する。既存の無scope`.hand-right .hb{order:99}`（mic等）はそのまま維持し変更しない。 */
+body.is-mob .hand-row > .hb{order:-1}
+body.is-mob.hand-right .hand-row > .hb{order:99}
+/* CP2 Correction m2: 既存無scope`.hand-right .hb{order:99}`がCP2新規.hbへPC（desktop）上でも
+   適用される潜在性（Fable監査m2実測：強制表示診断で📍🗺がinput後方へ移動）を残さないよう、
+   PC（body:not(.is-mob)）では明示的にorder:0へresetする。製品経路ではQuick AddはPCで到達
+   不能（openQuickAdd()のisMob guardによりoverlayは常時非表示）だが、CSS自体をhardeningする。
+   既存mic等・既存の無scopeルールそのものは変更しない。 */
+body:not(.is-mob) .hand-row > .hb{order:0}
+/* action-row（本体番地テンキーのクリア/決定型）：primary(.hb)は常にwide。
+   [CP2 Correction M1是正] flexbox＋flex-basis:0のflex-grow比率（2:1）で幅を決定する。
+   grid-template-columnsの`1fr 2fr`⇔`2fr 1fr`単純swapは、ブラウザの端数px配分が左右で
+   微妙に異なり（実測: 234.65625 vs 234.671875）exact equalityを満たさないことを確認したため
+   採用しない。また、flex-basis:0のgrid版として試したdirection:rtl grid技法は、明示
+   grid-columnとRTLの組み合わせでitemが想定外に2行へwrapする実装依存の副作用が実測で
+   確認されたため不採用とした。flexbox+flex-direction:row-reverseはflex-grow配分の計算が
+   直感的で、実測でも左右完全一致することを確認した唯一の方式である。PC/base既定は
+   flex-direction:row（無指定）で、撤去した旧inline `grid-template-columns:1fr 2fr` と
+   同じ視覚結果（クリア窄・決定広、位置無変更）になる。geo_qa_overlays.html側のinline
+   grid-template-columns指定は撤去済み（display:flexへ変更）。 */
+.hand-row.qa-tk-actions > .hb{flex:2 1 0px}
+.hand-row.qa-tk-actions > :not(.hb){flex:1 1 0px}
+/* order:-1/99を上書きし、位置反転はflex-direction側のみで行う（order併用による相互作用を
+   避ける）。一般則よりセレクタ強度を上げるためbody.is-mobを明示する。 */
+body.is-mob .hand-row.qa-tk-actions > .hb{order:0}
+body.is-mob .hand-row.qa-tk-actions > :not(.hb){order:0}
+body.is-mob:not(.hand-right) .hand-row.qa-tk-actions{flex-direction:row-reverse}
 @keyframes micpulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .fam-sec-lbl{font-size:11px;font-weight:700;color:#2c5282;margin:8px 0 5px;padding:3px 6px;background:#ebf4ff;border-radius:4px}
 .fam-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:6px}
@@ -1686,18 +1716,18 @@ body.is-mob .mob-menu{display:inline-block}
       </div>
       <div style="font-size:11px;color:#718096;margin:0 0 10px;white-space:nowrap">※ 土地見込みは🟫土地ボタンを押してね</div>
       <label style="display:block;font-size:12px;font-weight:700;color:#4a5568;margin-bottom:4px">🏠 住所（自宅）</label>
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
-        <button type="button" onclick="qaGeo('qaAddr')" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#ebf8ff;font-size:16px;cursor:pointer">📍</button>
-        <button type="button" onclick="openGeoMap('qaAddr')" title="地図で指定" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#f0fff4;font-size:16px;cursor:pointer">🗺</button>
+      <div class="hand-row" style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+        <button type="button" class="hb" onclick="qaGeo('qaAddr')" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#ebf8ff;font-size:16px;cursor:pointer">📍</button>
+        <button type="button" class="hb" onclick="openGeoMap('qaAddr')" title="地図で指定" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#f0fff4;font-size:16px;cursor:pointer">🗺</button>
         <input id="qaAddr" type="text" placeholder="📍🗺で位置、🔢で番地" style="flex:1;min-width:0;box-sizing:border-box;padding:10px;border:1px solid #cbd5e0;border-radius:8px;font-size:13px;font-family:inherit">
-        <button type="button" onclick="qaTenkeyOpen('qaAddr')" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#f7fafc;font-size:16px;cursor:pointer">🔢</button>
+        <button type="button" class="hb" onclick="qaTenkeyOpen('qaAddr')" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#f7fafc;font-size:16px;cursor:pointer">🔢</button>
       </div>
       <label style="display:block;font-size:12px;font-weight:700;color:#4a5568;margin-bottom:4px">🏛 計画地</label>
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
-        <button type="button" onclick="qaGeo('qaPlan')" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#ebf8ff;font-size:16px;cursor:pointer">📍</button>
-        <button type="button" onclick="openGeoMap('qaPlan')" title="地図で指定" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#f0fff4;font-size:16px;cursor:pointer">🗺</button>
+      <div class="hand-row" style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+        <button type="button" class="hb" onclick="qaGeo('qaPlan')" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#ebf8ff;font-size:16px;cursor:pointer">📍</button>
+        <button type="button" class="hb" onclick="openGeoMap('qaPlan')" title="地図で指定" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#f0fff4;font-size:16px;cursor:pointer">🗺</button>
         <input id="qaPlan" type="text" placeholder="📍🗺で位置、🔢で番地" style="flex:1;min-width:0;box-sizing:border-box;padding:10px;border:1px solid #cbd5e0;border-radius:8px;font-size:13px;font-family:inherit">
-        <button type="button" onclick="qaTenkeyOpen('qaPlan')" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#f7fafc;font-size:16px;cursor:pointer">🔢</button>
+        <button type="button" class="hb" onclick="qaTenkeyOpen('qaPlan')" style="flex-shrink:0;width:40px;height:40px;border:1px solid #cbd5e0;border-radius:8px;background:#f7fafc;font-size:16px;cursor:pointer">🔢</button>
       </div>
       <label style="display:block;font-size:12px;font-weight:700;color:#4a5568;margin-bottom:4px">📝 計画地備考</label>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:14px">
@@ -2669,7 +2699,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.29";
+var APP_VERSION = "v11.30";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6984,7 +7014,7 @@ function aibisToast(msg){
 function applyHand(){ try{ document.body.classList.toggle('hand-right', uHand==='right'); }catch(_e){} paintHandBtn(); }
 function paintHandBtn(){ var seg=document.getElementById('sHandSeg'); if(seg){ seg.querySelectorAll('.hand-opt').forEach(function(b){ b.classList.toggle('active', b.dataset.hand===uHand); }); } var b=document.getElementById('sHandBtn'); if(b) b.textContent=(uHand==='right')?'右手持ち':'左手持ち'; }
 function cycleHand(){ setHand(uHand==='right'?'left':'right'); }
-function setHand(v){ uHand=(v==='right')?'right':'left'; try{ localStorage.setItem(HANDK,uHand); }catch(_e){} applyHand(); try{ if(typeof toast==='function') toast(uHand==='right'?'右手持ちに設定しました 👉（マイクが右側へ）':'👈 左手持ちに設定しました（マイクが左側へ）'); }catch(_e){} }
+function setHand(v){ uHand=(v==='right')?'right':'left'; try{ localStorage.setItem(HANDK,uHand); }catch(_e){} applyHand(); try{ if(typeof toast==='function') toast(uHand==='right'?'右手持ちに設定しました 👉':'👈 左手持ちに設定しました'); }catch(_e){} }
 window.setHand=setHand; window.cycleHand=cycleHand; window.applyHand=applyHand; window.paintHandBtn=paintHandBtn;
 
 /* ===== PWA：単一ファイルでインストール可能化（マニフェスト/アイコンをHTML内生成・外部ファイル不要） v7.78 ===== */
@@ -20206,6 +20236,22 @@ window.addEventListener('popstate',function(ev){
     return;
   }
   var _gov=document.getElementById('geoMapOv'); if(_gov && _gov.classList.contains('show')){ _gov.classList.remove('show'); try{ if(typeof curId!=='undefined' && curId){ history.pushState({zv:'edit',id:curId},''); } }catch(e){} return; } // 地図オーバーレイは閉じるだけ（土台のカード/光速を維持）
+  /* 第237弾 CP3: Quick Add番地テンキー優先、次にQuick Add本体。geoMapOv直後・roleplayより前
+   * （優先順位：geoMapOv(既存) > Quick Add番地テンキー > Quick Add本体 > roleplay > Inbox >
+   * card subview > 既存zv復元）。closeは専用のhistory非操作ヘルパー（_qaTkHideOnly/
+   * _qaHideOnly、quick_add.js側）へ委譲し、ここではhistory操作を一切行わない（open時の
+   * pushとの対称性）。quick_add.js側にpopstate listenerは追加しておらず、browser_nav.jsが
+   * 引き続き本体documentの唯一のpopstate ownerである。 */
+  var _qaTkOv=document.getElementById('qaTenkeyOv');
+  if(_qaTkOv && _qaTkOv.style.display!=='none' && _qaTkOv.style.display!==''){
+    try{ if(typeof _qaTkHideOnly==='function') _qaTkHideOnly(); }catch(e){}
+    return;
+  }
+  var _qaOv=document.getElementById('quickAddOv');
+  if(_qaOv && _qaOv.style.display!=='none' && _qaOv.style.display!==''){
+    try{ if(typeof _qaHideOnly==='function') _qaHideOnly(); }catch(e){}
+    return;
+  }
   /* 第223弾層3: roleplay最前面overlay。editView表示中のみ横取りし、close 1回＋履歴1段
    * 復元でreturnする（autoCommitEditは通さない）。editView非表示（想定外）では横取りせず、
    * 残留overlayを最大3回まで有界closeしてから通常処理へ落とす。検出・close処理はすべて
@@ -21930,16 +21976,41 @@ window.openSelfCheck=openSelfCheck;
 var QA_STAGES=['0:面識','1:注意','2:興味','3:連想'];
 var QA_KAIWA=['ピンポン','立ち話','玄関内','連れ出し','上り込み'];
 var qaStageSel=-1, qaKaiwaSel=[], qaLandMode=false;
-function openQuickAdd(){
-  if(!isMob) return; // スマホ専用（PCは通常の新規カードを使用）
+/* 第237弾 CP3: 下書き初期化はopen処理から分離した専用helper。呼出元はqaSave()成功時のみ
+ * （非破壊close契約のため、open/close自体では下書きを消さない）。 */
+function _qaResetDraft(){
   qaStageSel=-1; qaKaiwaSel=[]; qaLandMode=false;
   ['qaName','qaAddr','qaPlan','qaKuubi'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
   var _nm=document.getElementById('qaName'); if(_nm) _nm.readOnly=false;
   var gj=document.getElementById('qaGenjo'); if(gj) gj.value='';
-  qaRender();
-  var ov=document.getElementById('quickAddOv'); if(ov) ov.style.display='flex';
 }
-function closeQuickAdd(){ var ov=document.getElementById('quickAddOv'); if(ov) ov.style.display='none'; }
+/* history操作を一切行わない純粋DOM close。browser_nav.jsのpopstateハンドラ専用
+ * （open時のpushとの対称性：popによる離脱では再pushしない）。 */
+function _qaHideOnly(){ var ov=document.getElementById('quickAddOv'); if(ov) ov.style.display='none'; }
+function openQuickAdd(){
+  if(!isMob) return; // スマホ専用（PCは通常の新規カードを使用）
+  var ov=document.getElementById('quickAddOv');
+  var _alreadyShown=!!(ov && ov.style.display==='flex');
+  var _alreadyOwned=!!(history.state && history.state.qa===1);
+  qaRender();
+  if(ov) ov.style.display='flex';
+  /* 第237弾 CP3: 既に表示中またはqa-owned stateなら重複pushしない。history所有は
+   * Quick Addが非表示のときだけ新規に1段取得する（既存stateをclone・qa:1を付与）。 */
+  if(!_alreadyShown && !_alreadyOwned){
+    var _cur=history.state||{};
+    try{ history.pushState(Object.assign({},_cur,{zv:_cur.zv||'list',id:_cur.id||null,qa:1}),''); }catch(e){}
+  }
+}
+function closeQuickAdd(){
+  /* 第237弾 CP3: ✕／背景タップ／プログラム呼出はすべて本関数を通る同一契約。
+   * qa-owned stateなら実DOM closeを直接行わずhistory.back()へ委譲し、popstate側の
+   * _qaHideOnly()がDOMを閉じる（push→close→再pushのループを避ける）。qa-owned以外の
+   * 想定外状態のみ有限fallbackとして直接hideする。 */
+  if(history.state && history.state.qa===1){
+    try{ history.back(); return; }catch(e){}
+  }
+  _qaHideOnly();
+}
 function _qaLocked(){ var el=document.getElementById('qaName'); var n=el?(el.value||'').trim():''; return qaLandMode || n===''||n==='土地見込み'; }
 function qaToggleLand(){
   qaLandMode=!qaLandMode;
@@ -22003,18 +22074,39 @@ function qaSave(cont){
   if(qaStageSel>=0) c.stage=String(qaStageSel);
   c.kaiwa=qaKaiwaSel.slice();
   _stageUpLog(null,c);
+  // 第237弾 CP3 Correction M1是正: 永続保存成功が確定するまでは、photo linkageと
+  // qaPendingPhotoSetをcommitしない（Fable 5.1 Code Audit実測: 従来順序では保存失敗後も
+  // in-memory cardsへ未保存cardが残留し、IDB set.cardIdが未保存card IDへdangling
+  // linkageし、qaPendingPhotoSetがnull化され、再保存で重複card＋写真1枚目のみ紐付けとなる
+  // データ層の副作用が確定していた）。保存対象setIdは開始時点でcaptureする。
+  var pendingPhotoSetAtSave=qaPendingPhotoSet;
   cards.push(c);
-  // カメラから持ち帰った計画地写真があれば、このカードに紐付け
-  if(qaPendingPhotoSet && typeof mGet==='function' && typeof mPut==='function'){
-    (function(sid,cid){ try{ mGet(sid).then(function(s){ if(s){ s.cardId=cid; mPut(s).then(function(){ if(typeof updateInboxBadge==='function') updateInboxBadge(); }); } }); }catch(_e){} })(qaPendingPhotoSet,c.id);
-    qaPendingPhotoSet=null;
-  }
   doSaveCards(function(ok){
-    if(!ok){ toast('⚠ 保存に失敗しました'); return; }
+    if(!ok){
+      // 保存失敗：下書き・history・overlayは維持（何もしない）。データ層は今回追加した
+      // cだけをin-memory cardsからrollbackする（他cardは消さない）。photo linkageと
+      // qaPendingPhotoSetは元々未commitのため無変更のまま（=保持）。
+      var _qaRollbackIdx=cards.indexOf(c);
+      if(_qaRollbackIdx<0){ _qaRollbackIdx=cards.findIndex(function(_cc){ return _cc && _cc.id===c.id; }); }
+      if(_qaRollbackIdx>=0) cards.splice(_qaRollbackIdx,1);
+      toast('⚠ 保存に失敗しました');
+      return;
+    }
+    // 保存成功が確定した後だけ、photo linkage（best-effort・既存契約のまま）を実行する。
+    if(pendingPhotoSetAtSave && typeof mGet==='function' && typeof mPut==='function'){
+      (function(sid,cid){ try{ mGet(sid).then(function(s){ if(s){ s.cardId=cid; mPut(s).then(function(){ if(typeof updateInboxBadge==='function') updateInboxBadge(); }); } }); }catch(_e){} })(pendingPhotoSetAtSave,c.id);
+      // 保存処理中に新しいpending値へ変わっていた場合は誤ってclearしない。
+      if(qaPendingPhotoSet===pendingPhotoSetAtSave) qaPendingPhotoSet=null;
+    }
     updateCount();
     if(typeof renderCards==='function') renderCards();
     toast('⚡ '+name+(name==='土地見込み'?'':'様')+'、登録したよ！');
-    if(cont){ openQuickAdd(); }
+    _qaResetDraft(); // 保存成功時のみ、次の新規入力用に下書きを初期化する
+    if(cont){
+      // 第237弾 CP3: openQuickAdd()を再呼出すと重複pushになるため、表示継続のまま
+      // reset後の状態を再描画するだけに留める（既存qa-owned history entryをそのまま使う）。
+      qaRender();
+    }
     else { closeQuickAdd(); }
   });
 }
@@ -22032,9 +22124,27 @@ function qaTenkeyOpen(targetId){
   var el=document.getElementById(targetId);
   var cur=document.getElementById('qaTkCur'); if(cur) cur.textContent=(el&&el.value)?el.value:'（未入力）';
   qaTkPaint();
-  var ov=document.getElementById('qaTenkeyOv'); if(ov) ov.style.display='flex';
+  var ov=document.getElementById('qaTenkeyOv');
+  var _alreadyShown=!!(ov && ov.style.display==='flex');
+  var _alreadyOwned=!!(history.state && history.state.qatk===1);
+  if(ov) ov.style.display='flex';
+  /* 第237弾 CP3: Quick Add状態を保持したまま1段push（qa:1を維持しqatk:1を追加）。
+   * 既に表示中またはqatk-owned stateなら重複pushしない。 */
+  if(!_alreadyShown && !_alreadyOwned){
+    var _cur2=history.state||{};
+    try{ history.pushState(Object.assign({},_cur2,{qa:1,qatk:1}),''); }catch(e){}
+  }
 }
-function qaTenkeyClose(){ var ov=document.getElementById('qaTenkeyOv'); if(ov) ov.style.display='none'; }
+/* history操作を一切行わない純粋DOM close。browser_nav.jsのpopstateハンドラ専用。 */
+function _qaTkHideOnly(){ var ov=document.getElementById('qaTenkeyOv'); if(ov) ov.style.display='none'; }
+function qaTenkeyClose(){
+  /* 第237弾 CP3: qatk-owned stateならhistory.back()へ委譲。popstate側の_qaTkHideOnly()が
+   * テンキーだけを閉じ、Quick Add本体は表示・入力状態とも保持される。 */
+  if(history.state && history.state.qatk===1){
+    try{ history.back(); return; }catch(e){}
+  }
+  _qaTkHideOnly();
+}
 function qaTkPaint(){ var b=document.getElementById('qaTkBuf'); if(b) b.innerHTML=qaTkBufV?e(qaTkBufV):'&nbsp;'; }
 function qaTkKey(k){
   if(k==='bs'){ qaTkBufV=qaTkBufV.slice(0,-1); qaTkPaint(); return; }
@@ -22052,6 +22162,7 @@ function qaTkKey(k){
 window.openQuickAdd=openQuickAdd; window.closeQuickAdd=closeQuickAdd; window.qaSetStage=qaSetStage; window.qaToggleKaiwa=qaToggleKaiwa; window.qaSave=qaSave;
 window.qaRender=qaRender; window.qaToggleLand=qaToggleLand;
 window.qaGeo=qaGeo; window.qaTenkeyOpen=qaTenkeyOpen; window.qaTenkeyClose=qaTenkeyClose; window.qaTkKey=qaTkKey;
+window._qaHideOnly=_qaHideOnly; window._qaTkHideOnly=_qaTkHideOnly; window._qaResetDraft=_qaResetDraft;
 /* ===== 光速入力 → カメラ連携（計画地の撮影＋住所反映＋写真紐付け） ===== */
 var qaPendingPhotoSet=null; // カメラから戻ってきた写真データID（保存時にこのカードへ紐付け）
 function qaOpenCam(){
@@ -23554,9 +23665,9 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         <button onclick="qaTkKey('1')" class="qa-tk">1</button><button onclick="qaTkKey('2')" class="qa-tk">2</button><button onclick="qaTkKey('3')" class="qa-tk">3</button>
         <button onclick="qaTkKey('0')" class="qa-tk">0</button><button onclick="qaTkKey('-')" class="qa-tk">-</button><button onclick="qaTkKey('bs')" class="qa-tk">⌫</button>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 2fr;gap:6px;margin-top:6px">
+      <div class="hand-row qa-tk-actions" style="display:flex;gap:6px;margin-top:6px">
         <button onclick="qaTkKey('clr')" style="padding:12px;border:1px solid #cbd5e0;border-radius:8px;background:#fff5f5;color:#c53030;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">クリア</button>
-        <button onclick="qaTkKey('ok')" style="padding:12px;border:none;border-radius:8px;background:#2c5282;color:#fff;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">決定</button>
+        <button class="hb" onclick="qaTkKey('ok')" style="padding:12px;border:none;border-radius:8px;background:#2c5282;color:#fff;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">決定</button>
       </div>
     </div>
   </div>

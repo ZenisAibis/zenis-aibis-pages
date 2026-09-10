@@ -62,11 +62,22 @@
     gap:14px;padding:28px;text-align:center}
   .errcard .em{font-size:13px;color:var(--dim);line-height:1.7}
 
-  /* 仕分けパネル（撮影画面の下） */
-  #setPanel{background:var(--panel);border-top:1px solid var(--line);padding:8px 12px;max-height:44vh;overflow-y:auto}
+  /* 仕分けパネル（DAN237 CP1：#camWrap内の下端overlay。通常flexには参加しない＝
+     開閉してもcamWrap/videoの高さを一切変えない。position:absoluteで通常flowから外す） */
+  #setPanel{position:absolute;left:0;right:0;bottom:0;z-index:7;background:var(--panel);border-top:1px solid var(--line);padding:8px 12px;max-height:44vh;overflow-y:auto}
   #scrCam.focus #setPanel{display:none}
-  #camToggle{position:absolute;right:10px;bottom:10px;z-index:6;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:20px;font-size:15px;line-height:1;padding:8px 13px;font-weight:700}
+  #camToggle{position:absolute;right:10px;bottom:10px;z-index:8;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:20px;font-size:15px;line-height:1;padding:8px 13px;font-weight:700}
+  /* DAN237 CP1 Correction M2: 詳細open時（focus=false）はcamToggleを右上へ退避し、
+     overlay内の備考入力欄(#vNote)等を覆わないようにする。左上のcompassとは競合しない。
+     固定高さ計算やsetPanel高さ連動は行わない。 */
+  #scrCam:not(.focus) #camToggle{top:10px;bottom:auto}
   #camToggle:active{background:rgba(0,0,0,.75)}
+  /* 第237弾 CP2: 利き手（body.hand-right）でcamToggleを左右反転する。閉（focus）は
+     利き手側下端。開（:not(.focus)）はright handは現状（右上）維持、left handは左上の
+     #compassと衝突するため左端を維持しつつtopをcompassの実測下端＋gapまで下げて回避する
+     （固定寸法からの推測ではなくDOMRect実測で決定した値）。 */
+  body:not(.hand-right) #camToggle{right:auto;left:10px}
+  body:not(.hand-right) #scrCam:not(.focus) #camToggle{left:10px;right:auto;top:56px;bottom:auto}
   .setstrip{display:flex;gap:6px;align-items:center;margin-bottom:8px}
   .sthumb{width:54px;height:54px;border-radius:9px;overflow:hidden;background:var(--panel2);position:relative;flex:0 0 auto;border:1.5px solid var(--line)}
   .sthumb img{width:100%;height:100%;object-fit:cover;display:block}
@@ -90,8 +101,31 @@
   .micbtn.rec{background:rgba(255,93,125,.25);color:var(--danger);animation:micpulse 1s infinite}
   @keyframes micpulse{0%,100%{box-shadow:0 0 0 0 rgba(255,93,125,.55)}50%{box-shadow:0 0 0 7px rgba(255,93,125,0)}}
 
-  .shootbar{display:flex;align-items:center;justify-content:space-between;
+  /* 第237弾 CP2: 利き手（body.hand-right）レイアウト統合の共通機構。JSでのDOM並び替えは
+     行わず、flex orderのみで実現する。.hb=primary（利き手側）、.hb-counter=反対側固定
+     （3項目以上でcenter要素を挟む場合に使用。2項目のみの場合はcounterpart側にclassを
+     付けず既定order:0のままにしてよい）。shootbar/notewrap/kpacts/vtop(mapEdit)で共用する。 */
+  .hand-row > .hb{order:-1}
+  body.hand-right .hand-row > .hb{order:99}
+  .hand-row > .hb-counter{order:99}
+  body.hand-right .hand-row > .hb-counter{order:-1}
+
+  .shootbar{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;justify-items:center;
     padding:12px 22px calc(env(safe-area-inset-bottom) + 14px);background:var(--bg)}
+  /* 第237弾 CP2: shootbarはflex+space-betweenだとtorchBtn(52px)とdoneBtn(62px)の幅差により
+     orderで左右反転した際にshutterの絶対中心が10px動いてしまう（実測確認済み）。
+     3等分gridへ変更し各ボタンを列内center配置にすることで、orderで両端を入れ替えても
+     中央列（shutter、order既定0のまま）の絶対位置がhandに関わらず不変になる。 */
+  /* [CP2 Correction M2是正] Fable 5.1 Code Audit実測：torch非対応端末（display:none）では
+     CSS gridのauto-placementがhidden itemを詰めるため、orderのみに依存するとshutterが
+     第1列へ移動しcenterが最大115px動く（right hand時）。orderではなく明示grid-columnで
+     3列を固定割当することで、torchBtnの表示/非表示に関わらずshutterは常に列2（中央）を
+     維持する。 */
+  .shootbar > #shutter{grid-column:2}
+  .shootbar > .hb{grid-column:1}
+  .shootbar > .hb-counter{grid-column:3}
+  body.hand-right .shootbar > .hb{grid-column:3}
+  body.hand-right .shootbar > .hb-counter{grid-column:1}
   .iconbtn{width:52px;height:52px;border-radius:50%;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:22px}
   .iconbtn:active{background:#264168}
   .iconbtn.on{background:rgba(245,158,11,.2);color:var(--gold)}
@@ -181,6 +215,17 @@
   #viewer{position:fixed;inset:0;background:rgba(7,12,20,.97);z-index:50;display:flex;flex-direction:column}
   #viewer img#vImg{flex:1;min-height:0;object-fit:contain;width:100%}
   .vtop{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top) + 10px) 14px 10px}
+  /* [CP2 Correction m3是正] mapEditのvtop（meCancel/title/meSave）はflexだと両ボタンの幅差
+     （取消61px相当／保存47px相当）でorder反転時にtitle中心が最大14px動く（実測確認済み）。
+     #mapEdit配下のvtopだけを3列grid（外側2列を等幅1fr、中央autoにtitle）へ変更し、
+     ボタン幅に関わらずtitleが常に行全体の中心に来るようにする。viewer側の.vtop（#vClose等）
+     は対象外（このセレクタは#mapEdit配下限定のため無影響）。 */
+  #mapEdit .vtop{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center}
+  #mapEdit .vtop > .cardchip{grid-column:2;text-align:center;align-items:center;justify-self:center}
+  #mapEdit .vtop > .hb{grid-column:1;justify-self:start}
+  #mapEdit .vtop > .hb-counter{grid-column:3;justify-self:end}
+  body.hand-right #mapEdit .vtop > .hb{grid-column:3;justify-self:end}
+  body.hand-right #mapEdit .vtop > .hb-counter{grid-column:1;justify-self:start}
   .vacts{display:flex;gap:8px;padding:10px 14px calc(env(safe-area-inset-bottom) + 16px)}
   .vbtn{flex:1;padding:13px;border-radius:12px;background:var(--panel2);font-size:14px;font-weight:800;text-align:center}
   .vbtn.danger{background:rgba(255,93,125,.16);color:var(--danger)}
@@ -263,7 +308,7 @@
     <div id="level"><i></i></div>
     <div id="compass">🧭 方位</div>
     <div class="gpschip" id="gpsChip"><span id="gpsTxt">📍 位置情報を取得中…</span></div>
-    <button id="camToggle" class="hide">⤢</button>
+    <button id="camToggle" class="hide">📝 詳細</button>
     <div id="flashfx"></div>
     <div id="focusRing"></div>
     <div id="zoomBadge"></div>
@@ -272,30 +317,31 @@
       <div class="em" id="camErrMsg"></div>
       <button class="tbtn" style="background:var(--gold);color:#1a1300" id="fallbackBtn">標準カメラで撮る</button>
     </div>
+    <!-- DAN237 CP1: #setPanelは#camWrapの子（position:absolute overlay）へ移動した。
+         通常flexへ参加しないため、開閉してもcamWrap/videoの高さを一切変えない。 -->
+    <div id="setPanel" class="hide">
+      <div class="setstrip"><div id="setThumbs" style="display:flex;gap:6px"></div><span class="setcnt" id="setCnt">0/4</span><button class="mini danger" id="vDelSet" title="削除">🗑</button></div>
+      <div class="addrline">
+        <button class="mini" id="vGeo">🔄</button>
+        <span class="at pend" id="vAddr">住所未取得</span>
+        <button class="mini" id="vLink">🔗 紐付け</button>
+      </div>
+      <div class="banchiline">
+        <input id="vBanchi" class="banchi" placeholder="番地（例 23-5）" readonly>
+        <button class="mini" id="vMap">🗺 地図</button>
+        <button class="mini" id="vFix"><svg width="11" height="15" viewBox="0 0 24 34" style="vertical-align:-2px"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="#ff3b3b"/><circle cx="12" cy="12" r="5" fill="#fff"/></svg> 修正</button>
+      </div>
+      <div class="notewrap hand-row">
+        <button class="micbtn hb" id="vMic" title="音声入力">🎤</button>
+        <input id="vNote" placeholder="計画地備考（任意）">
+      </div>
+    </div>
   </div>
 
-  <div id="setPanel" class="hide">
-    <div class="setstrip"><div id="setThumbs" style="display:flex;gap:6px"></div><span class="setcnt" id="setCnt">0/4</span><button class="mini danger" id="vDelSet" title="削除">🗑</button></div>
-    <div class="addrline">
-      <button class="mini" id="vGeo">🔄</button>
-      <span class="at pend" id="vAddr">住所未取得</span>
-      <button class="mini" id="vLink">🔗 紐付け</button>
-    </div>
-    <div class="banchiline">
-      <input id="vBanchi" class="banchi" placeholder="番地（例 23-5）" readonly>
-      <button class="mini" id="vMap">🗺 地図</button>
-      <button class="mini" id="vFix"><svg width="11" height="15" viewBox="0 0 24 34" style="vertical-align:-2px"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="#ff3b3b"/><circle cx="12" cy="12" r="5" fill="#fff"/></svg> 修正</button>
-    </div>
-    <div class="notewrap">
-      <button class="micbtn" id="vMic" title="音声入力">🎤</button>
-      <input id="vNote" placeholder="計画地備考（任意）">
-    </div>
-  </div>
-
-  <div class="shootbar">
-    <button class="iconbtn" id="torchBtn" title="ライト">🔦</button>
+  <div class="shootbar hand-row">
+    <button class="iconbtn hb-counter" id="torchBtn" title="ライト">🔦</button>
     <button class="shutter" id="shutter" aria-label="撮影"></button>
-    <button class="donebtn" id="doneBtn"><b>✓</b><s>完了</s></button>
+    <button class="donebtn hb" id="doneBtn"><b>✓</b><s>完了</s></button>
   </div>
   <input type="file" id="nativeCam" accept="image/*" capture="environment" class="hide">
 </div>
@@ -366,19 +412,19 @@
       <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
       <button data-k="-" class="kpsub">−</button><button data-k="0">0</button><button data-k="bs" class="kpsub">⌫</button>
     </div>
-    <div class="kpacts">
+    <div class="kpacts hand-row">
       <button id="kpClear" class="kpx">クリア</button>
-      <button id="kpDone" class="kpok">完了</button>
+      <button id="kpDone" class="kpok hb">完了</button>
     </div>
   </div>
 </div>
 
 <!-- ===== 位置修正マップ ===== -->
 <div id="mapEdit" class="hide">
-  <div class="vtop">
-    <button class="tbtn" id="meCancel">✕ 取消</button>
+  <div class="vtop hand-row">
+    <button class="tbtn hb-counter" id="meCancel">✕ 取消</button>
     <div class="cardchip grow"><b style="font-size:13px;color:var(--gold)">📍 位置を修正</b><span class="sub">地図を動かして中心に合わせる</span></div>
-    <button class="tbtn" style="background:var(--gold);color:#1a1300" id="meSave">保存</button>
+    <button class="tbtn hb" style="background:var(--gold);color:#1a1300" id="meSave">保存</button>
   </div>
   <div id="leafWrap">
     <div id="leafMap"></div>
@@ -402,9 +448,9 @@
       <button type="button" id="pwaCamBtn" class="vbtn" style="width:100%" onclick="pwaInstall()">🔗 ショートカット作成の手順</button>
       <div id="pwaCamHint" style="font-size:11px;color:var(--dim);margin-top:5px;line-height:1.5"></div></div>
     </div>
-    <div class="kpacts">
+    <div class="kpacts hand-row">
       <button id="cfgCancel" class="kpx">閉じる</button>
-      <button id="cfgSave" class="kpok">保存</button>
+      <button id="cfgSave" class="kpok hb">保存</button>
     </div>
   </div>
 </div>
@@ -442,7 +488,19 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.79";
+const APP_VERSION = "cam-v1.80";
+
+/* 第237弾 CP2: 利き手（prospect_hand_v1）read-only consumer。唯一の状態源は本体と共有する
+   localStorageのprospect_hand_v1のみ。cameraはこのkeyへ一切書き込まない（新規key 0）。
+   boot時に反映し、window 'storage' eventで他window（本体）からの変更を即時反映する。 */
+var CAM_HANDK = "prospect_hand_v1";
+function _camApplyHand(){
+  try{ document.body.classList.toggle("hand-right", localStorage.getItem(CAM_HANDK) === "right"); }catch(_e){}
+}
+_camApplyHand();
+window.addEventListener("storage", function(ev){
+  if(ev && ev.key === CAM_HANDK) _camApplyHand();
+});
 
 /* === 更新バッジ（第158弾A・第159弾で厳密化）: 本体・カメラ共有実装 ===
  * 起動時にPublic版のversion.json（cache-bust付き）を取得し、自分のAPP_VERSIONと比較する。
@@ -645,7 +703,17 @@ let leafMap=null, meTargetId=null;
 const $ = id => document.getElementById(id);
 const screens = {cam:$("scrCam"), inbox:$("scrInbox"), pick:$("scrPick"), gal:$("scrGal")};
 function show(name){ for(const k in screens) screens[k].classList.toggle("hide", k!==name); }
-function setCamFocus(on){ const sc=screens.cam; if(sc) sc.classList.toggle("focus", !!on); const b=$("camToggle"); if(b) b.textContent=on?"⤡":"⤢"; }
+function setCamFocus(on){
+  const sc=screens.cam; if(sc) sc.classList.toggle("focus", !!on);
+  const b=$("camToggle");
+  if(b){
+    // DAN237 CP1 Correction M3: focus中も現在枚数を確認できるよう、renderSetPanel()が
+    // 都度更新するdata-count（例: "2/4"）をcamToggle文言へ含める。新規storage/schemaは
+    // 追加せず、DOM data attributeのみで同期する。
+    const n=b.dataset.count||"";
+    b.textContent=(on?"📝 詳細":"✕")+(n?(" "+n):"");
+  }
+}
 function _aibisify(s){
   if(s==null) return "";
   return String(s).split("\n").map(function(L){
@@ -756,8 +824,12 @@ async function boot(){
   const p=new URLSearchParams(location.search), cid=p.get("cardId");
   if(p.get("ret")==="qa") qaReturnMode=true;
   _launchCid = cid || null;
-  if(cid){ fromAibis=true; enterCamera(cid); } else { enterQuick(); }
+  /* 第237弾 CP4: launched-from-main root cancel契約のため、_launchedFromMainを
+     enterCamera()/enterQuick()（内部でconfigureHeader()を呼ぶ）より前に確定する。
+     以前はenterCamera/enterQuick呼出の後で代入されており、初回header描画時に
+     _launchedFromMainが未確定のままだった。新規sentinelは追加しない。 */
   _launchedFromMain = !!cid || qaReturnMode;
+  if(cid){ fromAibis=true; enterCamera(cid); } else { enterQuick(); }
   try{ if(_launchedFromMain){ var _vl=$("vLink"); if(_vl) _vl.style.display="none"; } }catch(e){}
   /* DAN227: boot時は常にrootへ正規化（reload等で残った非root stateも上書きする） */
   try{ history.replaceState({zc:"root", cid:_launchCid}, "", ""); }catch(e){}
@@ -766,7 +838,18 @@ async function boot(){
 
 /* ---------- 画面遷移 ---------- */
 function configureHeader(){
-  $("rightBtn").innerHTML='📥 <span class="cnt" id="leftCount">0</span>';
+  /* 第237弾 CP4 D-4契約: launched-from-main root（?ret=qa / ?cardId）でのみ#rightBtnを
+     ✕ cancelとして再利用する。直接起動では既存📥 Inbox契約を完全維持する。
+     トップバー要素は増やさず、既存#rightBtnのみを条件付き再利用する（UI裁定）。 */
+  if(_launchedFromMain){
+    $("rightBtn").innerHTML='✕';
+    $("rightBtn").title="キャンセル（本体へ戻る）";
+    $("rightBtn").setAttribute("aria-label","キャンセルして本体へ戻る");
+  } else {
+    $("rightBtn").innerHTML='📥 <span class="cnt" id="leftCount">0</span>';
+    $("rightBtn").removeAttribute("title");
+    $("rightBtn").removeAttribute("aria-label");
+  }
   if(mode==="card"){
     $("camTitle").textContent=cardLabel(targetCard);
     $("camSub").textContent=cardMeta(targetCard)||"このカードに撮影";
@@ -791,11 +874,12 @@ async function openSet(id){
     try{ history.pushState({zc:"set", id:id},""); }catch(e){}
     _zcState=history.state;
   }
-  configureHeader(); show("cam"); await startCamera(); renderSetPanel(); await updateRightCount();
+  configureHeader(); show("cam"); await startCamera(); await renderSetPanel(); setCamFocus(true); await updateRightCount();
 }
 
 $("rightBtn").addEventListener("click",()=>{
   if(_scr==="set"){ _zcBack("set", _aibisBack); }
+  else if(_launchedFromMain){ _cancelToMain(); }  // 第237弾 CP4: launched-from-main rootのみcancel
   else { stopCamera(); openInbox(); }
 });
 async function updateRightCount(){
@@ -949,6 +1033,13 @@ $("camToggle").addEventListener("click",e=>{ e.stopPropagation(); setCamFocus(!s
   }
   wrap.addEventListener("touchstart",e=>{
     if(e.target.closest(".errcard")||e.target.closest("#camToggle")) return;
+    // DAN237 CP1 Correction M1: #setPanelは#camWrap内へ移動済みのため、panel内touchは
+    // camera tap-focus/pinch対象から除外する。古いtx/ty/tT/tMovedを次のtouchendへ持ち越さ
+    // ないよう、panel内touchstart自体でtMoved=true・tT=0を明示設定してreturnする
+    // （touchendでの単純exclusionだけだと、panel内で始まりcamera領域で終わる連続touchで
+    // 古い状態が誤ってtapFocusを発火させ得るため）。2本指panel操作もpinching化・
+    // preventDefaultしない。
+    if(e.target.closest("#setPanel")){ tMoved=true; tT=0; return; }
     if(e.touches.length===2){ pinching=true; pDist=d2(e.touches); pZoom=_curZoom||1; e.preventDefault(); }
     else if(e.touches.length===1){ const t=e.touches[0]; tx=t.clientX; ty=t.clientY; tMoved=false; tT=Date.now(); }
   },{passive:false});
@@ -960,7 +1051,7 @@ $("camToggle").addEventListener("click",e=>{ e.stopPropagation(); setCamFocus(!s
     if(pinching){ if(e.touches.length<2) pinching=false; return; }
     if(!tMoved && (Date.now()-tT)<400 && e.changedTouches.length){
       const t=e.changedTouches[0];
-      if(t.target&&(t.target.closest(".errcard")||t.target.closest("#camToggle")||t.target.closest(".gpschip"))) return;
+      if(t.target&&(t.target.closest(".errcard")||t.target.closest("#camToggle")||t.target.closest(".gpschip")||t.target.closest("#setPanel"))) return;
       tapFocus(t.clientX,t.clientY);
     }
   });
@@ -991,7 +1082,7 @@ async function capture(){
 async function addPhoto(photo){
   if(curSet){
     const s=await idbGet(curSet); if(!s) { curSet=null; }
-    else { s.photos.push(photo); await idbPut(s); renderSetPanel(); await updateRightCount(); return; }
+    else { s.photos.push(photo); await idbPut(s); await renderSetPanel(); setCamFocus(true); await updateRightCount(); return; }
   }
   // 新規データ
   if(targetCard===INBOX){ const n=await idbCountByCard(INBOX);
@@ -1002,7 +1093,7 @@ async function addPhoto(photo){
     lat:pos?pos.lat:null, lng:pos?pos.lng:null, acc:pos?pos.acc:null,
     addr:"", addrPending:!!pos, banchi:"", note:"", sent:false, photos:[photo] };
   await idbPut(s); curSet=s.id; await refreshIndex(targetCard);
-  renderSetPanel(); await updateRightCount();
+  await renderSetPanel(); setCamFocus(true); await updateRightCount();
   if(s.lat!=null) resolveAddr(s.id);
 }
 function makeThumb(srcCv,w,h){
@@ -1043,6 +1134,62 @@ function _closeToMain(){
   try{ window.close(); }catch(e){}
   setTimeout(function(){ if(!document.hidden) go(); }, 250);
 }
+/* 第237弾 CP4 D-4正式契約: launched-from-main root（?ret=qa / ?cardId）専用のcancel。
+ * completion用_closeToMain()とは完全に別関数（cancelとcompleteを混ぜない）。
+ * - aibis_qa_returnを一切書かない／curSetを削除しない／IDB set・photoを削除しない
+ * - _closeToMain()を呼ばない／mediaPing等の既存保存副作用を新たに追加しない
+ * - 新規storage sentinel/keyを作らない／historyへ新規hidden sentinelをpushしない
+ * - direct launchでは呼ばれない（呼出元のrightBtnハンドラが_launchedFromMain時のみ呼ぶ）
+ * 遷移順: window.close()（popup成功なら終了・opener DOMは触らない）→
+ *         同tab fallback: 履歴を1段戻す操作を1回だけ→有限timeout後もdocumentがactiveなら
+ *         最終location.href fallback（?ret=qa→ZenisAibis.html、?cardId→
+ *         ZenisAibis.html?card=<encoded id>、from=camは付けない）。無限retryなし。 */
+/* 第237弾 CP4 Correction Round 3是正: Fable 5.1 CP4 Light Re-Audit Round 2 MAJOR M2
+ * （re-entrancy）対応。#rightBtnを短時間に連打すると_cancelToMain()が多重実行され、
+ * 呼出ごとに独立した_cancelDone closure・once listener群・timerを持つため互いを抑止できず、
+ * 戻り遷移の指示が複数回発行されて本体へ着地できない事象が実測された（2連打・3連打とも
+ * 最終URLがAibisCam.html?ret=qaのまま、history.length 3→4）。module scopeの単一flagで
+ * single-flight化し、最初の呼出だけが実処理を開始する。通常のcancel成功ではdocumentが
+ * close/navigateされるため、同document内でflagをfalseへ戻す自動resetはRound 3では追加
+ * しない（cancel処理中に同一documentへ再度cancelを許可する必要がないため）。 */
+var _cancelInFlight=false;
+function _cancelToMain(){
+  if(_cancelInFlight) return; // 第237弾 CP4 Correction R3: 2回目以降の同document内cancelは即return
+  _cancelInFlight=true;
+  try{ stopCamera(); }catch(e){}
+  var _cancelDone=false;
+  /* 第237弾 CP4 Correction Round 2 是正: D-4契約4は「navigation-in-progress中の二重navigate
+     自体を禁止する」という状態条件であり、遅延許容量（timeout値）の問題ではない
+     （Fable 5.1 CP4 Light Re-Audit Round 1、独自failure injection実測：応答遅延1000ms/1500ms/
+     2000msでは旧Round 1実装（pagehide onceのみ＋1000ms窓）でも二重navigateが再発した）。
+     根本原因：pagehideはcross-document traverseの「commit時」（遷移先文書の応答到達時点）に
+     しか発火せず、「遷移開始」を検知できない。実測では、遷移開始信号はcommitより大幅に早く
+     存在する：beforeunloadは戻り遷移発行後+4〜7ms、Navigation API navigate
+     （navigationType:'traverse'）は+6〜18msで発火する（pagehideはcommit時＝+84〜762ms超）。
+     このためRound 2では、pagehide（commit信号）に加えbeforeunload・Navigation API navigate
+     （開始信号、feature detect必須）も同一の_cancelDoneを一度だけ設定させる。同一probe環境で
+     1000ms/2000ms/3000ms遅延いずれも二重navigate0（request exact1）、かつ戻り遷移が
+     無効な負例（no-op）では有限fallbackが従来どおり発火することを確認した。
+     Android Chrome/Chromiumではbeforeunload・Navigation API navigate・pagehideの3信号で
+     開始・commitの両方をguardする。iOS Safari等でNavigation API非対応・beforeunloadが
+     安定発火しない場合は、pagehide＋有限fallbackへ自然にdegradeする（既知限界、CLAUDE.md参照）。 */
+  var arm=function(){ _cancelDone=true; };
+  window.addEventListener("beforeunload", arm, {once:true});
+  window.addEventListener("pagehide", arm, {once:true});
+  try{
+    if(typeof navigation!=="undefined" && navigation && typeof navigation.addEventListener==="function"){
+      navigation.addEventListener("navigate", arm, {once:true});
+    }
+  }catch(_e){}
+  var fallbackUrl = qaReturnMode ? "ZenisAibis.html" : (_launchCid ? "ZenisAibis.html?card="+encodeURIComponent(_launchCid) : "ZenisAibis.html");
+  var goFinal=function(){ if(_cancelDone) return; _cancelDone=true; try{ location.href=fallbackUrl; }catch(e){} };
+  try{ window.close(); }catch(e){}
+  setTimeout(function(){
+    if(document.hidden || _cancelDone) return; // window.close()が奏功（popup close済み）
+    try{ history.back(); }catch(e){}
+    setTimeout(function(){ if(_cancelDone || document.hidden) return; goFinal(); }, 1000);
+  }, 250);
+}
 $("doneBtn").addEventListener("click",async()=>{
   if(!curSet){ toast("先に撮影してください"); return; }
   const sid=curSet;
@@ -1070,6 +1217,8 @@ async function renderSetPanel(){
   $("setThumbs").innerHTML=s.photos.map(p=>'<div class="sthumb" data-pid="'+esc(p.pid)+'"><img src="'+p.thumb+'"></div>').join("");
   $("setThumbs").querySelectorAll(".sthumb").forEach(el=>el.addEventListener("click",()=>openPhoto(curSet, el.dataset.pid)));
   const cnt=$("setCnt"); cnt.textContent=s.photos.length+"/"+MAX_PHOTOS; cnt.classList.toggle("full", s.photos.length>=MAX_PHOTOS);
+  // DAN237 CP1 Correction M3: camToggle文言のn/4同期用（setCamFocus()が参照する）
+  $("camToggle").dataset.count=s.photos.length+"/"+MAX_PHOTOS;
   const linked=(s.cardId&&s.cardId!==INBOX);
   const dl=$("vDelSet"); dl.textContent=linked?"📥":"🗑"; dl.title=linked?"インボックスに戻す":"削除"; dl.classList.toggle("danger", !linked);
   fillAddr(s); $("vBanchi").value=s.banchi||""; $("vNote").value=s.note||"";
