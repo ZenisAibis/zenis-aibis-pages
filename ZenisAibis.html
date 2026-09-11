@@ -2699,7 +2699,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.30";
+var APP_VERSION = "v11.31";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -25857,7 +25857,9 @@ function _inrowOrphan(s){
   var th='<div class="ith" data-act="view" data-id="'+e(s.id)+'">'+(thumb?'<img src="'+thumb+'">':'<span class="cps-noimg" style="display:flex;align-items:center;justify-content:center;height:100%">📷</span>')+thn+'</div>';
   var snap=(s.cardName||"").trim();
   var info=snap?('元：'+e(snap)+'様'):'元カード不明';
-  return '<div class="irow2"><div class="istar" aria-hidden="true" style="color:#dd6b20">🔍</div>'+th+'<div class="ibd"><div class="iadr">'+addr+'</div>'+
+  var on=_inbOrphanSel[s.id]?" on":"";
+  var chk='<div class="icheck'+on+'" data-act="otogsel" data-id="'+e(s.id)+'">'+(_inbOrphanSel[s.id]?"✓":"")+'</div>';
+  return '<div class="irow2">'+chk+th+'<div class="ibd"><div class="iadr">'+addr+'</div>'+
     '<div class="imeta"><span class="ibadge un" style="background:#fffaf0;color:#b7791f;border-color:#f6e05e">迷子（'+info+'）</span> ・ '+_fmtWhen(s.ts)+'</div>'+
     '<div class="iacts iacts3"><button class="ibtn" data-act="unlink" data-id="'+e(s.id)+'">📥 インボックスへ</button><button class="ibtn dn" data-act="delone" data-id="'+e(s.id)+'">🗑 削除</button></div></div></div>';
 }
@@ -25882,6 +25884,8 @@ function _wireInbox(host){
       }
       else if(act==="delone") _delSet(id);
       else if(act==="note"){ var _t=""; try{ _t=decodeURIComponent(el.getAttribute("data-note")||""); }catch(_e){ _t=el.getAttribute("data-note")||""; } aibisAlert('📝 計画地備考<br><br>'+e(_t).replace(/\n/g,'<br>')); }
+      else if(act==="otogsel"){ if(typeof _inboxOrphanToggleSel==="function") _inboxOrphanToggleSel(id); }
+      else if(act==="odelsel"){ if(typeof inboxOrphanDeleteSelected==="function") inboxOrphanDeleteSelected(); }
     });
   });
 }
@@ -26043,8 +26047,16 @@ function renderInboxBody(){
       html+='<div class="igrid">'+linked.map(function(s){return _inrow2(s,false);}).join("")+'</div>';
     }
     if(orphan.length){
-      html+='<div class="isec2">🔍 迷子写真（'+orphan.length+'）<span style="font-weight:400;font-size:10.5px;color:#94a3b8">　元カードが消失</span></div>';
+      _inbOrphanIds=orphan.map(function(s){return s.id;});
+      Object.keys(_inbOrphanSel).forEach(function(id){ if(_inbOrphanIds.indexOf(id)<0) delete _inbOrphanSel[id]; });
+      _inbOrphanPhotoN={}; orphan.forEach(function(s){ _inbOrphanPhotoN[s.id]=(Array.isArray(s.photos)?s.photos.length:0); });
+      var oSelN=_inbOrphanIds.filter(function(id){return _inbOrphanSel[id];}).length;
+      html+='<div class="isec2">🔍 迷子写真（'+orphan.length+'）<span style="font-weight:400;font-size:10.5px;color:#94a3b8">　元カードが消失</span>'
+        +'<span class="seltools"><button onclick="inboxOrphanSelAll()"'+(_inbOrphanDelBusy?' disabled':'')+'>☑ 全選択</button><button onclick="inboxOrphanSelNone()"'+(_inbOrphanDelBusy?' disabled':'')+'>解除</button></span></div>';
       html+='<div class="igrid">'+orphan.map(_inrowOrphan).join("")+'</div>';
+      html+='<div style="text-align:center;padding:8px 0"><button class="ibtn dn" data-act="odelsel"'+((oSelN===0||_inbOrphanDelBusy)?' disabled':'')+'>'+(_inbOrphanDelBusy?'処理中…':('🗑 選択削除（'+oSelN+'件）'))+'</button></div>';
+    } else {
+      _inbOrphanIds=[]; _inbOrphanSel={}; _inbOrphanPhotoN={};
     }
     html+='<div class="istore" id="inbStoreMeter">使用容量を計算中…</div>';
     host.innerHTML=html;
@@ -26351,6 +26363,175 @@ window.closeInboxPick=closeInboxPick; window.renderInboxPickList=renderInboxPick
 window.openInboxPhoto=openInboxPhoto; window.inboxPhotoStep=inboxPhotoStep; window.closeInboxPhoto=closeInboxPhoto;
 window.importPhotoBundle=importPhotoBundle;
 /* 第225弾: 画面上の3close導線（← 戻る／✕／閉じる）用history.backラッパーのwindow公開。 */
+/* ==== DAN238: 迷子写真の一括削除（inbox-orphan-photo-bulk-delete） ====
+ * 専用state（_inbOrphanIds/_inbOrphanSel/_inbOrphanPhotoN）のみを用い、_inbSel系・
+ * _bulkDelSets・_delSet・inboxSendToPC・_confirmPhotoSent・_resolvePendingPhotoLinks・
+ * importPhotoBundle・_unlinkSet・_detachFromCard・navigation・media層・schemaは無変更。
+ * R1-R7（Fable 5.1 Design Audit / ChatGPT統合裁定）準拠。 */
+var _inbOrphanIds=[], _inbOrphanSel={}, _inbOrphanPhotoN={};
+var _inbOrphanDelBusy=false;
+
+/* R1: 適格判定の唯一定義（純粋関数・VM試験可能）。表示分類（renderInboxBody）と同一基準。
+ * unlinked/sent/cardNameは判定に用いない。 */
+function _orphanDelDecision(rec, hasCard){
+  if(!rec) return 'gone';
+  var cid=rec.cardId;
+  if(!cid || cid===MEDIA_INBOX) return 'inbox';
+  if(hasCard(cid)) return 'linked';
+  return 'deleted';
+}
+
+/* R2: card存在証明（fail-closed・VM試験可能）。構築時に1回だけin-memory cards非配列／
+ * 永続parse失敗等をfail-closed検証するが、返す述語関数は評価のたびに現在のin-memory
+ * cardsをlive-checkし、永続localStorage['prospect_cards_v1']も評価のたびに生文字列を
+ * 再読取して変化時のみ再parseする（DAN238 Fable 5.1 Code Audit M1是正：構築時snapshot
+ * のままだと、削除chain実行中に後続レコードのカードが出現しても削除してしまう race
+ * が実機再現されたため、開始時fail-closed検証＋各評価live-checkへ変更した）。
+ * SKはstorage_keys.js側のvar宣言でinbox.jsの実行スコープからは参照できないため
+ * （実機検証で確認：typeof SK==="undefined"）、既存_cardSnap()と同型のリテラル
+ * 文字列参照へ統一する（本体のSK定義値'prospect_cards_v1'と一致）。 */
+function _buildCardExistsSet(){
+  if(typeof cards==="undefined" || !Array.isArray(cards)) throw new Error("cards_invalid");
+  var readPersist=function(){
+    var raw=null;
+    try{ raw=localStorage.getItem('prospect_cards_v1'); }catch(e){ throw new Error("storage_unavailable"); }
+    var set={};
+    if(raw!=null){
+      var parsed;
+      try{ parsed=JSON.parse(raw); }catch(e){ throw new Error("persist_parse_error"); }
+      if(!Array.isArray(parsed)) throw new Error("persist_not_array");
+      parsed.forEach(function(c){ if(c && c.id!=null) set[String(c.id)]=1; });
+    }
+    return { raw:raw, set:set };
+  };
+  var cur=readPersist();
+  return function(id){
+    if(typeof cards==="undefined" || !Array.isArray(cards)) throw new Error("cards_invalid");
+    var sid=String(id);
+    for(var i=0;i<cards.length;i++){ var c=cards[i]; if(c && c.id!=null && String(c.id)===sid) return true; }
+    var raw=null;
+    try{ raw=localStorage.getItem('prospect_cards_v1'); }catch(e){ throw new Error("storage_unavailable"); }
+    if(raw!==cur.raw){ cur=readPersist(); }
+    return !!cur.set[sid];
+  };
+}
+
+/* R3: 単一readwriteトランザクション内でget→判定→条件付deleteを原子的に行う。
+ * media層（mediaOpen/_mediaRunRaw/_mediaRun/mGet/mPut/mDel/mClear/mAll）は無改修・
+ * 並列発行しない（_mediaRunの直列化のみに依拠）。tx error/abort/timeoutはfailedに計上。
+ * hasCard（_buildCardExistsSet()の戻り値）はC1是正によりtx内で毎回live評価するため、
+ * ここでもcards/永続の異常（throw）をonsuccess内でcatchし、その場合はdeleteを発行せず
+ * failedへ計上する（開始時fail-closed検証＋各tx内live評価＋評価失敗時の安全側停止）。 */
+function _orphanDelOne(id, hasCard){
+  var status="failed";
+  return _mediaRun("readwrite", function(store){
+    var g=store.get(id);
+    g.onsuccess=function(){
+      var d;
+      try{ d=_orphanDelDecision(g.result, hasCard); }catch(e){ status="failed"; return; }
+      status=d;
+      if(d==="deleted"){ store.delete(id); }
+    };
+    return g;
+  }, 6000).then(function(){ return status; }, function(){ return "failed"; });
+}
+
+/* R5: 専用選択操作。busy中は無視（R4）。 */
+function _inboxOrphanToggleSel(id){
+  if(_inbOrphanDelBusy) return;
+  if(_inbOrphanSel[id]) delete _inbOrphanSel[id]; else _inbOrphanSel[id]=1;
+  renderInboxBody();
+}
+function inboxOrphanSelAll(){ if(_inbOrphanDelBusy) return; _inbOrphanIds.forEach(function(id){ _inbOrphanSel[id]=1; }); renderInboxBody(); }
+function inboxOrphanSelNone(){ if(_inbOrphanDelBusy) return; _inbOrphanIds.forEach(function(id){ delete _inbOrphanSel[id]; }); renderInboxBody(); }
+window.inboxOrphanSelAll=inboxOrphanSelAll; window.inboxOrphanSelNone=inboxOrphanSelNone;
+
+/* R7: 2段階破壊的確認。aibisConfirm未定義時はconfirm()2回へfallback（_unlinkSetと同型）。 */
+function _inboxOrphanConfirmTwice(n, photoN, onOk){
+  var step2=function(){
+    if(typeof aibisConfirm==="function") aibisConfirm('本当に<b>完全削除</b>しますか？<br><span style="font-size:12px;color:#718096">この操作は取り消せません。</span>', onOk, '完全削除', 'やめる');
+    else if(confirm('完全に削除しますか？')) onOk();
+  };
+  var msg1='選択した迷子写真 <b>'+n+'件（写真'+photoN+'枚）</b>を完全削除します。<br>元カードを後から読み込んでも復元・自動再紐付けできません。<br><span style="font-size:12px;color:#718096">写真は復元できません。</span>';
+  if(typeof aibisConfirm==="function") aibisConfirm(msg1, step2, '次へ', 'やめる');
+  else if(confirm('選択した迷子写真 '+n+'件（写真'+photoN+'枚）を完全削除します。元カードを後から読み込んでも復元・自動再紐付けできません。写真は復元できません。')) step2();
+}
+
+/* R6集計（純粋関数・VM試験可能）: timeout-but-committedの真値化（failed→deletedの
+ * 再分類）と、deleted/gone/inbox/linked/failedの内訳集計を分離する。 */
+function _orphanDelReclassifyOne(status, id, existingSet){
+  if(status==="failed" && !(existingSet && existingSet[String(id)])) return "deleted";
+  return status;
+}
+function _orphanDelCounts(ids, resultsMap, existingSet){
+  var counts={deleted:0,gone:0,inbox:0,linked:0,failed:0};
+  (ids||[]).forEach(function(id){
+    var st=_orphanDelReclassifyOne((resultsMap && resultsMap[id]) || "failed", id, existingSet);
+    counts[st]=(counts[st]||0)+1;
+  });
+  return counts;
+}
+function _orphanDelResultMessage(counts, totalCount){
+  if(counts.deleted===totalCount){
+    return { allSuccess:true, text:'🗑 迷子写真'+counts.deleted+'件を完全削除しました' };
+  }
+  var parts=[];
+  if(counts.deleted) parts.push('削除: '+counts.deleted+'件');
+  if(counts.gone) parts.push('既に消失: '+counts.gone+'件');
+  if(counts.linked) parts.push('紐付け復活のため対象外: '+counts.linked+'件');
+  if(counts.inbox) parts.push('インボックスへ戻されたため対象外: '+counts.inbox+'件');
+  if(counts.failed) parts.push('失敗: '+counts.failed+'件');
+  return { allSuccess:false, text:'迷子写真の削除結果<br><br>'+parts.join('<br>') };
+}
+
+/* R4: module-level single-flight guard。R6: chain完了後にmAll()で真値化し、成功/失敗を
+ * 隠さず報告する。再読取自体が失敗した場合は成功件数を主張しない。完了後（成否問わず）
+ * _inbOrphanSelは全クリア。 */
+function _inboxOrphanRunDelete(ids){
+  if(_inbOrphanDelBusy) return;
+  var hasCard;
+  try{ hasCard=_buildCardExistsSet(); }
+  catch(e){
+    try{ if(window.aibisAlert) aibisAlert('⚠ カードデータを確認できないため削除を中止しました。再読み込みしてから再度お試しください。'); else alert('カードデータを確認できないため削除を中止しました'); }catch(_e){}
+    return;
+  }
+  _inbOrphanDelBusy=true;
+  renderInboxBody();
+  var snapshot=ids.slice();
+  var results={};
+  var chain=Promise.resolve();
+  snapshot.forEach(function(id){
+    chain=chain.then(function(){ return _orphanDelOne(id, hasCard).then(function(st){ results[id]=st; }); });
+  });
+  chain.then(function(){ return mAll(); }).then(function(all){
+    var existing={}; (all||[]).forEach(function(s){ if(s && s.id!=null) existing[String(s.id)]=1; });
+    var counts=_orphanDelCounts(snapshot, results, existing);
+    var resultMsg=_orphanDelResultMessage(counts, snapshot.length);
+    _inbOrphanSel={};
+    _inbOrphanDelBusy=false;
+    if(resultMsg.allSuccess){
+      try{ toast(resultMsg.text); }catch(e){}
+    } else {
+      try{ if(window.aibisAlert) aibisAlert(resultMsg.text); else alert(resultMsg.text.replace(/<br><br>/g,' ').replace(/<br>/g,' / ')); }catch(e){}
+    }
+    _afterPhotoChange();
+  }, function(){
+    _inbOrphanSel={};
+    _inbOrphanDelBusy=false;
+    try{ if(window.aibisAlert) aibisAlert('結果を確認できませんでした。再読み込みしてください'); else alert('結果を確認できませんでした。再読み込みしてください'); }catch(e){}
+    _afterPhotoChange();
+  });
+}
+function inboxOrphanDeleteSelected(){
+  if(_inbOrphanDelBusy) return;
+  var ids=_inbOrphanIds.filter(function(id){ return _inbOrphanSel[id]; });
+  if(!ids.length) return;
+  var n=ids.length, photoN=0;
+  ids.forEach(function(id){ photoN+=(_inbOrphanPhotoN && _inbOrphanPhotoN[id])||0; });
+  _inboxOrphanConfirmTwice(n, photoN, function(){ _inboxOrphanRunDelete(ids); });
+}
+window.inboxOrphanDeleteSelected=inboxOrphanDeleteSelected;
+
 window._inboxViewBackBtn=_inboxViewBackBtn; window._inboxViewerBackBtn=_inboxViewerBackBtn; window._inboxPickBackBtn=_inboxPickBackBtn;
 setTimeout(function(){ try{ updateInboxBadge(); }catch(e){} }, 800);
 </script>
