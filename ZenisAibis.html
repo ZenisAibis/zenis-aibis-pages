@@ -2699,7 +2699,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.31";
+var APP_VERSION = "v11.32";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -15014,7 +15014,16 @@ function buildPrintCSS(){
     +'.rev-fill > .sec:not(.rev-judge),.rev-fill > .vcard{flex:0 0 auto}'
     +'.rev-judge{flex:1 1 auto;display:flex;flex-direction:column}'
     +'.rev-judge-field{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}'
-    +'.rev-judge-box{flex:1 1 auto}';
+    +'.rev-judge-box{flex:1 1 auto}'
+    /* DAN239: fam-print-doc（家族印刷文書）専用のフラット規則のみ。素の thead/table/tr/td
+     * 型セレクタは追加しない。@media/@supports等のnested braceは追加しない
+     * （scopedReportCSS()の[^{}]*正規表現がnested braceを扱えないため）。 */
+    +'.fam-print-doc{table-layout:fixed;width:100%;border-collapse:collapse}'
+    +'.fam-print-doc>thead{display:table-header-group}'
+    +'.fam-print-doc>thead>tr>th{border:0;padding:0;text-align:left}'
+    +'.fam-print-doc>tbody>tr>td{border:0;padding:0}'
+    +'.fam-print-doc .fam-print-head{justify-content:space-between}'
+    +'.fam-print-doc .fam-print-src{font-size:9pt;font-weight:700;color:#ffffff;white-space:nowrap}';
 }
 var STRAT_THEMES=[['general','総合分析'],['next_visit','次回作戦'],['motivation','動機引揚'],['personality','性格応対'],['objection','反論対応'],['hearing','聞取補充'],['training','会話考察'],['inheritance','相続シナリオ']];
 function toggleStrategyThemes(){
@@ -15080,7 +15089,10 @@ function execPrint(){
       +'</style></head><body>';
     var _pages=[];
     allCards.forEach(function(ch){
-      var chdrTxt=e((ch.branch||'')+' '+(ch.section||'')+' '+(ch.manager||'')+' ／ '+(ch.name||'')+' / 発掘日:'+(ch.discovery_date||'-')+' / 印刷:'+dateStr);
+      /* DAN239 Customer-Honorific Correction: 個別印刷ヘッダー（hdrTxt）と同一の敬称規約へ統一。
+       * 非空時はch.name+'様'、空時は標準ラベルを出さない（単独の「様」を出力しない）。
+       * 区切り文字・発掘日表記等、他のbatch専用書式は無変更。 */
+      var chdrTxt=e((ch.branch||'')+' '+(ch.section||'')+' '+(ch.manager||'')+' ／ '+(ch.name?ch.name+'様':'')+' / 発掘日:'+(ch.discovery_date||'-')+' / 印刷:'+dateStr);
       var _hdr='<div class="prhdr"><div class="prhdr-left">z.Aibis</div><div class="prhdr-right">'+chdrTxt+'</div></div>';
       if(_bopt.card){
         _pages.push(_hdr+buildInitVisitHTML(ch,{noTitle:true,clip:true}));   /* 表＝見込み */
@@ -15602,14 +15614,34 @@ function buildFamTreeSVG(fam, opts){
   return svg;
 }
 
+/* DAN239: print-family-source-customer-identification
+ * 家族印刷文書に出力元プロスペクトカードを明示するヘッダーセル本文を組み立てる。
+ * 正本カード氏名フィールドはc.nameのみ（家族メンバー名・世帯主ロール・担当者名・
+ * 一覧表示文字列からの推定は行わない）。空白のみ（半角・全角）を含む空判定は
+ * String(c.name||'').trim()===''で行う。エスケープは新規関数を作らず、呼び出し元
+ * buildFamilyHTML()の既存e()をそのまま引数で受け取って使う（DAN239 Correction C1）。 */
+function _familyPrintHeadHTML(c, e){
+  var rawName=String(c.name||'');
+  var srcLabel=(rawName.trim()==='')?'対象顧客：(氏名未入力)':('対象顧客：'+e(c.name)+' 様');
+  return '<div class="h2 fam fam-print-head"><span>👨‍👩‍👧‍👦 家族構成</span><span class="fam-print-src">'+srcLabel+'</span></div>';
+}
+
 function buildFamilyHTML(c){
   var e=function(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
   var fam=(c.family||[]).filter(function(m){return m.role;}); fam.forEach(function(m){m._excess=false;});
-  var html='<div class="h2 fam">👨‍👩‍👧‍👦 家族構成</div>';
-  if(!fam.length){html+='<p style="color:#aaa;font-size:9pt">家族構成データなし</p>';return html;}
+  /* DAN239: fam-print-doc構造table化。<thead><tr><th>に家族タイトル＋対象顧客ラベルを
+   * 収め、Chromiumのthead反復（table-header-group）で物理改頁をまたいで反復させる。
+   * 各既存セクションは<tr><td>へ収めるのみで、内容・順序・SVG・世代グリッド・
+   * サマリ・データなし文言は無変更で維持する。強制改頁は追加しない。 */
+  var html='<table class="fam-print-doc"><thead><tr><th class="fam-print-headcell">'+_familyPrintHeadHTML(c, e)+'</th></tr></thead><tbody>';
+  if(!fam.length){
+    html+='<tr><td class="fam-print-cell"><p style="color:#aaa;font-size:9pt">家族構成データなし</p></td></tr>';
+    html+='</tbody></table>';
+    return html;
+  }
   var svg=buildFamTreeSVG(fam);
   if(svg){
-    html+='<div class="sec purple" style="page-break-inside:avoid;break-inside:avoid">'
+    var _svgSec='<div class="sec purple" style="page-break-inside:avoid;break-inside:avoid">'
       +'<div class="stitle" style="display:flex;justify-content:space-between;align-items:baseline"><span>🌳 三世代家系図</span>'+(c.updated_at?'<span style="font-size:7.5pt;color:#94a3b8;font-weight:400">📝 最終入力 '+String(c.updated_at).replace('T',' ').slice(0,10)+'</span>':'')+'</div>'+svg
       +'<div style="display:flex;flex-wrap:wrap;gap:2mm 4mm;margin-top:1.5mm;font-size:7pt;color:#718096">'
       +'<span>枠：<b style="color:#3182ce">青=KP</b>／<b style="color:#c53030">赤=所有者</b>／<b style="color:#38a169">緑=面談済</b></span>'
@@ -15617,13 +15649,14 @@ function buildFamilyHTML(c){
       +'<span>中央●意向：<b style="color:#38a169">緑=前向</b>/<b style="color:#e53e3e">赤=否定</b>/白=不明</span>'
       +'<span>左上「伯/叔」＝世帯主の兄弟姉妹（お子様から見た続柄）</span>'
       +'</div></div>';
+    html+='<tr><td class="fam-print-cell">'+_svgSec+'</td></tr>';
   }
   var genLabel=['祖父母世代','現役世代','子世代'];
   var DEEP=['兄','弟','姉','妹','長男','次男','三男','四男','長女','次女','三女','四女'];
   [0,1,2].forEach(function(gen){
     var members=fam.filter(function(m){return famGetGen(m.role)===gen;});
     if(!members.length) return;
-    html+='<div class="sec"><div class="stitle">'+genLabel[gen]+'（'+members.length+'名）</div><div style="display:grid;grid-template-columns:1fr 1fr;column-gap:6mm">';
+    var _genSec='<div class="sec"><div class="stitle">'+genLabel[gen]+'（'+members.length+'名）</div><div style="display:grid;grid-template-columns:1fr 1fr;column-gap:6mm">';
     members.forEach(function(m,idx){
       var living=m.living||'未確認';
       var lc=(living==='同居'||living==='近居')?'#2563eb':(living==='別居')?'#b7791f':(living==='死亡')?'#64748b':'#94a3b8';
@@ -15635,7 +15668,7 @@ function buildFamilyHTML(c){
       var mc='';
       if(DEEP.indexOf(m.role)>=0){if(m.marriage&&m.marriage!=='不明')mc+=m.marriage;var _gk=(m.grandkids&&m.grandkids.length)?m.grandkids:null;if(_gk){mc+=(mc?'・':'')+'子'+_gk.length+'人（'+_gkLabels(_gk).join('・')+'）';}else if(m.children)mc+=(mc?'・':'')+'子'+m.children+'人';}
       var sep='<span style="color:#cbd5e0;padding:0 1mm">|</span>';
-      html+='<div style="display:flex;align-items:baseline;gap:1.5mm;padding:1.2mm 0;border-bottom:0.3pt solid #edf2f7;font-size:9.5pt;flex-wrap:wrap;break-inside:avoid'+(idx%2===0?";border-right:0.5pt solid #d1d9e6;padding-right:4mm":"")+'">'
+      _genSec+='<div style="display:flex;align-items:baseline;gap:1.5mm;padding:1.2mm 0;border-bottom:0.3pt solid #edf2f7;font-size:9.5pt;flex-wrap:wrap;break-inside:avoid'+(idx%2===0?";border-right:0.5pt solid #d1d9e6;padding-right:4mm":"")+'">'
         +'<span style="font-weight:700;min-width:17mm;color:#2d3748">'+(m.owner?'★':'')+e(m.role)+'</span>'
         +(m.name?'<span style="font-weight:600">'+e(m.name)+'</span>':'')
         +(m.age?'<span style="color:#718096">'+e(m.age)+'歳</span>':'')
@@ -15648,12 +15681,15 @@ function buildFamilyHTML(c){
         +(m.note?'<span style="flex-basis:100%;color:#4a5568;font-size:8pt;padding-left:17mm;margin-top:0.3mm">📝 '+e(m.note).replace(/\n/g,' ')+'</span>':'')
         +'</div>';
     });
-    html+='</div></div>';
+    _genSec+='</div></div>';
+    html+='<tr><td class="fam-print-cell">'+_genSec+'</td></tr>';
   });
-  html+='<div class="sec"><div class="stitle">全体</div>'
+  var _sumSec='<div class="sec"><div class="stitle">全体</div>'
     +'<div style="font-size:8.5pt">家族人数把握：<b style="color:'+(c.family_headcount?'#276749':'#c53030')+'">'+(c.family_headcount?'確定済':'未確定')+'</b></div>';
-  if(c.family_summary)html+='<div style="font-size:8.5pt;margin-top:1mm">'+e(c.family_summary).replace(/\n/g,'<br>')+'</div>';
-  html+='</div>';
+  if(c.family_summary)_sumSec+='<div style="font-size:8.5pt;margin-top:1mm">'+e(c.family_summary).replace(/\n/g,'<br>')+'</div>';
+  _sumSec+='</div>';
+  html+='<tr><td class="fam-print-cell">'+_sumSec+'</td></tr>';
+  html+='</tbody></table>';
   return html;
 }
 
