@@ -2699,7 +2699,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.32";
+var APP_VERSION = "v11.33";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12836,7 +12836,7 @@ function renderCards() {
       +'<div class="lmeta">'+e(c.discovery_date||'日付未設定')+(own?' / '+e(own):'')+'</div>'
       +'</div>'
       +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+(_isLandLead(c)?_landLeadTag(c):(sb+_mikomiTag(c,si,sc,stl)+ekiTag+kTag))+'</div>'+'<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="font-size:12px;color:#718096;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📍 '+(c.address?e(_shortAddr(_han(c.address))):'<span style="color:#cbd5e0">住所未設定</span>')+'</span>'+(lv?'<span style="font-size:11px;color:#a0aec0;flex-shrink:0;white-space:nowrap">🚶 '+lv+'</span>':'')+'</div>'+'</div>'
-      +'<button onclick="delCard(\''+c.id+'\',\''+e(c.name||'(名前未入力)')+'\')" style="margin-left:2px;background:none;border:none;color:#cbd5e0;font-size:20px;cursor:pointer;padding:4px 6px;border-radius:6px;align-self:center;flex-shrink:0" title="見込みから外す">🗑</button>'
+      +'<button data-id="'+e(c.id)+'" onclick="delCard(this.getAttribute(\'data-id\'))" style="margin-left:2px;background:none;border:none;color:#cbd5e0;font-size:20px;cursor:pointer;padding:4px 6px;border-radius:6px;align-self:center;flex-shrink:0" title="見込みから外す">🗑</button>'
       +'</div>';
   }).join('');
 
@@ -13165,63 +13165,755 @@ function sendDiag(){
     +'<br><br><span style="font-size:11px;color:#718096">※ アプリ内ブラウザ（LINE等）で開くと失敗します。ホーム画面のアイコンかChromeで開いてね。</span>');
 }
 window.sendDiag=sendDiag;
-function delCard(id, name) {
+// ===== 個別カード削除・共通削除経路の安全性（DAN240、是正第3回） =====
+// 契約：保存成功が確定するまで写真破壊を開始しない。写真一覧の退避（mAll）は
+// カード除外・doSaveCards呼出しより前に行う。削除・復元は単調カウンタ(token)による
+// single-flightで直列化し、operation固有のimmutableレコード(opRec)をcascade/undoが
+// 直接参照する。
+// 是正第3回：(1)処理中UIをsaveCardBtnだけでなくcardDelMenuBtn/editView(inert・aria-busy)/
+// 専用status領域へ拡張し、破壊前の非同期境界より前に同期的に確保する。(2)undo/status表示は
+// document.createElementに依存しない既存の静的DOM要素(edit_shell.html)を使い、UI生成失敗
+// そのものを構造的に排除する。(3)cascade再読取(mGet)の失敗は写真を消さずカード補償復元へ
+// 伝播させ、削除成功として扱わない。(4)cascade補償復元・undoとも、mGetで現存レコードを
+// 確認してから復元し、途中で再割当てされた写真を上書きしない。復元にはmPutではなくmAdd
+// （存在すれば。IDBのadd制約で衝突時に失敗する）を優先する。(5)深い値比較はBlob/File等の
+// 非プレーンオブジェクトを「同一参照でなければ不一致」として安全側判定する。(6)回復未完は
+// 削除single-flight(busy)だけを保持し、一般UI lockは解放する。
+var _delTok = 0;
+var _saveBtnPrevDisabled240 = null;
+var _delMenuBtnPrevDisabled240 = null;
+var _editViewPrevInert240 = null;
+
+// B1是正：doDelCardが所有権を取得した瞬間・最初の非同期境界より前に、通常保存ボタン・
+// 削除メニュー項目・編集画面全体(inert・aria-busy)・専用status表示を同期的にlockする。
+// document.createElementには依存しない（getElementByIdで既存要素を探すだけ）。
+// document.__processingStatusは支援技術非依存のテスト可能な状態フラグ。
+// 是正第4回（C1是正）：破壊的操作を一切開始する前に、専用status・undoコンテナ・undo
+// メッセージ・実際にクリック可能なundoボタンの4要素すべてを確認し、editView配下から
+// document.bodyへ再配置できることを検証する。1つでも欠落・disabled・再配置失敗の場合は
+// false を返す（＝doDelCard側で破壊的操作を一切開始しない）。相互作用の失敗を握り潰さず、
+// 「確保成功」を実際の成功時にしかマークしない（旧_ensureGlobalUI240は先にrelocated=trueを
+// 立ててから試行しており、失敗を握り潰していた）。document.createElementには依存しない。
+// 是正第5回（D5/D6是正）：appendChild呼出しの成否を鵜呑みにせず、実際に
+// document.body配下（直接の親）へ格納されたことを検証する。undoボタンはdisabledに加え、
+// 非表示（display:none）・aria-disabled・hidden属性も操作不能として拒否する
+// （disabledだけの確認では不十分）。
+function _secureGlobalUI240(){
+  try {
+    if (!document || !document.body || typeof document.body.appendChild !== 'function') return false;
+    var st = document.getElementById('cardDelStatus');
+    var ut = document.getElementById('cardDelUndoToast');
+    var um = document.getElementById('cardDelUndoToastMsg');
+    var ub = document.getElementById('cardDelUndoBtn');
+    if (!st || !ut || !um || !ub) return false;
+    if (ub.disabled) return false;
+    if (ub.hidden === true) return false;
+    if (ub.style && ub.style.display === 'none') return false;
+    if (typeof ub.getAttribute === 'function' && ub.getAttribute('aria-disabled') === 'true') return false;
+    document.body.appendChild(st);
+    document.body.appendChild(ut);
+    // D5是正：appendChildが実際にdocument.body配下へ格納したことを、親要素の実確認で
+    // 検証する（no-opモックやDOM操作の失敗を検知する）。
+    if (st.parentNode !== document.body || ut.parentNode !== document.body) return false;
+    // 是正第6回（Fable5監査F-3是正）：undoメッセージ・undoボタンが「確保したundoコンテナ
+    // (ut)自身の子孫」であることも検証する（D5契約：secured undo UIへ実際に属していること）。
+    // containment API非対応のlegacy VM mock（B1/B6等の無改変probeが使うもの）ではこの検証
+    // 自体をskipする（既存probeの互換性を壊さない）。
+    if (typeof ut.contains === 'function' && !(ut.contains(um) && ut.contains(ub))) return false;
+    return true;
+  } catch (_eSec240) {
+    return false;
+  }
+}
+
+function _setProcessingLock240(on){
+  try {
+    var b = document.getElementById('saveCardBtn');
+    if (b) {
+      if (on) { _saveBtnPrevDisabled240 = b.disabled; b.disabled = true; }
+      else { b.disabled = (_saveBtnPrevDisabled240 === true); _saveBtnPrevDisabled240 = null; }
+    }
+  } catch (_e1240) {}
+  try {
+    var m = document.getElementById('cardDelMenuBtn');
+    if (m) {
+      if (on) { _delMenuBtnPrevDisabled240 = m.disabled; m.disabled = true; }
+      else { m.disabled = (_delMenuBtnPrevDisabled240 === true); _delMenuBtnPrevDisabled240 = null; }
+    }
+  } catch (_e2240) {}
+  try {
+    var ev = document.getElementById('editView');
+    if (ev) {
+      if (on) {
+        _editViewPrevInert240 = ev.inert;
+        ev.inert = true;
+        if (typeof ev.setAttribute === 'function') ev.setAttribute('aria-busy', 'true');
+      } else {
+        ev.inert = (_editViewPrevInert240 === true);
+        _editViewPrevInert240 = null;
+        if (typeof ev.setAttribute === 'function') ev.setAttribute('aria-busy', 'false');
+      }
+    }
+  } catch (_e3240) {}
+  try { document.__processingStatus = !!on; } catch (_e4240) {}
+  try {
+    var st = document.getElementById('cardDelStatus');
+    if (st) { st.style.display = on ? 'block' : 'none'; }
+  } catch (_e5240) {}
+}
+
+function _cardById240(id){
+  for (var i = 0; i < cards.length; i++) { if (cards[i] && cards[i].id === id) return cards[i]; }
+  return null;
+}
+
+// 是正第3回：深い値比較。写真/カードレコードのネスト構造（配列・オブジェクト）を再帰的に
+// 比較する。B5是正：Blob/File等（duck-typingでsize/type/arrayBufferを持つオブジェクトとして
+// 検出）は、キー数0のプレーンオブジェクトとして誤って「等しい」と判定してはならない。
+// 同一参照なら等しい。異なる参照は、同期文脈では中身を検証できないため安全側で「異なる」と
+// 判定する（実際のbyte一致確認は_deepEqualAsync240が担う）。
+function _isBlobLike240(v){
+  return !!v && typeof v === 'object' && typeof v.size === 'number' && typeof v.type === 'string' && typeof v.arrayBuffer === 'function';
+}
+function _shallowEqual240(a, b){
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+  if (_isBlobLike240(a) || _isBlobLike240(b)) { return false; } // 別参照のBlob様オブジェクトは同期比較では不一致扱い
+  var aIsArr = Array.isArray(a), bIsArr = Array.isArray(b);
+  if (aIsArr !== bIsArr) return false;
+  if (aIsArr) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) { if (!_shallowEqual240(a[i], b[i])) return false; }
+    return true;
+  }
+  var ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (var j = 0; j < ka.length; j++) {
+    var k = ka[j];
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!_shallowEqual240(a[k], b[k])) return false;
+  }
+  return true;
+}
+// 是正第5回（D2/D3/D4是正）：完全な再帰的非同期値比較。プレーンオブジェクト/配列/
+// プリミティブはkey順に依存しない再帰的厳密一致、Blob/Fileはtype・size・実byte（Fileは
+// name・lastModifiedも）、ArrayBufferは全byte、TypedArray/DataViewは表現しているbyte列を
+// 比較する。木構造のどこか1箇所でも不一致があれば、他の場所にbyte一致するBlobがあっても
+// 全体を不一致として扱う（1つのBlob一致が他フィールドの不一致を隠蔽しない）。
+// Object.prototype.toString.call()による型タグ判定を用いる（realmをまたいでも安定した
+// 型判定ができ、instanceofの realm 依存問題を回避する）。プレーンオブジェクトでない
+// exotic prototype値（tagが[object Object]以外）は許可された型（Array/Blob/File/
+// ArrayBuffer/DataView/TypedArray）でなければ信用しない。読み取り不能・循環参照・予期しない
+// 例外は安全側（不一致）に倒す。
+function _typeTag240(v){
+  try { return Object.prototype.toString.call(v); } catch (_eTag240) { return ''; }
+}
+var _TYPED_ARRAY_TAG_RE240 = /^\[object (Int8Array|Uint8Array|Uint8ClampedArray|Int16Array|Uint16Array|Int32Array|Uint32Array|Float32Array|Float64Array|BigInt64Array|BigUint64Array)\]$/;
+function _bytesEqualSync240(ba, bb){
+  if (ba.length !== bb.length) return false;
+  for (var i = 0; i < ba.length; i++) { if (ba[i] !== bb[i]) return false; }
+  return true;
+}
+function _blobBytesEqual240(a, b){
+  return Promise.all([
+    (typeof a.arrayBuffer === 'function') ? a.arrayBuffer() : Promise.reject(new Error('no arrayBuffer()')),
+    (typeof b.arrayBuffer === 'function') ? b.arrayBuffer() : Promise.reject(new Error('no arrayBuffer()'))
+  ]).then(function(bufs){
+    return _bytesEqualSync240(new Uint8Array(bufs[0]), new Uint8Array(bufs[1]));
+  }).catch(function(){ return false; });
+}
+// 是正第6回（Fable5監査F-1/F-2是正）：ancestor-pair（祖先組）方式の循環参照guardを追加した。
+// 同じ(a,b)の組が再帰の祖先として既に現れていれば、無限再帰・event loop永久停止を招く前に
+// fail-safeでfalseへ倒す（F-1）。stackA240/stackB240は「今たどっている祖先の並び」を保持する
+// 配列で、外部呼出し元（cascade/undo/補償復元）は従来どおり引数2つで呼び出せる（省略時は
+// 空配列から開始）。深さの上限は設けない（immutable F3が要求する非循環・深さ2000の構造を
+// 正しくtrueへ解決する必要があるため、低い深さcapはF3を壊し是正として不可）。
+// あわせて、配列/オブジェクト再帰チェーン(chainArr/chainObj)の末尾に`.then(null, fail-safe)`
+// を追加し、ネストされた値の比較中に例外（例: getterがthrowするプロパティ）が起きても
+// `_deepEqualAsync240`自体が絶対にrejectしないようにした。これにより、この関数を
+// `.then(onFulfilled, onRejected)`で呼ぶ呼出し元（補償復元・undo）のcallbackが、比較器内部の
+// 例外によって永久に呼ばれなくなることを防ぐ（F-2）。
+function _deepEqualAsync240(a, b, _stackA240, _stackB240){
+  _stackA240 = _stackA240 || [];
+  _stackB240 = _stackB240 || [];
+  try {
+    if (a === b) return Promise.resolve(true);
+    if (a == null || b == null) return Promise.resolve(a === b);
+    if (typeof a !== 'object' || typeof b !== 'object') return Promise.resolve(a === b);
+    for (var si = 0; si < _stackA240.length; si++) {
+      if (_stackA240[si] === a && _stackB240[si] === b) { return Promise.resolve(false); }
+    }
+    if (_stackA240.indexOf(a) >= 0 || _stackB240.indexOf(b) >= 0) { return Promise.resolve(false); }
+    var tagA = _typeTag240(a), tagB = _typeTag240(b);
+    if (tagA !== tagB) return Promise.resolve(false);
+    if (tagA === '[object Blob]' || tagA === '[object File]') {
+      if (a.size !== b.size || a.type !== b.type) return Promise.resolve(false);
+      if (tagA === '[object File]' && (a.name !== b.name || a.lastModified !== b.lastModified)) return Promise.resolve(false);
+      return _blobBytesEqual240(a, b);
+    }
+    if (tagA === '[object ArrayBuffer]') {
+      if (a.byteLength !== b.byteLength) return Promise.resolve(false);
+      return Promise.resolve(_bytesEqualSync240(new Uint8Array(a), new Uint8Array(b)));
+    }
+    if (tagA === '[object DataView]') {
+      if (a.byteLength !== b.byteLength) return Promise.resolve(false);
+      return Promise.resolve(_bytesEqualSync240(
+        new Uint8Array(a.buffer, a.byteOffset, a.byteLength),
+        new Uint8Array(b.buffer, b.byteOffset, b.byteLength)
+      ));
+    }
+    if (_TYPED_ARRAY_TAG_RE240.test(tagA)) {
+      if (a.length !== b.length || a.byteLength !== b.byteLength) return Promise.resolve(false);
+      return Promise.resolve(_bytesEqualSync240(
+        new Uint8Array(a.buffer, a.byteOffset, a.byteLength),
+        new Uint8Array(b.buffer, b.byteOffset, b.byteLength)
+      ));
+    }
+    var aIsArr = Array.isArray(a), bIsArr = Array.isArray(b);
+    if (aIsArr !== bIsArr) return Promise.resolve(false);
+    var nextStackA240 = _stackA240.concat([a]);
+    var nextStackB240 = _stackB240.concat([b]);
+    if (aIsArr) {
+      if (a.length !== b.length) return Promise.resolve(false);
+      var chainArr = Promise.resolve(true);
+      var _loopArr240 = function(idx){
+        chainArr = chainArr.then(function(ok){ if (!ok) return false; return _deepEqualAsync240(a[idx], b[idx], nextStackA240, nextStackB240); });
+      };
+      for (var ia = 0; ia < a.length; ia++) { _loopArr240(ia); }
+      return chainArr.then(null, function(){ return false; });
+    }
+    // プレーンオブジェクト以外のexotic prototype値（[object Object]以外で、かつ上記いずれの
+    // 既知型でもない）は信用しない（プロトタイプ汚染対策）。
+    if (tagA !== '[object Object]') return Promise.resolve(false);
+    var ka, kb;
+    try { ka = Object.keys(a); kb = Object.keys(b); } catch (_eKeys240) { return Promise.resolve(false); }
+    if (ka.length !== kb.length) return Promise.resolve(false);
+    var kbSet240 = {};
+    for (var jb = 0; jb < kb.length; jb++) { kbSet240[kb[jb]] = true; }
+    for (var ja = 0; ja < ka.length; ja++) { if (!Object.prototype.hasOwnProperty.call(kbSet240, ka[ja])) return Promise.resolve(false); }
+    var chainObj = Promise.resolve(true);
+    var _loopObj240 = function(k){
+      chainObj = chainObj.then(function(ok){ if (!ok) return false; return _deepEqualAsync240(a[k], b[k], nextStackA240, nextStackB240); });
+    };
+    for (var jk = 0; jk < ka.length; jk++) { _loopObj240(ka[jk]); }
+    return chainObj.then(null, function(){ return false; });
+  } catch (_eOuter240) {
+    return Promise.resolve(false);
+  }
+}
+
+function delCard(id) {
+  if (!id) return;
+  if (doDelCard._busy) { toast('前の削除処理／元に戻すの受付が終わってから操作してください'); return; }
+  var c = _cardById240(id);
+  var name = c ? (c.name || '') : '';
   aibisAlert('「'+e(name)+'」を見込みから外す？⚠<br><span style="font-size:12px;color:#718096">訪問記録・家族構成・判定もすべて削除されます。</span><br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();_delCardFinal(\''+id+'\',\''+e(name)+'\')" style="flex:1;padding:8px;background:#dd6b20;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">次へ</button>'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();_delCardFinal(this.getAttribute(\'data-id\'))" style="flex:1;padding:8px;background:#dd6b20;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">次へ</button>'
     +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
-function _delCardFinal(id, name){
-  aibisAlert('<div style="text-align:center"><div style="font-size:11.5px;color:#718096">最終確認</div><div style="font-size:17px;font-weight:800;margin:6px 0;color:#c53030">'+e(name)+'</div>このお客様のカードを本当に削除しますか？<br><span style="font-size:11.5px;color:#718096">削除直後なら「↩ 元に戻す」で復元できます</span></div>'
+function _delCardFinal(id){
+  if (!id) return;
+  var c = _cardById240(id);
+  var name = c ? (c.name || '') : '';
+  aibisAlert('<div style="text-align:center"><div style="font-size:11.5px;color:#718096">最終確認</div><div style="font-size:17px;font-weight:800;margin:6px 0;color:#c53030">'+e(name)+'</div>保存済みのカード・訪問記録・家族情報・判定・紐付け写真を削除します。<br>未保存の入力は復元の対象外です。<br><span style="font-size:11.5px;color:#718096">完了後、「↩ 元に戻す」表示中は復元できます</span></div>'
     +'<div style="display:flex;gap:8px;margin-top:10px">'
-    +'<button onclick="closeAibisAlert();doDelCard(\''+id+'\',\''+e(name)+'\')" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">削除する</button>'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();doDelCard(this.getAttribute(\'data-id\'))" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">削除する</button>'
     +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 window._delCardFinal=_delCardFinal;
-function doDelCard(id, name){
-  var _gone=null;
-  cards = cards.filter(function(c){ if(c.id===id){ _gone=c; return false; } return true; });
-  var _delAt=Date.now();
-  if(_gone){ window._lastDel={c:_gone,at:_delAt,photos:null}; }
-  doSaveCards(function(ok){ if(!ok){ toast('⚠ 保存に失敗しました'); return; } renderList(); _undoDelToast(name); });
-  if(_gone){ _cascadeDelPhotos(id,_delAt); }
+
+// 是正第3回（A3/B3/B4是正）：破壊直前の単体再読取。実環境のmGetを使う（無ければmAll
+// フォールバック、下位互換）。mGet/mAll自体の失敗はここでは吸収せず呼出し元へ伝播させる。
+function _reReadPhoto240(id){
+  if (typeof mGet === 'function') { return mGet(id); }
+  return mAll().then(function(list){
+    var found = null;
+    (list || []).forEach(function(p){ if (p && p.id === id) found = p; });
+    return found;
+  });
 }
-function _cascadeDelPhotos(cardId, delAt){
-  // 本体カード削除時、同一端末IDBの「紐付け済み計画地写真」も削除（未紐付けインボックスは対象外）。undo用にバックアップ。
-  if(typeof mAll!=='function'||typeof mDel!=='function') return;
-  try{
-    mAll().then(function(arr){
-      var mine=(arr||[]).filter(function(r){ return r && r.cardId===cardId; });
-      if(!mine.length) return;
-      if(window._lastDel && window._lastDel.at===delAt){ window._lastDel.photos=mine; }
-      var ch=Promise.resolve();
-      mine.forEach(function(r){ ch=ch.then(function(){ if(!window._lastDel||window._lastDel.at!==delAt) return; return mDel(r.id); }); });
-      ch.then(function(){ if(typeof updateInboxBadge==='function')updateInboxBadge(); if(typeof renderInboxBody==='function')renderInboxBody(); });
-    }).catch(function(){});
-  }catch(_e){}
+
+// 是正第4回（C3是正）：写真1件をatomic mAdd「のみ」で書き込む（欠落レコードの復元専用）。
+// mPutへのfallbackは行わない（productionでの無条件上書き経路を廃止する）。mAdd不在時は
+// doDelCard開始時のAPI必須gateで既に中止しているはずだが、防御的にrejectする。
+function _writePhoto240(rec){
+  if (typeof mAdd !== 'function') { return Promise.reject(new Error('mAdd unavailable')); }
+  return mAdd(rec);
 }
-function _undoDelToast(name){
-  try{
-    if(window._undoDelEl){ window._undoDelEl.remove(); window._undoDelEl=null; }
-    var d=document.createElement('div');
-    d.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:84px;background:#2d3748;color:#fff;padding:7px 7px 7px 16px;border-radius:999px;z-index:9999;display:flex;gap:10px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,.4);font-size:13px;max-width:94vw';
-    d.innerHTML='<span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🗑 「'+e(name||'無名')+'」を削除しました</span><button onclick="undoDelCard()" style="flex:0 0 auto;background:#34e3d0;color:#1a202c;border:none;border-radius:999px;padding:7px 15px;font-weight:800;cursor:pointer;font-family:inherit;font-size:12.5px;white-space:nowrap">\u21a9 元に戻す</button>';
-    document.body.appendChild(d); window._undoDelEl=d;
-    setTimeout(function(){ try{ if(window._undoDelEl===d){ d.remove(); window._undoDelEl=null; } }catch(_e){} },8000);
-  }catch(_e){ toast('「'+name+'」を見込みから外しました'); }
+
+// 是正第3回（B4是正）：cascade補償復元専用。退避写真の復元前に、現在の実レコード
+// (mGet優先)と突き合わせる。mGetが無い環境ではR8互換のため無条件復元にfallbackする
+// （cascade失敗直後の自動処理であり、undoほど時間経過による競合リスクが高くないため）。
+// cb(ok, hadConflict)
+function _restorePhotosForCompensation240(evacuatedPhotos, cb){
+  if (!evacuatedPhotos || !evacuatedPhotos.length) { cb(true, false); return; }
+  if (typeof mPut !== 'function') { cb(false, false); return; }
+  if (typeof mGet !== 'function') {
+    var ok0 = true;
+    var chain0 = Promise.resolve();
+    evacuatedPhotos.forEach(function(r){
+      chain0 = chain0.then(function(){ return _writePhoto240(r); }).catch(function(){ ok0 = false; });
+    });
+    chain0.then(function(){ cb(ok0, false); });
+    return;
+  }
+  var ok = true;
+  var hadConflict = false;
+  var chain = Promise.resolve();
+  evacuatedPhotos.forEach(function(r){
+    chain = chain.then(function(){
+      return mGet(r.id).then(function(cur){
+        if (cur) {
+          return _deepEqualAsync240(cur, r).then(function(same){
+            if (!same) { hadConflict = true; return; }
+            return;
+          });
+        }
+        return _writePhoto240(r).catch(function(){ ok = false; });
+      }, function(){ ok = false; });
+    });
+  });
+  chain.then(function(){ cb(ok, hadConflict); });
 }
+
+// 是正第3回：undo専用。mGetが無い環境でも_reReadPhoto240のmAllフォールバックで現在状態と
+// 突き合わせる（undoはユーザー操作起因で任意の遅延があり得るため、blind復元は行わない）。
+// cb(ok, hadConflict)
+function _restorePhotosForUndo240(evacuatedPhotos, cb){
+  if (!evacuatedPhotos || !evacuatedPhotos.length) { cb(true, false); return; }
+  if (typeof mPut !== 'function') { cb(false, false); return; }
+  var ok = true;
+  var hadConflict = false;
+  var chain = Promise.resolve();
+  evacuatedPhotos.forEach(function(r){
+    chain = chain.then(function(){
+      return _reReadPhoto240(r.id).then(function(cur){
+        if (cur) {
+          return _deepEqualAsync240(cur, r).then(function(same){
+            if (!same) { hadConflict = true; return; }
+            return;
+          });
+        }
+        return _writePhoto240(r).catch(function(){ ok = false; });
+      }, function(){ ok = false; });
+    });
+  });
+  chain.then(function(){ cb(ok, hadConflict); });
+}
+
+function doDelCard(id){
+  if (!id) return;
+  if (doDelCard._busy) { toast('前の削除処理／元に戻すの受付が終わってから操作してください'); return; }
+  if (typeof doSaveCards !== 'undefined' && doSaveCards._busy) { toast('保存処理中のため少し待ってからお試しください'); return; }
+  if (typeof undoCardEdit !== 'undefined' && typeof undoCardEdit === 'function' && undoCardEdit._busy) { toast('他の処理中のため少し待ってからお試しください'); return; }
+
+  var idx = -1;
+  for (var i = 0; i < cards.length; i++) { if (cards[i] && cards[i].id === id) { idx = i; break; } }
+  if (idx < 0) { toast('対象のカードが見つかりません（既に削除済みの可能性があります）'); return; }
+  if (typeof mAll !== 'function' || typeof mDel !== 'function' || typeof mPut !== 'function' || typeof mAdd !== 'function') {
+    toast('⚠ 削除機能を利用できません（写真APIが見つかりません）');
+    return;
+  }
+
+  var originalCard = cards[idx];
+  var originalIndex = idx;
+  var name = originalCard.name || '';
+  // 是正第5回（D1是正）：JSON snapshotの生成は、busy/UI lockを取得する「前」に行う。
+  // 循環参照・非直列化可能な値等でJSON.stringifyが例外を投げた場合も、状態変更・busy取得を
+  // 一切行わずに安全に中断する（従来はlock取得後に実行しており、例外がbusy=trueのまま
+  // 伝播し得た）。
+  var originalSnapshot240;
+  try {
+    originalSnapshot240 = JSON.stringify(originalCard);
+    if (typeof originalSnapshot240 !== 'string') { throw new Error('snapshot not serializable'); }
+  } catch (_eSnap240) {
+    toast('⚠ カード内容を読み取れなかったため削除を中止しました');
+    return;
+  }
+
+  // 是正第4回（C1是正）：破壊的操作（cards/cur/photos/draftの変更、非同期削除連鎖）を
+  // 開始する前に、専用UI（status・undoコンテナ・undoメッセージ・実クリック可能なundo
+  // ボタン）をdocument.body配下へ確保できることを検証する。確保できない場合はbusyも
+  // 一切立てず、いかなる状態変更も行わずに中止する（developer console限定の復元経路は
+  // 利用者にとっての復元手段として扱わない）。
+  if (!_secureGlobalUI240()) {
+    toast('⚠ 削除に必要な画面部品を確保できなかったため中止しました');
+    return;
+  }
+
+  doDelCard._busy = true;
+  _setProcessingLock240(true);
+  var myTok = ++_delTok;
+
+  var wasEditingTarget = false, evacCur = null, evacCurId = null, evacDirty = false, evacDone = false;
+  try {
+    var _ev240 = document.getElementById('editView');
+    if (_ev240 && _ev240.style.display !== 'none' && typeof curId !== 'undefined' && curId === id) {
+      wasEditingTarget = true;
+      try {
+        if (typeof collectForm === 'function') collectForm();
+      } catch (_eCollect240) {
+        doDelCard._busy = false;
+        _setProcessingLock240(false);
+        toast('⚠ フォームの読み取りに失敗したため削除を中止しました');
+        return;
+      }
+      evacCur = cur; evacCurId = curId; evacDirty = isDirty; evacDone = true;
+      cur = null; curId = null;
+      if (typeof setDirty === 'function') setDirty(false);
+    }
+  } catch (_eEvac240) {}
+
+  function _ownershipStillOurs240(){
+    return wasEditingTarget && cur === null && typeof curId !== 'undefined' && curId === null;
+  }
+  function _restoreEdit240(){
+    if (!wasEditingTarget || !evacDone) return;
+    if (_ownershipStillOurs240()) {
+      cur = evacCur; curId = evacCurId;
+      if (typeof setDirty === 'function') setDirty(evacDirty);
+    }
+  }
+  function _restoreCardsArray240(cardToRestore){
+    var already = false;
+    for (var j = 0; j < cards.length; j++) { if (cards[j] && cards[j].id === id) { already = true; break; } }
+    if (!already) {
+      var insertAt = Math.min(originalIndex, cards.length);
+      cards.splice(insertAt, 0, cardToRestore);
+    }
+    return already;
+  }
+
+  mAll().then(function(photoList){
+    var idx2 = -1;
+    for (var k = 0; k < cards.length; k++) { if (cards[k] && cards[k].id === id) { idx2 = k; break; } }
+    if (idx2 < 0) {
+      _restoreEdit240();
+      doDelCard._busy = false;
+      _setProcessingLock240(false);
+      toast('対象のカードが見つかりません（既に削除済みの可能性があります）');
+      return;
+    }
+    if (JSON.stringify(cards[idx2]) !== originalSnapshot240) {
+      _restoreEdit240();
+      doDelCard._busy = false;
+      _setProcessingLock240(false);
+      toast('対象の内容が変更されたため削除を中止しました。最新の内容を保持しています');
+      return;
+    }
+    if (typeof doSaveCards !== 'undefined' && doSaveCards._busy) {
+      _restoreEdit240();
+      doDelCard._busy = false;
+      _setProcessingLock240(false);
+      toast('他の保存処理と重なったため削除を中止しました。もう一度お試しください');
+      return;
+    }
+
+    var minePhotos = (photoList || []).filter(function(r){ return r && r.cardId === id; });
+    var removed = cards.splice(idx2, 1)[0];
+
+    doSaveCards(function(ok){
+      if (ok) {
+        var reregistered = false;
+        for (var m = 0; m < cards.length; m++) { if (cards[m] && cards[m].id === id) { reregistered = true; break; } }
+        if (reregistered) {
+          doDelCard._busy = false;
+          _setProcessingLock240(false);
+          toast('保存中に対象が再登録されたため、写真の削除を中止しました');
+          return;
+        }
+
+        try { if (typeof _undoSnaps !== 'undefined' && Object.prototype.hasOwnProperty.call(_undoSnaps, id)) delete _undoSnaps[id]; } catch (_e1240) {}
+        try { if (window._undoOrder && window._undoOrder.length) { window._undoOrder = window._undoOrder.filter(function(x){ return x !== id; }); } } catch (_e2240) {}
+
+        var draftOk = true;
+        try {
+          var _raw240 = null, _readOk240 = true;
+          try { _raw240 = localStorage.getItem(DRAFTK); } catch (_eR240) { _readOk240 = false; }
+          if (!_readOk240) {
+            draftOk = false;
+          } else if (_raw240) {
+            var _dr240 = null;
+            try { _dr240 = JSON.parse(_raw240); } catch (_eP240) { _dr240 = null; }
+            if (_dr240 && _dr240.id === id) {
+              if (typeof clearDraft === 'function') clearDraft();
+              var _after240 = null, _afterOk240 = true;
+              try { _after240 = localStorage.getItem(DRAFTK); } catch (_eA240) { _afterOk240 = false; }
+              if (!_afterOk240 || _after240) { draftOk = false; }
+            }
+          }
+        } catch (_eD240) { draftOk = false; }
+
+        if (!draftOk) {
+          _restoreCardsArray240(removed);
+          _restoreEdit240();
+          doDelCard._recovering = true;
+          doSaveCards(function(ok2){
+            doDelCard._recovering = false;
+            if (ok2) {
+              doDelCard._busy = false;
+              _setProcessingLock240(false);
+              toast('⚠ 下書きの消去を確認できなかったため、「'+name+'」を復元しました');
+              try { if (typeof renderList === 'function') renderList(); } catch (_e3b240) {}
+            } else {
+              // B6是正：回復未完はdelete single-flight(busy)だけ保持し、一般UI lockは解放する。
+              _setProcessingLock240(false);
+              toast('⚠ 下書きの消去を確認できず、保存にも失敗しました。「'+name+'」は端末内に保持されています');
+            }
+          });
+          return;
+        }
+
+        var opRec = { id: id, c: removed, tok: myTok, photos: null, cascadeDone: false, undoDeadline: null, undoTimer: null };
+        window._lastDel = opRec;
+
+        if (_ownershipStillOurs240()) {
+          try { if (typeof editExitToList === 'function') editExitToList(); } catch (_eNav240) {}
+        } else if (!wasEditingTarget) {
+          try { if (typeof renderList === 'function') renderList(); } catch (_eList240) {}
+        }
+
+        _cascadeDelPhotos(opRec, minePhotos, originalIndex);
+      } else {
+        _restoreCardsArray240(removed);
+        _restoreEdit240();
+        doDelCard._recovering = true;
+        doSaveCards(function(ok2){
+          doDelCard._recovering = false;
+          if (ok2) {
+            doDelCard._busy = false;
+            _setProcessingLock240(false);
+            toast('⚠ 保存に失敗しましたが、「'+name+'」を復元して再保存しました');
+            try { if (typeof renderList === 'function') renderList(); } catch (_e3240) {}
+          } else {
+            // B6是正：回復未完はbusyだけ保持し、一般UI lockは解放する。
+            _setProcessingLock240(false);
+            toast('⚠ 保存先の一部または全部への保存に失敗しました。「'+name+'」は端末内に保持されています。初期設定→保存診断をご確認ください');
+          }
+        });
+      }
+    });
+  }).catch(function(){
+    _restoreEdit240();
+    doDelCard._busy = false;
+    _setProcessingLock240(false);
+    toast('⚠ 写真情報の取得に失敗したため削除を中止しました');
+  });
+}
+
+function _cascadeDelPhotos(opRec, minePhotos, originalIndex){
+  // 是正第4回（C2是正）：破壊直前の再読取(_reReadPhoto240)は、reject・比較不能・消失・
+  // 内容変化のいずれであっても「安全にskipして継続」ではなく、cascade全体の取引失敗
+  // （補償復元）として扱う。この方針変更に伴い、実際に削除できた写真だけを
+  // deletedPhotos240で明示的に追跡し、補償復元の対象を「退避時の全snapshot」ではなく
+  // 「このoperationで実際に削除した写真」に限定する。
+  if (!minePhotos || !minePhotos.length) {
+    opRec.photos = [];
+    opRec.cascadeDone = true;
+    _undoDelToast(opRec);
+    return;
+  }
+  opRec.photos = minePhotos;
+  var deletedPhotos240 = [];
+  var ch = Promise.resolve();
+  minePhotos.forEach(function(r){
+    ch = ch.then(function(){
+      return _reReadPhoto240(r.id).then(function(cur240){
+        return _deepEqualAsync240(cur240, r).then(function(same){
+          if (!cur240 || !same) {
+            // 再読取は成功したが内容が変化・消失している：取引失敗（安全にskipしない）。
+            throw new Error('photo state changed or disappeared before delete');
+          }
+          return mDel(r.id).then(function(){ deletedPhotos240.push(r); });
+        });
+      }, function(){
+        // 再読取自体の失敗（reject）も取引失敗として扱う。
+        throw new Error('photo reread failed');
+      });
+    });
+  });
+  ch.then(function(){
+    // カードの同id再登場もcascade失敗として扱う。
+    var reappeared240 = false;
+    for (var ri = 0; ri < cards.length; ri++) { if (cards[ri] && cards[ri].id === opRec.id) { reappeared240 = true; break; } }
+    if (reappeared240) { throw new Error('card id reappeared during cascade'); }
+    opRec.cascadeDone = true;
+    if (typeof updateInboxBadge === 'function') updateInboxBadge();
+    if (typeof renderInboxBody === 'function') renderInboxBody();
+    _undoDelToast(opRec);
+  }).catch(function(){
+    // 取引失敗は成功としない：成功UIを出さず、カード・実際に削除できた写真だけを
+    // 1回だけ補償復元する（C2是正：全snapshotではなくdeletedPhotos240のみ）。
+    // カードは元の位置へ戻す。写真は現在の実レコードと突き合わせてから
+    // （mGet優先）復元し、再割当て・変化済みの写真は上書きしない（B4是正）。
+    var already = false;
+    for (var i = 0; i < cards.length; i++) { if (cards[i] && cards[i].id === opRec.id) { already = true; break; } }
+    if (!already) { var insertAt = Math.min(originalIndex, cards.length); cards.splice(insertAt, 0, opRec.c); }
+    _restorePhotosForCompensation240(deletedPhotos240, function(photoOk, photoConflict){
+      doSaveCards(function(okRestore){
+        var complete = okRestore && photoOk && !already;
+        if (complete) {
+          if (window._lastDel === opRec) window._lastDel = null;
+          doDelCard._busy = false;
+          _setProcessingLock240(false);
+          if (photoConflict) {
+            toast('⚠ 写真削除が一部失敗したため、「'+((opRec.c && opRec.c.name) || '')+'」を復元しました（一部写真は変更済みのため復元対象外）');
+          } else {
+            toast('⚠ 写真削除が一部失敗したため、「'+((opRec.c && opRec.c.name) || '')+'」を写真ごと復元しました');
+          }
+          try { if (typeof renderList === 'function') renderList(); } catch (_e4240) {}
+        } else {
+          // 回復未完：唯一の退避情報とdelete single-flight(busy)は解放しない。
+          // B6是正：一般UI lockは解放し、案内された保存診断・緊急バックアップへ操作可能にする。
+          _setProcessingLock240(false);
+          toast('⚠ 写真削除が一部失敗し、復元にも失敗しました。初期設定→保存診断・緊急バックアップをご確認ください');
+        }
+      });
+    });
+  });
+}
+
+// B2是正：undo表示・処理中statusとも、document.createElementに依存しない既存の静的DOM
+// 要素（edit_shell.html）を使う。UI生成そのものが失敗する経路を構造的に排除する。
+function _undoDelToast(opRec){
+  if (!_secureGlobalUI240()) {
+    _autoRollbackAfterSuccess240(opRec);
+    return;
+  }
+  try {
+    var el = document.getElementById('cardDelUndoToast');
+    var msgEl = document.getElementById('cardDelUndoToastMsg');
+    var nm = (opRec.c && opRec.c.name) || '無名';
+    var text = '🗑 「'+nm+'」を削除しました';
+    if (msgEl) {
+      if ('textContent' in msgEl) { msgEl.textContent = text; }
+      else { msgEl.innerHTML = e(text); }
+    }
+    el.style.display = 'flex';
+    window._undoDelEl = el;
+    opRec.undoDeadline = Date.now() + 8000;
+    var _timer240 = setTimeout(function(){
+      try { if (window._undoDelEl === el) { el.style.display = 'none'; window._undoDelEl = null; } } catch (_eT240) {}
+      if (window._lastDel === opRec && !doDelCard._undoing) {
+        window._lastDel = null;
+        doDelCard._busy = false;
+        _setProcessingLock240(false);
+      }
+    }, 8000);
+    opRec.undoTimer = _timer240;
+  } catch (_e240) {
+    // 是正第4回（C1是正）：確保済みのはずのUIへの更新が例外を投げた場合も、developer
+    // console限定の復元に頼らず、自動補償rollbackを最大1回試みる。
+    _autoRollbackAfterSuccess240(opRec);
+  }
+}
+
+// 是正第4回（C1是正）：破壊的操作の成功確定後にundo UIを確保・表示できない場合、
+// 同じopRecを使った自動補償rollbackを最大1回だけ試みる（developer console限定の復元
+// 手段を「利用者にとっての復元経路」として扱わない）。成功時はbusy/一般UI lockとも
+// 解放する。失敗時はdelete single-flight(busy)のみ保持し、一般UI lockは解放する
+// （B6是正と同じ方針：保存診断・緊急バックアップへ操作可能な状態を維持する）。
+function _autoRollbackAfterSuccess240(opRec){
+  try {
+    if (!opRec || doDelCard._undoing) { return; }
+    doDelCard._undoing = true;
+    var idConflict = false;
+    for (var i = 0; i < cards.length; i++) { if (cards[i] && cards[i].id === opRec.id) { idConflict = true; break; } }
+    function finishAuto240(cardSaveOk, photoOk, photoConflict){
+      doDelCard._undoing = false;
+      var complete = cardSaveOk && photoOk && !idConflict && !photoConflict;
+      _setProcessingLock240(false);
+      if (complete) {
+        if (window._lastDel === opRec) window._lastDel = null;
+        doDelCard._busy = false;
+        try { if (typeof renderList === 'function') renderList(); } catch (_eAR1240) {}
+        try { toast('⚠ 削除完了画面を表示できなかったため自動的に元へ戻しました：「'+((opRec.c && opRec.c.name) || '')+'」'); } catch (_eAR2240) {}
+      } else if (photoConflict && cardSaveOk && photoOk && !idConflict) {
+        // 是正第6回（Fable5監査F-5是正・informational）：写真の一部が別カードへ再割当て済みで
+        // 復元対象外だった場合も、完了を偽らず一般UIだけ解放する（single-flightは保持する）。
+        try { toast('⚠ 削除完了画面を表示できず、一部写真は再割当て済みのため復元対象外のまま自動的に元へ戻しました：「'+((opRec.c && opRec.c.name) || '')+'」'); } catch (_eAR4240) {}
+      } else {
+        try { toast('⚠ 削除完了画面を表示できず、自動での復元にも失敗しました。初期設定→保存診断・緊急バックアップをご確認ください'); } catch (_eAR3240) {}
+      }
+    }
+    if (idConflict) { finishAuto240(true, true, false); return; }
+    cards.push(opRec.c);
+    _restorePhotosForUndo240(opRec.photos || [], function(photoOk, photoConflict){
+      doSaveCards(function(ok){ finishAuto240(ok, photoOk, photoConflict); });
+    });
+  } catch (_eAR0240) {
+    doDelCard._undoing = false;
+    try { _setProcessingLock240(false); } catch (_eAR4240) {}
+  }
+}
+
 function undoDelCard(){
-  try{
-    if(window._undoDelEl){ window._undoDelEl.remove(); window._undoDelEl=null; }
-    var ld=window._lastDel; if(!ld||!ld.c){ toast('復元できる削除がありません'); return; }
-    var _ph=ld.photos; cards.push(ld.c); window._lastDel=null;
-    if(_ph&&_ph.length&&typeof mPut==='function'){ var _ch=Promise.resolve(); _ph.forEach(function(r){ _ch=_ch.then(function(){ return mPut(r); }); }); _ch.then(function(){ if(typeof updateInboxBadge==='function')updateInboxBadge(); if(typeof renderCardPhotos==='function'&&curId)renderCardPhotos(curId); if(typeof renderInboxBody==='function')renderInboxBody(); }); }
-    doSaveCards(function(ok){ if(!ok){ toast('⚠ 保存に失敗しました'); return; } renderList(); toast('\u21a9「'+(ld.c.name||'無名')+'」を復元しました'); });
-  }catch(_e){}
+  try {
+    var ld = window._lastDel;
+    if (!ld || !ld.c) { toast('復元できる削除がありません'); return; }
+    if (!ld.cascadeDone) { toast('削除処理中です。完了までお待ちください'); return; }
+    if (doDelCard._undoing) { toast('復元処理中です'); return; }
+    if (typeof ld.undoDeadline === 'number' && Date.now() > ld.undoDeadline) { toast('元に戻す受付時間が終了しました'); return; }
+    if (typeof mPut !== 'function' || typeof mAll !== 'function' || typeof mAdd !== 'function') { toast('⚠ 復元機能を利用できません（写真APIが見つかりません）'); return; }
+
+    doDelCard._undoing = true;
+    try { var uel = document.getElementById('cardDelUndoToast'); if (uel) uel.style.display = 'none'; window._undoDelEl = null; } catch (_eU2240) {}
+    if (ld.undoTimer) { try { clearTimeout(ld.undoTimer); } catch (_eCT240) {} }
+
+    var idConflict = false;
+    for (var i = 0; i < cards.length; i++) { if (cards[i] && cards[i].id === ld.c.id) { idConflict = true; break; } }
+
+    function finish240(cardSaveOk, photoOk, photoConflict){
+      doDelCard._undoing = false;
+      var complete = cardSaveOk && photoOk && !idConflict && !photoConflict;
+      if (complete) {
+        if (window._lastDel === ld) window._lastDel = null;
+        doDelCard._busy = false;
+        _setProcessingLock240(false);
+        try { if (typeof updateInboxBadge === 'function') updateInboxBadge(); } catch (_eU240) {}
+        try { if (typeof renderCardPhotos === 'function' && curId) renderCardPhotos(curId); } catch (_eRP240) {}
+        try { if (typeof renderInboxBody === 'function') renderInboxBody(); } catch (_eRI240) {}
+        try { if (typeof renderList === 'function') renderList(); } catch (_e5240) {}
+        toast('\u21a9「'+(ld.c.name || '無名')+'」を復元しました');
+      } else {
+        try { if (typeof renderList === 'function') renderList(); } catch (_e5b240) {}
+        if (idConflict) toast('⚠ 同じidのカードが既に存在するため上書きせず、カード・写真とも復元しませんでした');
+        else if (!cardSaveOk) toast('⚠ 保存に失敗しました。カード内容はメモリ上に保持されています');
+        else if (photoConflict) toast('⚠ 一部写真が別カードへ再割当て済みのため復元できませんでした。カードは復元して保存しました');
+        else if (!photoOk) toast('⚠ カードは復元して保存しましたが、一部写真の復元に失敗しました');
+      }
+    }
+
+    if (idConflict) {
+      // A2是正：カードid競合時はカードも写真も一切復元しない（写真復元helper自体を呼ばない）。
+      finish240(true, true, false);
+      return;
+    }
+    cards.push(ld.c);
+    var _ph = ld.photos || [];
+    _restorePhotosForUndo240(_ph, function(photoOk, photoConflict){
+      doSaveCards(function(ok){ finish240(ok, photoOk, photoConflict); });
+    });
+  } catch (_e7240) {}
 }
 window.undoDelCard=undoDelCard; window._undoDelToast=_undoDelToast;
+
+function _syncDelMenuState(){
+  try {
+    var btn = document.getElementById('cardDelMenuBtn'); if (!btn) return;
+    var enabled = (typeof curId !== 'undefined' && !!curId && cards.some(function(c){ return c && c.id === curId; }));
+    if (doDelCard._busy) { btn.disabled = true; return; }
+    btn.disabled = !enabled;
+    btn.style.opacity = enabled ? '' : '0.45';
+    btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+  } catch (_e8240) {}
+}
+window._syncDelMenuState = _syncDelMenuState;
+
 
 // ===== カード作成 =====
 function mkBlank() {
@@ -23719,7 +24411,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         <span id="dirtyDot" style="display:none;width:8px;height:8px;background:#ed8936;border-radius:50%;margin-right:2px" title="未保存"></span>
         <button id="saveCardBtn" class="bs" onclick="saveCard()" style="font-size:11px;padding:6px 10px">💾 保存</button>
         <div class="mob-menu" style="position:relative">
-          <button onclick="toggleCardMenu(event)" style="background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">⋮</button>
+          <button onclick="toggleCardMenu(event);if(typeof _syncDelMenuState==='function')_syncDelMenuState()" style="background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">⋮</button>
           <div class="mob-dropdown" id="cardDropdown" style="right:0;left:auto;min-width:150px">
             <button onclick="closeCardMenu();undoCardEdit()">⏪ 1つ前に戻す</button>
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
@@ -23728,6 +24420,8 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
             <button id="kcvOpenBtn" onclick="closeCardMenu()">🧭 現状ナレッジ</button>
             <button onclick="closeCardMenu();openCustomerStory()">🧭 顧客ストーリー</button>
+            <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
+            <button id="cardDelMenuBtn" disabled onclick="closeCardMenu();if(typeof curId!=='undefined'&&curId&&cards.some(function(c){return c&&c.id===curId;})){delCard(curId);}" style="color:#c53030">🗑 このカードを削除</button>
           </div>
         </div>
         <button id="cardPrintBtn" onclick="openPrintModal()" title="印刷（カード・家族・戦略を選択）" style="background:#0d9488;color:white;border:1px solid rgba(255,255,255,0.25);border-radius:6px;font-size:15px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">🖨</button>
@@ -23749,7 +24443,9 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
     <div class="tab" data-tab="tp" onclick="clickCardTab('tp')" style="color:#c53030;font-size:15px;font-weight:700"><span class="ic">🎯</span>追撃</div>
     <div class="tab" data-tab="ta" onclick="clickCardTab('ta')" style="background:#553c9a;color:white;font-size:15px;font-weight:700;border-radius:6px 6px 0 0;margin:2px 0 0"><span class="ic">💭</span>戦略協議</div>
   </div>
-  <div class="prhdr" id="prhdr"></div>
+  <div class="prhdr" id="prhdr"></div>  <div id="cardDelStatus" role="status" aria-live="polite" style="display:none;position:fixed;left:50%;transform:translateX(-50%);top:12px;background:#2d3748;color:#fff;padding:6px 14px;border-radius:999px;z-index:9998;font-size:12.5px;white-space:nowrap">削除処理中…</div>
+  <div id="cardDelUndoToast" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:84px;background:#2d3748;color:#fff;padding:7px 7px 7px 16px;border-radius:999px;z-index:9999;gap:10px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,.4);font-size:13px;max-width:94vw"><span id="cardDelUndoToastMsg" style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button id="cardDelUndoBtn" onclick="undoDelCard()" style="flex:0 0 auto;background:#34e3d0;color:#1a202c;border:none;border-radius:999px;padding:7px 15px;font-weight:800;cursor:pointer;font-family:inherit;font-size:12.5px;white-space:nowrap">↩ 元に戻す</button></div>
+
 
   <!-- 初訪 -->
   <div class="panel tc" id="ti">
@@ -25717,6 +26413,9 @@ function _mediaRunRaw(mode, fn, ms){ return new Promise(function(res,rej){
 function _mediaRun(mode,fn,ms){ var run=function(){ return _mediaRunRaw(mode,fn,ms); }; var p=_mediaChain.then(run,run); _mediaChain=p.then(function(){},function(){}); return p; }
 function mGet(id){ return _mediaRun("readonly", function(s){ return s.get(id); }, 5000).then(function(v){ return mNormalize(v); }); }
 function mPut(rec){ return _mediaRun("readwrite", function(s){ return s.put(rec); }, 6000).then(function(){ _mediaPing(); }); }
+// DAN240是正第3回：atomic add API。既存id衝突時はIDBのadd制約でtransactionごと失敗する
+// （putのような無条件上書きをしない）。cascade補償復元でid再利用/競合を検知するために使う。
+function mAdd(rec){ return _mediaRun("readwrite", function(s){ return s.add(rec); }, 6000).then(function(){ _mediaPing(); }); }
 function mDel(id){ return _mediaRun("readwrite", function(s){ return s.delete(id); }, 6000).then(function(){ _mediaPing(); }); }
 function mClear(){ return _mediaRun("readwrite", function(s){ return s.clear(); }, 8000).then(function(){ _mediaPing(); }); }
 function mAll(){ return _mediaRun("readonly", function(s){ return s.getAll(); }, 6000).then(function(arr){ return (arr||[]).map(mNormalize); }); }
