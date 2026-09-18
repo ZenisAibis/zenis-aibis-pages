@@ -2699,7 +2699,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.33";
+var APP_VERSION = "v11.34";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12828,6 +12828,21 @@ function renderCards() {
     var pjColor=RANK_COLOR[pj]||'#cbd5e0';
     var sb=_statusBadges(c);
     var pjTag='<span style="font-size:12px;font-weight:900;padding:1px 8px;border-radius:8px;background:'+pjColor+'18;color:'+(pj?pjColor:'#aaa')+';border:1.5px solid '+pjColor+'60;min-width:22px;text-align:center;flex-shrink:0">'+(pj?pj:'—')+'</span>';
+    // DAN241: 管理職限定の追客打ち切りクイック操作（既存🗑の左側）。非管理職はDOM自体を
+    // 生成しない。既存🗑のhandler/文言/意味/関数は一切変更しない。
+    var mgrTermTag='';
+    if(typeof isMgrUnlocked==='function' && isMgrUnlocked()){
+      var mtCls=(typeof mgrTermClassify241==='function')?mgrTermClassify241(c):'none';
+      if(mtCls==='none'){
+        mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;width:30px;height:30px;min-width:30px;border-radius:50%;background:#2d3748;color:#fff;border:none;font-size:14px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1" title="追客打ち切り（管理職）">✕</button>';
+      } else if(mtCls==='active'){
+        mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#742a2a;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="打ち切り解除（管理職）">打切中 ✕</button>';
+      } else if(mtCls==='legacy'){
+        mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#a0aec0;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="旧形式の打ち切り">打切(旧)</button>';
+      } else if(mtCls==='inconsistent'){
+        mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#dd6b20;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="要確認">要確認</button>';
+      }
+    }
     return '<div class="lcard" data-id="'+c.id+'" style="'+cardBg+'">'
       +'<label style="display:flex;align-items:center;padding:0 8px 0 4px;cursor:pointer;flex-shrink:0" onclick="event.stopPropagation()"><input type="checkbox" class="sel-cb" data-id="'+c.id+'" '+(isSelected?'checked':'')+' onchange="toggleSelect(\''+c.id+'\')" style="width:18px;height:18px;cursor:pointer"></label>'
       +'<div onclick="openCard(\''+c.id+'\')" style="flex:1;cursor:pointer;min-width:0">'
@@ -12836,6 +12851,7 @@ function renderCards() {
       +'<div class="lmeta">'+e(c.discovery_date||'日付未設定')+(own?' / '+e(own):'')+'</div>'
       +'</div>'
       +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+(_isLandLead(c)?_landLeadTag(c):(sb+_mikomiTag(c,si,sc,stl)+ekiTag+kTag))+'</div>'+'<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="font-size:12px;color:#718096;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📍 '+(c.address?e(_shortAddr(_han(c.address))):'<span style="color:#cbd5e0">住所未設定</span>')+'</span>'+(lv?'<span style="font-size:11px;color:#a0aec0;flex-shrink:0;white-space:nowrap">🚶 '+lv+'</span>':'')+'</div>'+'</div>'
+      +mgrTermTag
       +'<button data-id="'+e(c.id)+'" onclick="delCard(this.getAttribute(\'data-id\'))" style="margin-left:2px;background:none;border:none;color:#cbd5e0;font-size:20px;cursor:pointer;padding:4px 6px;border-radius:6px;align-self:center;flex-shrink:0" title="見込みから外す">🗑</button>'
       +'</div>';
   }).join('');
@@ -13913,6 +13929,548 @@ function _syncDelMenuState(){
   } catch (_e8240) {}
 }
 window._syncDelMenuState = _syncDelMenuState;
+
+
+// ===== DAN241: 管理職限定・追客打ち切り制御 =====
+// 責務：module-local single-flight、manager guard、classifier、snapshot、candidate
+// validation、ON/OFF、save transaction、rollback、app_event、confirmation、list再描画、
+// 保存中の対象行UI lock。
+// 権限正本はsetup.js::isMgrUnlocked()のみ（新role判定/password/storage key追加禁止）。
+// card_delete.jsとは結合せずtoken/busy共有禁止（本module専用single-flight）。
+// window exportは原則window.mgrTermToggle 1点のみ（onclick属性は常にwindowスコープで解決
+// されるため、この1関数だけを明示公開し、ON/OFF/情報表示は内部でclassify結果に応じて分岐する）。
+//
+// 是正第1回（ChatGPT一次コード監査BLOCKER-1/BLOCKER-2/MAJOR-1/MAJOR-2是正）：
+//   BLOCKER-1: mgrTermClassify241()をfail-closed化した。mgr_termが存在する場合、v・at
+//     （strict ISO UTC）・by（課長|支店長）・prevの各フィールド（許可値域）・prevからの
+//     resolver再計算（rank/source双方一致）・pursuit_judge_dateの実在日付、を全て検証し、
+//     1つでも崩れていれば無条件でinconsistentとする（推測補正しない）。
+//   BLOCKER-2: releaseTransitionStateOk241自体はtools/check.js側の是正（本ファイル対象外）。
+//   MAJOR-1: 保存中は対象行だけをinert/aria-busy化し、[data-mgrid]をdisabled+「処理中…」表示
+//     する。rollback-failureでは解除しない（reloadでのみ解消）。
+//   MAJOR-2: OFF gateにもid exact1件のcount検査を追加し、save transaction開始直前にも
+//     再count・不一致ならmutationしない。
+//
+// 是正第4回（Fable5独立コード監査MAJOR-1是正）：
+//   MAJOR-1: mgrTermClassify241()のactive-current判定で、revisit_judge/revisit_judge_atの
+//     key自体が存在しない実card形状（card_create_open.js由来のapp-default新規カード・
+//     DAN204以前の旧カード）を、malformed値として拒否していた（undefined!==''）。
+//     current側のこの2フィールドだけ、undefinedを''相当として正規化してprevと比較する
+//     （prev側・他フィールドのfail-closed検証は一切弱めない）。ON構築側でも、実際に
+//     cards[]へ反映されるcandidate自身の当該2フィールドをkey不在から安定した''文字列へ
+//     固定する。
+
+var _mgrTerm241Busy = false;
+
+// ---- 汎用ヘルパー ----
+function _mgrTermFindCard241(id){
+  if(!id || !Array.isArray(cards)) return null;
+  for(var i=0;i<cards.length;i++){ if(cards[i] && cards[i].id===id) return cards[i]; }
+  return null;
+}
+function _mgrTermCountById241(id){
+  var cnt=0;
+  if(!id || !Array.isArray(cards)) return 0;
+  for(var i=0;i<cards.length;i++){ if(cards[i] && cards[i].id===id) cnt++; }
+  return cnt;
+}
+// JST（UTC+9固定・host timezone非依存）の当日YYYY-MM-DD。既存の同型private helper
+// （knowledge_derive.js::_kdTodayJst等）はmodule-privateで参照不可のため同一ロジックを再実装する。
+function _mgrTermTodayJst241(){
+  return new Date(Date.now()+9*3600000).toISOString().slice(0,10);
+}
+function _mgrTermIsEditing241(id){
+  try{
+    var ev=document.getElementById('editView');
+    return !!(ev && ev.style.display!=='none' && typeof curId!=='undefined' && curId===id);
+  }catch(_e){ return false; }
+}
+// JSON-safe deep snapshot。循環参照等でJSON.stringify/parseが例外を投げた場合はnull
+// （呼出し元は状態変更前に中止する。DAN240 D1是正と同じfail-safe方針）。
+function _mgrTermDeepClone241(obj){
+  try{
+    var s=JSON.stringify(obj);
+    if(typeof s!=='string') return null;
+    return JSON.parse(s);
+  }catch(_e){ return null; }
+}
+// strict ISO UTC文字列判定。normalizeせず、new Date(s).toISOString()===sを満たす形式だけ受理する。
+function _mgrTermStrictIsoUtc241(s){
+  if(typeof s!=='string' || !s) return false;
+  var d=new Date(s);
+  if(isNaN(d.getTime())) return false;
+  try{ return d.toISOString()===s; }catch(_e){ return false; }
+}
+// 実在するYYYY-MM-DDだけを受理する（例: 2026-02-30は無効）。
+function _mgrTermValidDateOnly241(s){
+  if(typeof s!=='string') return false;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  var d=new Date(s+'T00:00:00.000Z');
+  if(isNaN(d.getTime())) return false;
+  return d.toISOString().slice(0,10)===s;
+}
+// mgr_term.prevが許容するJudgment値域（既存resolver契約上の非terminal値だけ。'打ち切り'自体は
+// ON前legacy gateで拒否されるためprevへ入り得ない）。
+var _MGR_TERM_PJS_ALLOWED241 = ['', 'A見込み', '追撃継続', '変化待ち', '訪問継続', 'C染み込み', 'S積極提案'];
+var _MGR_TERM_RJ_ALLOWED241 = ['', '追客開始', '継続訪問'];
+
+// ---- mgr_term CORE metadata validator（是正第8回で新設・再利用可能な単一実装） ----
+// 責務：mgr_term自体のcore metadata（存在・型・v・at・by・prevの各フィールド・prevからの
+// resolver再計算一致）のみを検証する。current active（card側の現在値）は一切検証しない
+// （current側の検証はmgrTermClassify241()が本関数の結果を受けて別途行う）。
+// mgrTermClassify241()と_mgrTermRecoveryGate241()の両方が本関数だけを参照し、同一契約の
+// 二重実装を作らない（是正第7回までのfail-closed各条件は一切弱化していない）。
+// 戻り値：{ok:false, absent:true}=mgr_term自体が不在（undefined）／{ok:false}=定義済みだが
+// core metadata自体が契約を満たさない／{ok:true, mt:mgr_term, prev:mgr_term.prev}=core有効。
+// 是正第7回（MAJOR-1: ChatGPT独立再監査是正）：「mgr_termが存在する場合」の判定に
+// JavaScript truthinessを用いてはならない。`if(c.mgr_term)`はnull/false/0/''という
+// 定義済みmalformed値を「不在」として素通りさせてしまい、legacy/none判定（pursuit_judge_sel
+// ／revisit_judge基準）へ落ち、実質的にmgr_termが無いカードと同様にON操作が成立し、
+// malformed値を新しい正当なmgr_termで黙って上書き・消失させ得た（ChatGPT独立probe
+// `DAN241_CHATGPT_PROBE_C6_MALFORMED_MGR_TERM_FALSY_20260918.js`で実証、是正前は
+// null/false/0/''の4件全てFAIL）。`undefined`（true key不在）だけを「不在」とし、
+// それ以外の定義済み値（null・非object・array含む）は全てmetadata validation経路へ進め、
+// 1つでも契約を満たさなければinconsistentとする。
+function _mgrTermMetaCore241(c){
+  if(!c || c.mgr_term===undefined) return {ok:false, absent:true};
+  var mt=c.mgr_term;
+  if(mt===null || typeof mt!=='object' || Array.isArray(mt)) return {ok:false};
+  if(mt.v!==1) return {ok:false};
+  if(!_mgrTermStrictIsoUtc241(mt.at)) return {ok:false};
+  if(mt.by!=='課長' && mt.by!=='支店長') return {ok:false};
+  var prev=mt.prev;
+  if(!prev || typeof prev!=='object') return {ok:false};
+  if(prev.src!=='' && prev.src!=='pursuit' && prev.src!=='revisit') return {ok:false};
+  if(typeof prev.pjs!=='string' || _MGR_TERM_PJS_ALLOWED241.indexOf(prev.pjs)===-1) return {ok:false};
+  if(typeof prev.rj!=='string' || _MGR_TERM_RJ_ALLOWED241.indexOf(prev.rj)===-1) return {ok:false};
+  if(prev.pj!=='' && prev.pj!=='A' && prev.pj!=='B' && prev.pj!=='C') return {ok:false};
+  if(prev.pjs_at!=='' && !_mgrTermStrictIsoUtc241(prev.pjs_at)) return {ok:false};
+  if(prev.rj_at!=='' && !_mgrTermStrictIsoUtc241(prev.rj_at)) return {ok:false};
+  if(prev.pj_date!=='' && !_mgrTermValidDateOnly241(prev.pj_date)) return {ok:false};
+  // prev4値（pjs/pjs_at/rj/rj_at）から一時cardを構成し、resolverを再計算する。rank・source
+  // ともにprev.pj／prev.srcと一致しない限りinconsistent（改ざん・手動編集の検知）。
+  var tempCard241={ pursuit_judge_sel: prev.pjs, pursuit_judge_sel_at: prev.pjs_at, revisit_judge: prev.rj, revisit_judge_at: prev.rj_at };
+  var resolvedPrev241;
+  try{ resolvedPrev241=zJudgeResolveHumanRank(tempCard241); }catch(_eResolve241){ return {ok:false}; }
+  if(!resolvedPrev241 || resolvedPrev241.rank!==prev.pj || resolvedPrev241.source!==prev.src) return {ok:false};
+  return {ok:true, mt:mt, prev:prev};
+}
+
+// ---- 状態分類：'none' | 'active' | 'legacy' | 'inconsistent' ----
+// AI値（pursuit_judge_ai）・timestamp・固定B/Cからのrank推測は一切行わない。
+// 是正第1回：mgr_termが存在する場合、_mgrTermMetaCore241()の完全metadata validatorを
+// 1つでも満たさなければ無条件でinconsistentとする（自動修復・推測補正はしない）。
+// mgr_termが無い場合だけ、既存のlegacy判定へ進む。
+// 是正第8回：_mgrTermMetaCore241()を新設し、本関数はそれを消費したうえでcurrent active
+// 不変条件（下記）だけを追加検証する（二重実装を作らない。§3-A）。
+function mgrTermClassify241(c){
+  if(!c) return 'none';
+  if(c.mgr_term!==undefined){
+    var core=_mgrTermMetaCore241(c);
+    if(!core.ok) return 'inconsistent';
+    var mt=core.mt, prev=core.prev;
+    // active current判定：既存4条件に加え、pursuit_judge_dateが実在YYYY-MM-DDであることを要求。
+    if(c.pursuit_judge_sel!=='打ち切り') return 'inconsistent';
+    if(c.pursuit_judge_sel_at!==mt.at) return 'inconsistent';
+    if(c.pursuit_judge!=='X') return 'inconsistent';
+    // 是正第4回（MAJOR-1: 実card形状正規化・是正第5回で正規化範囲を是正）：
+    // card_create_open.js由来のapp-default／DAN204以前の旧カードはrevisit_judge・
+    // revisit_judge_atのkey自体を持たないことがある（undefined）。是正第5回
+    // （ChatGPT再監査MAJOR-1是正）：undefined（key不在）だけを''相当へ正規化し、
+    // それ以外の非string値（number/object/null/array/boolean等）は一切''へ丸めず、
+    // 即座にinconsistentとして拒否する（是正第4回の`typeof x==='string'?x:''`という
+    // broad fallbackは、malformedな非空・非string値まで無条件に''へ丸めてしまい、
+    // fail-closed要件に違反していた。ChatGPT独立probeで実証済み）。
+    if(c.revisit_judge!==undefined && typeof c.revisit_judge!=='string') return 'inconsistent';
+    if(c.revisit_judge_at!==undefined && typeof c.revisit_judge_at!=='string') return 'inconsistent';
+    var curRevisitJudge241=(c.revisit_judge===undefined)?'':c.revisit_judge;
+    var curRevisitJudgeAt241=(c.revisit_judge_at===undefined)?'':c.revisit_judge_at;
+    if(curRevisitJudge241!==prev.rj || curRevisitJudgeAt241!==prev.rj_at) return 'inconsistent';
+    if(!_mgrTermValidDateOnly241(c.pursuit_judge_date)) return 'inconsistent';
+    return 'active';
+  }
+  if(c.pursuit_judge_sel==='打ち切り' || c.revisit_judge==='打ち切り') return 'legacy';
+  return 'none';
+}
+
+var _MGR_TERM_LEGACY_MSG241 = '旧形式の打ち切りです。解除する場合はカードを開き、管理職がJudgmentを再判定してください。';
+// 是正第9回（ChatGPT独立再監査MINOR-1是正）：_MGR_TERM_INCONSISTENT_MSG241は
+// _mgrTermOnGate241/_mgrTermOffGate241（ON/OFF再ゲート。stale confirmation／
+// programmatic経路で、確認ダイアログ表示後にカード状態がinconsistentへ drift した
+// 場合にも到達し得る）が使う唯一の「inconsistent」案内文言である。是正第8回時点では
+// 「カードを開き、管理職がJudgmentを再判定してください」という、是正第8回で明示的に
+// 廃止済みのcard-open再判定経路を指す文言のまま残っており、stale ON/OFF再ゲートだけが
+// この廃止済み経路を案内し続けるという同種の不整合（Fable INFO-3と同じ根）があった。
+// 一覧「要確認」が唯一の回復・状態確認入口であることに揃え、recoverable
+// （metadata-core有効）／core-invalid（自動復元不可）のどちらであっても一覧「要確認」へ
+// 案内する汎用文言へ変更する（具体的にどちらであるかは一覧を開いた時点でclassifier/
+// _mgrTermRecoveryGate241が正しく再判定する）。
+var _MGR_TERM_INCONSISTENT_MSG241 = '打ち切り状態に不整合があります。一覧の「要確認」から状態を確認してください。';
+var _MGR_TERM_EDITING_MSG241 = 'このカードを編集中です。いったん一覧へ戻ってから操作してください。';
+var _MGR_TERM_PERM_MSG241 = '「打ち切り」の判定・解除は管理職のみ操作できます。';
+var _MGR_TERM_UNRESOLVED_MSG241 = '現在のJudgment状態を確認できないため、カードを開いて再判定してください。';
+// 是正第8回（MAJOR-1是正・§3-D）：inconsistentのうちmetadata-core自体が無効な場合、
+// 自動復元先（validated prev）が存在しないため常に復元不可とする（推測復元はしない）。
+// 是正第9回でも本文言・本定数の内容は変更しない（§4「Do not change
+// _MGR_TERM_RECOVERY_UNAVAILABLE_MSG241」に従う）。
+var _MGR_TERM_RECOVERY_UNAVAILABLE_MSG241 = '打ち切り状態に不整合があります。打ち切りデータの内容自体に不整合があるため、自動復元はできません。データを確認してください。';
+
+// ---- ON前整合ゲート（実card変更前に候補cloneで検証） ----
+function _mgrTermOnGate241(id){
+  if(_mgrTerm241Busy) return {ok:false, msg:'前の操作が完了してから操作してください'};
+  var c=_mgrTermFindCard241(id);
+  if(!c) return {ok:false, msg:'対象のカードが見つかりません（既に削除済みの可能性があります）'};
+  if(_mgrTermCountById241(id)!==1) return {ok:false, msg:'カードIDに重複があります。カードを開いて確認してください。'};
+  var cls=mgrTermClassify241(c);
+  if(cls==='active') return {ok:false, msg:'既に打ち切り中です。'};
+  if(cls==='legacy') return {ok:false, msg:_MGR_TERM_LEGACY_MSG241, info:true};
+  if(cls==='inconsistent') return {ok:false, msg:_MGR_TERM_INCONSISTENT_MSG241, info:true};
+  if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  if(!(typeof isMgrUnlocked==='function' && isMgrUnlocked())) return {ok:false, msg:_MGR_TERM_PERM_MSG241};
+  var candidate=_mgrTermDeepClone241(c);
+  if(!candidate) return {ok:false, msg:'カード内容を読み取れなかったため中止しました。'};
+  var preHuman;
+  try{ preHuman=zJudgeResolveHumanRank(candidate); }catch(_eResolveOn241){ return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241}; }
+  // 是正第6回（MAJOR-1: 同種fail-closed化。ChatGPT独立再監査でrevisit_judge/
+  // revisit_judge_atと同一クラスの欠陥がpursuit_judge/pursuit_judge_sel/
+  // pursuit_judge_sel_at/pursuit_judge_dateにも残存していると指摘された）：
+  // これら4フィールドについても、undefined（true key不在）のみを''相当へ正規化し、
+  // それ以外の定義済み非string値（0/false/null/object/array等の malformed falsy値を
+  // 含む）は||''で黙って空値化せず、ON自体をfail-closedで拒否する
+  // （zJudgeResolveHumanRankはresolver内部で_zjValidAt()／truthy-and-map-lookupにより
+  // 非string値を安全に無視するためresolver呼出自体はクラッシュしないが、ON gate側の
+  // fail-closed判定はresolverの安全な縮退とは独立して必須）。
+  if(c.pursuit_judge!==undefined && typeof c.pursuit_judge!=='string') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  var curOfficial=(c.pursuit_judge===undefined)?'':c.pursuit_judge;
+  var preRank=(preHuman&&preHuman.rank)||'';
+  var preSource=(preHuman&&preHuman.source)||'';
+  if(curOfficial!==preRank) return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  // 是正第1回：ON後にmgr_term.prevへ安全に格納できることを事前検証する。既存card値が
+  // prev契約の許可値域・strict ISO UTC・実在日付のいずれかを満たさない場合は、推測補正
+  // せずON自体を拒否する。
+  // 是正第5回（MAJOR-1: 非string current値のfail-closed化）：revisit_judge/
+  // revisit_judge_atはundefined（true key不在）のみ''へ正規化する。定義済み
+  // 非string値（null/number/boolean/object/array等）は||''で黙って空値化せず、
+  // ON自体をfail-closedで拒否する。
+  if(candidate.revisit_judge!==undefined && typeof candidate.revisit_judge!=='string') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(candidate.revisit_judge_at!==undefined && typeof candidate.revisit_judge_at!=='string') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  // 是正第6回：pursuit_judge_sel/pursuit_judge_sel_at/pursuit_judge_dateも同一パターンで
+  // fail-closed化する（rjVal241/rjAtVal241算出前チェックと同じ位置関係）。
+  if(candidate.pursuit_judge_sel!==undefined && typeof candidate.pursuit_judge_sel!=='string') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(candidate.pursuit_judge_sel_at!==undefined && typeof candidate.pursuit_judge_sel_at!=='string') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(candidate.pursuit_judge_date!==undefined && typeof candidate.pursuit_judge_date!=='string') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  var pjsVal241=(candidate.pursuit_judge_sel===undefined)?'':candidate.pursuit_judge_sel;
+  var rjVal241=(candidate.revisit_judge===undefined)?'':candidate.revisit_judge;
+  var pjsAtVal241=(candidate.pursuit_judge_sel_at===undefined)?'':candidate.pursuit_judge_sel_at;
+  var rjAtVal241=(candidate.revisit_judge_at===undefined)?'':candidate.revisit_judge_at;
+  var pjDateVal241=(candidate.pursuit_judge_date===undefined)?'':candidate.pursuit_judge_date;
+  if(_MGR_TERM_PJS_ALLOWED241.indexOf(pjsVal241)===-1) return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(_MGR_TERM_RJ_ALLOWED241.indexOf(rjVal241)===-1) return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(preRank!=='' && preRank!=='A' && preRank!=='B' && preRank!=='C') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(preSource!=='' && preSource!=='pursuit' && preSource!=='revisit') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(pjsAtVal241!=='' && !_mgrTermStrictIsoUtc241(pjsAtVal241)) return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(rjAtVal241!=='' && !_mgrTermStrictIsoUtc241(rjAtVal241)) return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  if(pjDateVal241!=='' && !_mgrTermValidDateOnly241(pjDateVal241)) return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  return {ok:true, card:c, candidate:candidate, preHuman:preHuman};
+}
+
+// ---- OFF前fail-closedゲート ----
+function _mgrTermOffGate241(id){
+  if(_mgrTerm241Busy) return {ok:false, msg:'前の操作が完了してから操作してください'};
+  var c=_mgrTermFindCard241(id);
+  if(!c) return {ok:false, msg:'対象のカードが見つかりません（既に削除済みの可能性があります）'};
+  // 是正第1回（MAJOR-2）：OFF gateにもID一意性をfail-closedで要求する。
+  if(_mgrTermCountById241(id)!==1) return {ok:false, msg:'カードIDに重複があります。カードを開いて確認してください。'};
+  if(!(typeof isMgrUnlocked==='function' && isMgrUnlocked())) return {ok:false, msg:_MGR_TERM_PERM_MSG241};
+  var cls=mgrTermClassify241(c);
+  if(cls==='legacy') return {ok:false, msg:_MGR_TERM_LEGACY_MSG241, info:true};
+  if(cls==='inconsistent') return {ok:false, msg:_MGR_TERM_INCONSISTENT_MSG241, info:true};
+  if(cls!=='active') return {ok:false, msg:'打ち切り状態ではありません。'};
+  if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  var candidate=_mgrTermDeepClone241(c);
+  if(!candidate) return {ok:false, msg:'カード内容を読み取れなかったため中止しました。'};
+  return {ok:true, card:c, candidate:candidate, prev:c.mgr_term.prev};
+}
+
+// ---- 回復（recovery）前fail-closedゲート（是正第8回: MAJOR-1是正・§3-B） ----
+// mgr_term.v===1を維持したままcurrent-active値が乖離した「inconsistent」カードを、
+// 検証済みprevスナップショットへ厳密に復元するための唯一のゲート。
+// _mgrTermRequestRecover241()（確認ダイアログ表示前）と_mgrTermConfirmedRecover241()
+// （確認後の実行直前）の両方が本関数を呼び直す＝確認ダイアログ表示前の判定結果を
+// 信用しない（direct/programmatic経路からの呼出しも同一ゲートを必ず通過する）。
+// 要求される全条件（1つでも満たさなければ拒否・mutationなし・save呼出しなし）：
+// busy中でない・対象カードが存在する・IDが重複していない（exact1）・isMgrUnlocked()の
+// みを正本とする管理職権限・classify結果がinconsistent・metadata-core（_mgrTermMetaCore241）
+// が有効・同一カードを編集中でない・deep cloneが成功する。
+// metadata-core自体が無効な場合は、復元先（validated prev）が存在しないため、他の条件を
+// 満たしていても常にfail-closedで拒否する（推測復元はしない。info:trueで区別）。
+function _mgrTermRecoveryGate241(id){
+  if(_mgrTerm241Busy) return {ok:false, msg:'前の操作が完了してから操作してください'};
+  var c=_mgrTermFindCard241(id);
+  if(!c) return {ok:false, msg:'対象のカードが見つかりません（既に削除済みの可能性があります）'};
+  if(_mgrTermCountById241(id)!==1) return {ok:false, msg:'カードIDに重複があります。カードを開いて確認してください。'};
+  if(!(typeof isMgrUnlocked==='function' && isMgrUnlocked())) return {ok:false, msg:_MGR_TERM_PERM_MSG241};
+  var cls=mgrTermClassify241(c);
+  if(cls!=='inconsistent') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
+  var core=_mgrTermMetaCore241(c);
+  if(!core.ok) return {ok:false, msg:_MGR_TERM_RECOVERY_UNAVAILABLE_MSG241, info:true};
+  if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  var candidate=_mgrTermDeepClone241(c);
+  if(!candidate) return {ok:false, msg:'カード内容を読み取れなかったため中止しました。'};
+  return {ok:true, card:c, candidate:candidate, prev:core.prev};
+}
+
+// ---- 確認ダイアログ（1回）＋実行 ----
+function _mgrTermRequestOn241(id){
+  var gate=_mgrTermOnGate241(id);
+  if(!gate.ok){ if(gate.msg) aibisAlert(e(gate.msg)); return; }
+  var nm=gate.card.name||'';
+  aibisAlert('<div style="text-align:center">'+e(nm)+'様を追客打ち切り（X）にします。カードは削除されません。よろしいですか？</div>'
+    +'<div style="display:flex;gap:8px;margin-top:10px">'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmed\')" style="flex:1;padding:8px;background:#2d3748;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">打ち切る</button>'
+    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'</div>');
+}
+function _mgrTermRequestOff241(id){
+  var gate=_mgrTermOffGate241(id);
+  if(!gate.ok){ if(gate.msg) aibisAlert(e(gate.msg)); return; }
+  var nm=gate.card.name||'';
+  var destText=gate.prev.pj?('ランク「'+e(gate.prev.pj)+'」へ戻します'):'未判定へ戻します';
+  aibisAlert('<div style="text-align:center">'+e(nm)+'様の追客打ち切りを解除します。'+destText+'。よろしいですか？</div>'
+    +'<div style="display:flex;gap:8px;margin-top:10px">'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmedOff\')" style="flex:1;padding:8px;background:#2d3748;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">解除する</button>'
+    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'</div>');
+}
+function _mgrTermConfirmedOn241(id){
+  var gate=_mgrTermOnGate241(id);
+  if(!gate.ok){ if(gate.msg) aibisAlert(e(gate.msg)); return; }
+  var candidate=gate.candidate, preHuman=gate.preHuman;
+  var nowIso=new Date().toISOString();
+  candidate.mgr_term={
+    v:1, at:nowIso, by:userRole,
+    prev:{
+      pjs: (candidate.pursuit_judge_sel===undefined)?'':candidate.pursuit_judge_sel,
+      pjs_at: (candidate.pursuit_judge_sel_at===undefined)?'':candidate.pursuit_judge_sel_at,
+      rj: (candidate.revisit_judge===undefined)?'':candidate.revisit_judge,
+      rj_at: (candidate.revisit_judge_at===undefined)?'':candidate.revisit_judge_at,
+      pj: preHuman.rank||'',
+      pj_date: (candidate.pursuit_judge_date===undefined)?'':candidate.pursuit_judge_date,
+      src: preHuman.source||''
+    }
+  };
+  // 是正第4回（MAJOR-1: 実card形状正規化）→是正第5回で undefined-only へ再修正：
+  // mgr_term.prevへは既にcandidate.revisit_judge/_atの正規化済み値を退避済みだが、
+  // candidate自身（実際にcards[]へ反映されるオブジェクト）側のkey不在（undefined）は
+  // ここで安定したstring（''）へ固定する。この時点でON gate（3-B是正）が既に定義済み
+  // 非string値をfail-closedで拒否済みのため、ここに到達するrevisit_judge/_atは
+  // undefinedかstringのいずれかのみであり、||''ではなく===undefinedのみで正規化する。
+  candidate.revisit_judge=(candidate.revisit_judge===undefined)?'':candidate.revisit_judge;
+  candidate.revisit_judge_at=(candidate.revisit_judge_at===undefined)?'':candidate.revisit_judge_at;
+  candidate.pursuit_judge_sel='打ち切り';
+  candidate.pursuit_judge_sel_at=nowIso;
+  candidate.pursuit_judge_date=_mgrTermTodayJst241();
+  var checkRank;
+  try{ checkRank=zJudgeResolveHumanRank(candidate); }catch(_eCheck241){ checkRank=null; }
+  if(!checkRank || checkRank.rank!=='X'){ aibisAlert(e('判定の確認に失敗したため中止しました。')); return; }
+  candidate.pursuit_judge='X';
+  // 是正第1回（BLOCKER-1）：ON candidate完成後、classifier自身でactive成立をassertしてから
+  // 実card反映へ進む（validatorとON構築ロジックの二重実装・食い違いを構造的に防ぐ）。
+  if(mgrTermClassify241(candidate)!=='active'){ aibisAlert(e('判定の確認に失敗したため中止しました。')); return; }
+  _mgrTermSaveTransaction241(id, candidate, 'on');
+}
+function _mgrTermConfirmedOff241(id){
+  var gate=_mgrTermOffGate241(id);
+  if(!gate.ok){ if(gate.msg) aibisAlert(e(gate.msg)); return; }
+  var candidate=gate.candidate, prev=gate.prev;
+  candidate.pursuit_judge_sel=prev.pjs;
+  candidate.pursuit_judge_sel_at=prev.pjs_at;
+  candidate.revisit_judge=prev.rj;
+  candidate.revisit_judge_at=prev.rj_at;
+  candidate.pursuit_judge_date=prev.pj_date;
+  var restored;
+  try{ restored=zJudgeResolveHumanRank(candidate); }catch(_eRestore241){ restored=null; }
+  // 是正第1回（BLOCKER-1）：rankだけでなくsourceもprevと一致することを必須assertする。
+  if(!restored || restored.rank!==prev.pj || restored.source!==prev.src){ aibisAlert(e('復元後の判定確認に失敗したため中止しました。')); return; }
+  candidate.pursuit_judge=restored.rank;
+  delete candidate.mgr_term;
+  _mgrTermSaveTransaction241(id, candidate, 'off');
+}
+
+// ---- 回復（recovery）確認ダイアログ＋実行（是正第8回: MAJOR-1是正・§3-D） ----
+// classify==='inconsistent'のカードに対する唯一のUI入口。_mgrTermRecoveryGate241()の
+// 結果に応じて分岐する：
+//   - metadata-core有効 → 復元確認ダイアログを表示する
+//   - metadata-core無効 → 「自動復元不可」の案内のみ表示する（確認操作自体を提供しない）
+//   - その他（busy／カード不在／ID重複／非管理職／編集中／inconsistentでない等）→
+//     ゲートが返す該当メッセージをそのまま表示する
+// 本関数はダイアログ表示の可否判定のみを行い、実際のmutationは一切行わない。
+function _mgrTermRequestRecover241(id){
+  var gate=_mgrTermRecoveryGate241(id);
+  if(!gate.ok){ if(gate.msg) aibisAlert(e(gate.msg)); return; }
+  var nm=gate.card.name||'';
+  aibisAlert('<div style="text-align:center">'+e(nm)+'様の打ち切り状態に不整合があります。保存されている元のJudgment内容へ復元しますか？</div>'
+    +'<div style="display:flex;gap:8px;margin-top:10px">'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmedRecover\')" style="flex:1;padding:8px;background:#2d3748;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">復元する</button>'
+    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'</div>');
+}
+// confirmedRecoverは確認ダイアログの「復元する」ボタンからだけでなく、direct/programmatic
+// 呼出し（window.mgrTermToggle(id,'confirmedRecover')の直接実行）からも到達し得るため、
+// ダイアログ表示前の判定結果を一切信用せず、ここで改めて_mgrTermRecoveryGate241()の
+// 全条件を再実行する（§3-D「確認前の状態を信用しない」要件）。
+function _mgrTermConfirmedRecover241(id){
+  var gate=_mgrTermRecoveryGate241(id);
+  if(!gate.ok){ if(gate.msg) aibisAlert(e(gate.msg)); return; }
+  var candidate=gate.candidate, prev=gate.prev;
+  // §3-C：validated prevから厳密に5フィールドを復元する（推測補正・正規化は一切行わない。
+  // prevは_mgrTermMetaCore241()で既にfail-closed検証済みのため、そのままの値で復元できる）。
+  candidate.pursuit_judge_sel=prev.pjs;
+  candidate.pursuit_judge_sel_at=prev.pjs_at;
+  candidate.revisit_judge=prev.rj;
+  candidate.revisit_judge_at=prev.rj_at;
+  candidate.pursuit_judge_date=prev.pj_date;
+  var restored;
+  try{ restored=zJudgeResolveHumanRank(candidate); }catch(_eRestoreRec241){ restored=null; }
+  // rank・sourceともにprevと再一致することを必須assertする（既存OFF実装と同一方針）。
+  if(!restored || restored.rank!==prev.pj || restored.source!==prev.src){ aibisAlert(e('復元後の判定確認に失敗したため中止しました。')); return; }
+  candidate.pursuit_judge=restored.rank;
+  delete candidate.mgr_term;
+  // §3-C：復元後candidateがclassify()で'none'に確定することを実mutation前にassertする
+  // （prevのterminal値（'打ち切り'）は_mgrTermMetaCore241の許可値域に含まれないため、
+  // 正しく復元できていれば必ずnoneになる。もしlegacy/active/inconsistentへ落ちる場合は
+  // 復元内容自体に矛盾があるため中止する）。
+  if(mgrTermClassify241(candidate)!=='none'){ aibisAlert(e('復元後の判定確認に失敗したため中止しました。')); return; }
+  _mgrTermSaveTransaction241(id, candidate, 'recover');
+}
+
+// ---- 保存中の対象行UI lock（MAJOR-1是正） ----
+// raw idをCSS selector文字列へ連結しない：.lcardを列挙しgetAttribute('data-id')===idで
+// 対象行を特定する。戻り値のfoundは「対象行がDOMに存在したか」、okは「lock処理自体が
+// 例外なく完了したか」を独立して示す。found=falseの経路（VM試験・programmatic経路等）は
+// 既存の他fail-closed guardで安全性を担保したうえで処理を継続してよい。found=trueかつ
+// ok=falseの場合は、呼出し元がmutationを開始してはならない。
+function _mgrTermLockRow241(id){
+  var result={ found:false, ok:false, restore:function(){} };
+  try{
+    if(typeof document==='undefined' || !document || typeof document.querySelectorAll!=='function') return result;
+    var rows=document.querySelectorAll('.lcard');
+    for(var i=0;i<rows.length;i++){
+      var row=rows[i];
+      if(row && typeof row.getAttribute==='function' && row.getAttribute('data-id')===id){
+        result.found=true;
+        try{
+          row.setAttribute('inert','');
+          row.setAttribute('aria-busy','true');
+          var btns=row.querySelectorAll('[data-mgrid]');
+          var saved=[];
+          for(var j=0;j<btns.length;j++){
+            saved.push({ el:btns[j], html:btns[j].innerHTML, hadDisabled:btns[j].disabled });
+            btns[j].disabled=true;
+            btns[j].setAttribute('aria-disabled','true');
+            btns[j].innerHTML='処理中…';
+          }
+          result.ok=true;
+          result.restore=function(){
+            try{
+              row.removeAttribute('inert');
+              row.removeAttribute('aria-busy');
+              saved.forEach(function(s){
+                try{ s.el.disabled=s.hadDisabled; s.el.removeAttribute('aria-disabled'); s.el.innerHTML=s.html; }catch(_eEach241){}
+              });
+            }catch(_eRestoreOuter241){}
+          };
+        }catch(_eLock241){ result.ok=false; }
+        return result;
+      }
+    }
+    return result;
+  }catch(_eOuter241){ return { found:false, ok:false, restore:function(){} }; }
+}
+
+// ---- 保存transaction（S0〜S3、本module専用single-flight） ----
+function _mgrTermSaveTransaction241(id, candidate, mode){
+  if(_mgrTerm241Busy){ toast('前の操作が完了してから操作してください'); return; }
+  // 是正第1回（MAJOR-2）：確認ダイアログ表示後にcards[]が変化した可能性があるため、
+  // mutation直前にもID一意性を再検証する。exact1件でなければmutationせず拒否する。
+  if(_mgrTermCountById241(id)!==1){ toast('カードIDに重複があります。カードを開いて確認してください。'); return; }
+  var idx=-1;
+  for(var i=0;i<cards.length;i++){ if(cards[i] && cards[i].id===id){ idx=i; break; } }
+  if(idx<0){ toast('対象のカードが見つかりません'); return; }
+  var beforeSnapshot=_mgrTermDeepClone241(cards[idx]);
+  if(!beforeSnapshot){ toast('⚠ カード内容を読み取れなかったため中止しました'); return; }
+  // 是正第1回（MAJOR-1）：mutationより前に対象行をUI lockする。対象行がDOMに存在するのに
+  // lock自体が例外を投げた場合は、mutationを開始せず中止する（UI lock処理自体の例外で
+  // card mutationを先行させない）。行がDOMに存在しない経路（found=false）は継続してよい。
+  var lockRes241=_mgrTermLockRow241(id);
+  if(lockRes241.found && !lockRes241.ok){ toast('⚠ 表示の更新に失敗したため中止しました'); return; }
+  _mgrTerm241Busy=true;
+  cards[idx]=candidate;
+  // 保存直前にKnowledge Log差分を取得（保存呼出し直前のlocalStorage SKと比較。save_actions.js
+  // と同一の呼出し規約）。
+  var _kev241=null;
+  try{ _kev241=(window.klogCapturePaste && typeof klogCapturePaste.appEventDiffV1==='function')?klogCapturePaste.appEventDiffV1(candidate):null; }catch(_e241){ _kev241=null; }
+  doSaveCards(function(ok){
+    if(ok){
+      if(_kev241){ try{ klogCapturePaste.appEventAppendV1(_kev241); }catch(_e241b){} }
+      _mgrTerm241Busy=false;
+      try{ if(typeof renderList==='function') renderList(); }catch(_eR241){}
+      try{ lockRes241.restore(); }catch(_eRestoreCall241){}
+      // 是正第8回（§3-D）：modeに'recover'を追加（回復専用トースト文言）。rollback exact1・
+      // rollback-failure busy/UI lock・app_eventの各既存契約は一切変更していない。
+      toast(mode==='on' ? '追客打ち切りにしました' : (mode==='recover' ? '元のJudgment内容へ復元しました' : '追客打ち切りを解除しました'));
+      return;
+    }
+    // S3: 保存失敗（LS成功+FSA失敗を含む）。即in-memoryをbeforeへ完全復元し、rollback再保存
+    // 最大1回。rollback時はapp_event生成/append禁止。
+    cards[idx]=beforeSnapshot;
+    doSaveCards(function(ok2){
+      // 是正第2回（ChatGPT是正第1回再監査MAJOR-1R是正）：renderList()はrollback再保存が
+      // 成功した場合(ok2===true)だけ呼ぶ。renderList()は一覧DOMを再生成しrenderCards()経由で
+      // 全.lcard行を新しいDOM要素へ置換するため、ok2の判定より前に無条件で呼ぶと、
+      // rollback-failure（ok2===false）時でも、mutation前にlockした対象行が新しい未lock行へ
+      // 置換されてしまい、「busyとUI lockを保持しreloadでのみ解消する」契約が実質的に破られる
+      // （_mgrTerm241Busyはtrueのままでも、DOM上のlockは消える）。ok2===falseでは
+      // renderList()もlockRes241.restore()も一切呼ばず、mutation前にlockした現在DOM行を
+      // inert/aria-busy/[data-mgrid]disabledのまま保持する。
+      if(ok2){
+        _mgrTerm241Busy=false;
+        try{ if(typeof renderList==='function') renderList(); }catch(_eR2241){}
+        try{ lockRes241.restore(); }catch(_eRestoreCall2241){}
+        aibisAlert('⚠ 保存に失敗したため、打ち切り操作を元に戻しました。');
+      } else {
+        // rollback再保存も失敗：in-memoryはbeforeのまま、永続状態は不定。busyとUI lockは
+        // 保持し再操作不可のままreloadでのみ解消する（renderList()・restore()とも呼ばない。
+        // 無制限retryはしない）。
+        aibisAlert('⚠ 保存に失敗し、復元も確認できません。再読込して状態を確認してください。');
+      }
+    });
+  });
+}
+
+// ---- 単一window export（onclick属性からの唯一の入口） ----
+// id, step のみを受け取り、顧客名等をinline dynamic JSへ埋め込まない
+// （idはdata-id＋既存escape＋固定handler方式）。
+function mgrTermToggle(id, step){
+  if(!id) return;
+  if(step==='confirmed'){ _mgrTermConfirmedOn241(id); return; }
+  if(step==='confirmedOff'){ _mgrTermConfirmedOff241(id); return; }
+  // 是正第8回（§3-D）：内部stepとして'confirmedRecover'を追加。既存の
+  // window.mgrTermToggle単一exportは変更しない（新規window export・新規storage
+  // field/token/busy flagは追加しない）。
+  if(step==='confirmedRecover'){ _mgrTermConfirmedRecover241(id); return; }
+  var c=_mgrTermFindCard241(id);
+  var cls=mgrTermClassify241(c);
+  if(cls==='none'){ _mgrTermRequestOn241(id); return; }
+  if(cls==='active'){ _mgrTermRequestOff241(id); return; }
+  if(cls==='legacy'){ aibisAlert(e(_MGR_TERM_LEGACY_MSG241)); return; }
+  // 是正第8回（MAJOR-1是正・§3-D）：inconsistentは従来「カードを開き再判定してください」と
+  // いう機能しない案内のみだった（Fable5最終独立再監査MAJOR-1）。_mgrTermRequestRecover241()
+  // が、metadata-core有効なら復元確認ダイアログを、無効なら自動復元不可の案内を、その他の
+  // 拒否理由（busy／非管理職／編集中等）ならゲートの該当メッセージを表示する。
+  if(cls==='inconsistent'){ _mgrTermRequestRecover241(id); return; }
+}
+window.mgrTermToggle=mgrTermToggle;
 
 
 // ===== カード作成 =====
@@ -15046,13 +15604,88 @@ function _rankOrd(r){ return {S:0,A:1,B:2,C:3,D:4,E:5,X:6}[r]; }
 function queueOrPlayFanfare(dir){ var ta=document.querySelector('.tab[data-tab="ta"]'); if(ta&&ta.classList.contains('active')){ if(dir==='up'){ if(window.playRankUp) playRankUp(); } else { if(window.playRankDown) playRankDown(); } _rankFanfare=''; } else { _rankFanfare=dir; } }
 function recomputeRank(){ if(!cur) return; var old=cur.pursuit_judge||''; var rk=zJudgeResolveHumanRank(cur).rank; cur.pursuit_judge=rk; if(rk&&old&&rk!==old&&_rankOrd(rk)!==undefined&&_rankOrd(old)!==undefined){ queueOrPlayFanfare(_rankOrd(rk)<_rankOrd(old)?'up':'down'); } if(window.updateAiRankDisp) updateAiRankDisp(rk||''); }
 function isRevisitJudgeLocked(){ if(window.IS_DEV) return false; if(!cur) return true; var r=((cur.revisits)||[])[2]; return !(r&&(r.date||r.content||r.rec)); }
-function applyRevisitLock(){ var locked=isRevisitJudgeLocked(); document.querySelectorAll('[data-rj]').forEach(function(b){ b.classList.toggle('rj-locked',locked); }); }
+// 是正第8回（MAJOR-1是正・§4-B）：ANY defined mgr_term（cur.mgr_term!==undefined）を
+// manager-termination-managed扱いとしてlockする（active v===1のみを対象としていた旧実装の
+// truthiness判定を既存semantics判定へ変更。既存のisRevisitJudgeLocked()由来のlockedや
+// 非管理職の打ち切りbutton lock（isTerm&&!mgrOk）は一切変更しない）。
+function applyRevisitLock(){ var locked=isRevisitJudgeLocked(); var mgrTermManaged=!!(cur&&cur.mgr_term!==undefined); var mgrOk=(typeof isMgrUnlocked==='function'&&isMgrUnlocked()); document.querySelectorAll('[data-rj]').forEach(function(b){ var isTerm=b.dataset.rj==='打ち切り'; b.classList.toggle('rj-locked', locked||mgrTermManaged||(isTerm&&!mgrOk)); }); }
 window.isRevisitJudgeLocked=isRevisitJudgeLocked; window.applyRevisitLock=applyRevisitLock;
 function isRevisitJudgeDone(){ if(window.IS_DEV) return true; return !!(cur && (cur.revisit_judge || cur.revisit_judge_date || (cur.revisit_4eyes && String(cur.revisit_4eyes).trim()))); }
-function applyPursuitLock(){ var locked=!isRevisitJudgeDone(); var b=document.getElementById('addPursuitBtn'); if(b) b.classList.toggle('pursuit-locked', locked); document.querySelectorAll('[data-pj]').forEach(function(x){ x.classList.toggle('pj-locked', locked); }); }
+function applyPursuitLock(){
+  var locked=!isRevisitJudgeDone();
+  var mgrTermManaged=!!(cur&&cur.mgr_term!==undefined);
+  var mgrOk=(typeof isMgrUnlocked==='function'&&isMgrUnlocked());
+  var b=document.getElementById('addPursuitBtn'); if(b) b.classList.toggle('pursuit-locked', locked||mgrTermManaged);
+  document.querySelectorAll('[data-pj]').forEach(function(x){ var isTerm=x.dataset.pj==='打ち切り'; x.classList.toggle('pj-locked', locked||mgrTermManaged||(isTerm&&!mgrOk)); });
+  // 是正第8回（MAJOR-1是正・§4-B）：mgr_termが定義済みの間はネイティブ#f_pjdate（判定日）
+  // inputをJS側でdisabledにし、通常編集経路（判定日をクリアして保存→pursuit_judge_date=''→
+  // inconsistent化）でDAN241が自ら禁じているはずの状態不整合を作れないようにする。HTML
+  // ファイル自体の変更は本弾で禁止されているため、既存のpursuit_panel.html（#f_pjdate要素
+  // 自体）は一切変更せず、disabled切替はJS DOM操作のみで行う。mgr_term不在時は明示的に
+  // disabled=falseへ戻し、通常カードのeditabilityを従来どおり維持する。他のnote/strategy/
+  // family等の無関係なfieldは一切disableしない。
+  try{
+    var pjd=document.getElementById('f_pjdate');
+    if(pjd) pjd.disabled=mgrTermManaged;
+  }catch(_ePjdLock241){}
+}
 window.isRevisitJudgeDone=isRevisitJudgeDone; window.applyPursuitLock=applyPursuitLock;
-function setRJ(v,user){ if(user){ if(typeof collectForm==='function') collectForm(); if(isRevisitJudgeLocked()){ applyRevisitLock(); aibisAlert('再訪Judgmentはまだロック中だよ🔒<br><br>ヒアリングは足りてる？課長と協議した？<br><br>再訪3回目の「訪問日・訪問内容・録音要約」のどれかを記録するとJudgmentできるよ。'); return; } if(cur.revisit_judge===v) v=''; } cur.revisit_judge=v; if(user){ cur.revisit_judge_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-rj]').forEach(function(b){b.classList.toggle('active',b.dataset.rj===v);}); if(user){ recomputeRank(); if(window.applyPursuitLock) applyPursuitLock(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
-function setPJ(v,user){ if(user){ if(typeof collectForm==='function') collectForm(); if(!isRevisitJudgeDone()){ if(window.applyPursuitLock) applyPursuitLock(); aibisAlert('先に再訪Judgmentを行ってね🔒<br><br>追撃Judgmentは、再訪Judgment（判定日・フォーアイズ・判定ボタンのどれか）を入れてからだよ。<br><br>課長と協議した？'); return; } if(cur.pursuit_judge_sel===v) v=''; } cur.pursuit_judge_sel=v; if(user){ cur.pursuit_judge_sel_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-pj]').forEach(function(b){b.classList.toggle('active',b.dataset.pj===v);}); if(window.renderJudgeDetail) renderJudgeDetail(); if(user){ recomputeRank(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
+// 是正第3回（ChatGPT是正第2回再監査BLOCKER-1是正）：setPJ/setRJのmanager guardが
+// if(user){...}の内側だけに存在したため、window.setPJ('打ち切り')等をuser第2引数省略で
+// 直接呼び出すprogrammatic経路（edit_public_actions.jsの既存window export）から、
+// 非管理職でも「打ち切り」の設定/解除・mgr_term active中の通常値書換えが可能だった
+// （独立probeで実証済み）。edit_public_actions.js・form_core.jsは変更せず、setPJ/setRJ
+// 冒頭で「実効target（user時のtoggleを含む）が現在値から実際に変わるtransitionかどうか」
+// を判定し、transitionの場合だけguardをuserの真偽に関係なく適用する設計へ変更した。
+// 同値no-op（非user form loadでの現在値再描画・mgr_term active中の同値描画）はguardで
+// 止めず、既存のactive class描画をそのまま継続させる。
+// 是正第4回（Fable5独立コード監査MINOR-2是正）→是正第5回で正規化範囲を是正：
+// _current241（transition比較用の現在選択値）算出時、cur.revisit_judge／
+// cur.pursuit_judge_selのkey自体が存在しない（undefined）実card形状（app-default
+// 新規カード等）を、旧実装ではundefinedのまま保持していたため、非user form-load
+// （例: v=''でのcard open時描画）が「undefined!==''」で常にtransition扱いとなり得た。
+// 是正第4回はこれを`typeof x==='string'?x:''`というbroad fallbackで解消したが、
+// ChatGPT独立再監査（Correction4再監査MAJOR-1）により、これが定義済み非string値
+// （null/number/object/array等のmalformedな現在値）まで無条件に''へ丸めてしまい、
+// mgr_term active中の当該フィールドを黙ってno-op扱いにできてしまうfail-closed違反
+// であると指摘された。是正第5回では、undefined（true key不在）だけを''相当へ正規化し、
+// それ以外の定義済み非string値はそのまま_current241として保持する。これにより
+// 「malformedな現在値から空文字への変更」は依然としてtransitionとして検出され、
+// 下のtransition guard（mgr_term.v===1時のaibisAlert＋return、非管理職時のalert＋return）
+// がuserの真偽に関係なくそのまま適用され、mutationは行われず元の値が保持される
+// （guardをuserの真偽に依存させない設計・isMgrUnlocked()必須の判定自体は一切変更しない）。
+// 是正第8回（MAJOR-1是正・§4-A、Fable INFO-2も同時に閉じる）：transition guardの
+// 「mgr_term中か」の判定を、truthiness＋v===1（`cur.mgr_term&&cur.mgr_term.v===1`）から
+// 存在判定（`cur.mgr_term!==undefined`）へ変更する。これにより、null/false/0/''等の
+// 定義済みmalformed mgr_termを持つ編集画面でも、従来は通常カードと同様にJudgment変更が
+// 通ってしまっていた欠陥（Fable5最終独立再監査INFO-2）を閉じる。
+// 是正第9回（ChatGPT独立再監査MINOR-1是正）：案内文言の分岐を、旧shape-only判定
+// （_mgrTermGuardShapeActive241：object形状かつv===1であれば無条件にactive扱い）から、
+// 実際のmgrTermClassify241(cur)結果へ変更する。旧shape判定は、D1/D2/D3のような
+// 「core-valid・current-active条件のいずれかが崩れたinconsistent」カードでもv===1で
+// object形状である限りtrueを返してしまい、既に一覧「要確認」から回復可能な状態にも
+// かかわらず編集画面で「解除は一覧の『打切中』から」という、実在しないコントロールを
+// 指す誤案内を出していた（ChatGPT独立再監査MINOR-1）。
+//   - mgrTermClassify241(_cur241)==='active' → 既存の「解除は一覧の「打切中」から
+//     行ってください」文言を維持する。
+//   - それ以外（'inconsistent'／classifier呼出し不能・例外を含む全て）
+//     → 一覧の「要確認」から管理職が復元する回復経路を案内する文言へ変更する
+//       （旧文言「カードを開き、管理職がJudgmentを再判定してください」は編集画面自身が
+//       その再判定操作を受け付けない以上、実際には機能しない案内だったため）。
+// classifierが呼出し不能・例外を投げた場合は必ず「要確認」側へfail-safeする（activeへは
+// 絶対に倒さない。mgr_termination.jsのfull metadata validatorをjudgment.js側で重複実装
+// しない：実体は_mgrTermMetaCore241/mgrTermClassify241を単に安全に呼び出すだけ）。
+// 編集画面のsetPJ/setRJ自体を回復手段として使わせることはしない（Do NOT permit edit-screen
+// setPJ/setRJ as the recovery mechanism）。user===trueによるbypassも一切追加しない。
+// 同値no-op（_toggled241===_current241）はこのguardに一切到達しない（既存動作を維持）。
+function _mgrTermIsActualActive241(c){
+  try{
+    if(typeof mgrTermClassify241!=='function') return false;
+    return mgrTermClassify241(c)==='active';
+  }catch(_eMgrTermCls241){ return false; }
+}
+function setRJ(v,user){ var _cur241=cur; var _current241=_cur241?((_cur241.revisit_judge===undefined)?'':_cur241.revisit_judge):''; var _toggled241=v; if(user&&_cur241&&_cur241.revisit_judge===v){ _toggled241=''; } if(_toggled241!==_current241){ if(_cur241&&_cur241.mgr_term!==undefined){ if(_mgrTermIsActualActive241(_cur241)){ aibisAlert('管理職打ち切り中です。解除は一覧の「打切中」から行ってください。'); } else { aibisAlert('打ち切り状態に不整合があります。一覧の「要確認」から管理職が復元してください。'); } return; } if(_current241==='打ち切り'||_toggled241==='打ち切り'){ if(!(typeof isMgrUnlocked==='function'&&isMgrUnlocked())){ aibisAlert('「打ち切り」の判定・解除は管理職のみ操作できます。'); return; } } } if(user){ if(typeof collectForm==='function') collectForm(); if(isRevisitJudgeLocked()){ applyRevisitLock(); aibisAlert('再訪Judgmentはまだロック中だよ🔒<br><br>ヒアリングは足りてる？課長と協議した？<br><br>再訪3回目の「訪問日・訪問内容・録音要約」のどれかを記録するとJudgmentできるよ。'); return; } } v=_toggled241; cur.revisit_judge=v; if(user){ cur.revisit_judge_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-rj]').forEach(function(b){b.classList.toggle('active',b.dataset.rj===v);}); if(user){ recomputeRank(); if(window.applyPursuitLock) applyPursuitLock(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
+function setPJ(v,user){ var _cur241=cur; var _current241=_cur241?((_cur241.pursuit_judge_sel===undefined)?'':_cur241.pursuit_judge_sel):''; var _toggled241=v; if(user&&_cur241&&_cur241.pursuit_judge_sel===v){ _toggled241=''; } if(_toggled241!==_current241){ if(_cur241&&_cur241.mgr_term!==undefined){ if(_mgrTermIsActualActive241(_cur241)){ aibisAlert('管理職打ち切り中です。解除は一覧の「打切中」から行ってください。'); } else { aibisAlert('打ち切り状態に不整合があります。一覧の「要確認」から管理職が復元してください。'); } return; } if(_current241==='打ち切り'||_toggled241==='打ち切り'){ if(!(typeof isMgrUnlocked==='function'&&isMgrUnlocked())){ aibisAlert('「打ち切り」の判定・解除は管理職のみ操作できます。'); return; } } } if(user){ if(typeof collectForm==='function') collectForm(); if(!isRevisitJudgeDone()){ if(window.applyPursuitLock) applyPursuitLock(); aibisAlert('先に再訪Judgmentを行ってね🔒<br><br>追撃Judgmentは、再訪Judgment（判定日・フォーアイズ・判定ボタンのどれか）を入れてからだよ。<br><br>課長と協議した？'); return; } } v=_toggled241; cur.pursuit_judge_sel=v; if(user){ cur.pursuit_judge_sel_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-pj]').forEach(function(b){b.classList.toggle('active',b.dataset.pj===v);}); if(window.renderJudgeDetail) renderJudgeDetail(); if(user){ recomputeRank(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
 // 追撃Judgmentの選択に応じて重点ボックス（A見込み/追撃継続/変化待ち）を1つだけ表示
 function renderJudgeDetail(){
   var sel=(cur&&cur.pursuit_judge_sel)||'';
@@ -23024,6 +23657,10 @@ function updateRosenkaDisp(val){
 function migratePursuitLock(){
   var n=0;
   cards.forEach(function(c){
+    // DAN241: 管理職打ち切り中(mgr_term.v===1)のカードは、このmigrationのreset対象から
+    // 既存reset判定より前に除外する（打ち切り中のpursuit_judge_sel/pursuit_judge_dateを
+    // 誤って消さない）。
+    if(c.mgr_term && c.mgr_term.v===1) return;
     var revDone=!!(c.revisit_judge || c.revisit_judge_date || (c.revisit_4eyes && String(c.revisit_4eyes).trim()));
     if(!revDone && (c.pursuit_judge_sel || c.pursuit_judge_date)){
       c.pursuit_judge_sel=''; c.pursuit_judge_date='';
