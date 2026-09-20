@@ -152,6 +152,17 @@ button:active{opacity:0.8}
 }
 .panel{background:white;padding:16px;border-radius:0 0 8px 8px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
 .panel h2{font-size:16px;color:var(--za-navy);font-weight:800;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid #CBD5E0}
+/* DAN243: mgr_termination個別カードcontrol（一覧termination UIの移設先）。
+   既存.panel h2規則・@media print規則は一切改変しない（純増のみ）。 */
+@media screen{
+  .panel h2.mt-head243{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:nowrap}
+}
+#mgrTermCardSlot{flex:0 0 auto;min-width:0}
+.mt-btn243{border:1px solid #E2E8F0;background:#F7FAFC;color:#A0AEC0;border-radius:14px;padding:4px 10px;font-size:11px;font-weight:700;font-family:inherit;line-height:1.2;cursor:pointer;white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis}
+.mt-btn243.is-active{background:#4A5568;border-color:#4A5568;color:#FFFFFF}
+.mt-btn243.is-legacy{background:#EDF2F7;border-color:#CBD5E0;color:#718096}
+.mt-btn243.is-inconsistent{background:#FFFAF0;border-color:#DD6B20;color:#C05621}
+.mt-btn243[disabled]{opacity:.6;cursor:default}
 .sec{background:var(--za-card-soft);border:1px solid var(--za-line);border-radius:12px;padding:14px;margin-bottom:16px;box-shadow:0 2px 8px rgba(15,23,42,.06)}
 .stitle{font-weight:700;color:var(--za-navy2);margin-bottom:8px;font-size:13px}
 .stitle::before{content:"";display:inline-block;width:3px;height:13px;background:var(--za-navy2);border-radius:2px;margin-right:7px;vertical-align:-1px}
@@ -2699,7 +2710,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.35";
+var APP_VERSION = "v11.36";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12867,21 +12878,24 @@ function renderCards() {
     var pjColor=RANK_COLOR[pj]||'#cbd5e0';
     var sb=_statusBadges(c);
     var pjTag='<span style="font-size:12px;font-weight:900;padding:1px 8px;border-radius:8px;background:'+pjColor+'18;color:'+(pj?pjColor:'#aaa')+';border:1.5px solid '+pjColor+'60;min-width:22px;text-align:center;flex-shrink:0">'+(pj?pj:'—')+'</span>';
-    // DAN241: 管理職限定の追客打ち切りクイック操作（既存🗑の左側）。非管理職はDOM自体を
-    // 生成しない。既存🗑のhandler/文言/意味/関数は一切変更しない。
-    var mgrTermTag='';
-    if(typeof isMgrUnlocked==='function' && isMgrUnlocked()){
-      var mtCls=(typeof mgrTermClassify241==='function')?mgrTermClassify241(c):'none';
-      if(mtCls==='none'){
-        mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;width:30px;height:30px;min-width:30px;border-radius:50%;background:#2d3748;color:#fff;border:none;font-size:14px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1" title="追客打ち切り（管理職）">✕</button>';
-      } else if(mtCls==='active'){
-        mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#742a2a;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="打ち切り解除（管理職）">打切中 ✕</button>';
-      } else if(mtCls==='legacy'){
-        mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#a0aec0;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="旧形式の打ち切り">打切(旧)</button>';
-      } else if(mtCls==='inconsistent'){
-        mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#dd6b20;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="要確認">要確認</button>';
-      }
-    }
+    // [SUPERSEDED DAN243] DAN241の一覧termination interactive UI（管理職限定・
+    // mgrTermToggle/data-mgrid/mgrTermClassify241/isMgrUnlocked経由の丸ボタン/状態
+    // ラベルボタン生成）はDAN243で一覧から完全撤去した。個別カード《 見込みカード 》
+    // 見出し右側（initial_visit_panel.html #mgrTermCardSlot・mgr_termination.js
+    // _mgrTermRenderCardControl243()）へ移設済み。旧実装は逐語保存のみ（実行しない）：
+    // var mgrTermTag='';
+    // if(typeof isMgrUnlocked==='function' && isMgrUnlocked()){
+    //   var mtCls=(typeof mgrTermClassify241==='function')?mgrTermClassify241(c):'none';
+    //   if(mtCls==='none'){
+    //     mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;width:30px;height:30px;min-width:30px;border-radius:50%;background:#2d3748;color:#fff;border:none;font-size:14px;font-weight:800;cursor:pointer;flex-shrink:0;line-height:1" title="追客打ち切り（管理職）">✕</button>';
+    //   } else if(mtCls==='active'){
+    //     mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#742a2a;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="打ち切り解除（管理職）">打切中 ✕</button>';
+    //   } else if(mtCls==='legacy'){
+    //     mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#a0aec0;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="旧形式の打ち切り">打切(旧)</button>';
+    //   } else if(mtCls==='inconsistent'){
+    //     mgrTermTag='<button data-mgrid="'+e(c.id)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" style="margin-right:11px;padding:5px 9px;border-radius:14px;background:#dd6b20;color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap" title="要確認">要確認</button>';
+    //   }
+    // }
     return '<div class="lcard" data-id="'+c.id+'" style="'+cardBg+'">'
       +'<label style="display:flex;align-items:center;padding:0 8px 0 4px;cursor:pointer;flex-shrink:0" onclick="event.stopPropagation()"><input type="checkbox" class="sel-cb" data-id="'+c.id+'" '+(isSelected?'checked':'')+' onchange="toggleSelect(\''+c.id+'\')" style="width:18px;height:18px;cursor:pointer"></label>'
       +'<div onclick="openCard(\''+c.id+'\')" style="flex:1;cursor:pointer;min-width:0">'
@@ -12890,7 +12904,6 @@ function renderCards() {
       +'<div class="lmeta">'+e(c.discovery_date||'日付未設定')+(own?' / '+e(own):'')+'</div>'
       +'</div>'
       +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+(_isLandLead(c)?_landLeadTag(c):(sb+_mikomiTag(c,si,sc,stl)+ekiTag+kTag))+'</div>'+'<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="font-size:12px;color:#718096;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📍 '+(c.address?e(_shortAddr(_han(c.address))):'<span style="color:#cbd5e0">住所未設定</span>')+'</span>'+(lv?'<span style="font-size:11px;color:#a0aec0;flex-shrink:0;white-space:nowrap">🚶 '+lv+'</span>':'')+'</div>'+'</div>'
-      +mgrTermTag
       +'<button data-id="'+e(c.id)+'" onclick="delCard(this.getAttribute(\'data-id\'))" style="margin-left:2px;background:none;border:none;color:#cbd5e0;font-size:20px;cursor:pointer;padding:4px 6px;border-radius:6px;align-self:center;flex-shrink:0" title="見込みから外す">🗑</button>'
       +'</div>';
   }).join('');
@@ -14001,6 +14014,18 @@ window._syncDelMenuState = _syncDelMenuState;
 
 var _mgrTerm241Busy = false;
 
+// DAN243 是正第1回（C-4・INFO-2）：post-commit同期失敗時のalert文言をモジュール定数化した。
+// 旧インライン文言（[SUPERSEDED DAN243 Correction1]）：
+//   成功分岐　　　　：'打ち切りの保存は完了しましたが、画面の同期に失敗しました。再読込して状態を確認してください。'
+//   rollback成功分岐：'保存に失敗したため操作を元に戻しましたが、画面の同期に失敗しました。再読込して状態を確認してください。'
+// 新文言はOpus5是正契約§5-6の逐語どおり、reload後の下書き復元を求められた場合に復元しない
+// よう案内する一文を追加した（INFO-2：DRAFTKに打ち切り前のcurが残っている状態でのreloadが
+// mgr_termを失い得る唯一の残存経路であるため）。
+var _MGR_TERM_SYNC_FAIL_MSG243 =
+  '打ち切りの保存は完了しましたが、画面の同期に失敗しました。この画面では操作を続けず、再読込して状態を確認してください。再読込後に下書きの復元を求められた場合は復元しないでください。';
+var _MGR_TERM_ROLLBACK_SYNC_FAIL_MSG243 =
+  '保存に失敗したため操作を元に戻しましたが、画面の同期に失敗しました。この画面では操作を続けず、再読込して状態を確認してください。再読込後に下書きの復元を求められた場合は復元しないでください。';
+
 // ---- 汎用ヘルパー ----
 function _mgrTermFindCard241(id){
   if(!id || !Array.isArray(cards)) return null;
@@ -14132,7 +14157,13 @@ function mgrTermClassify241(c){
   return 'none';
 }
 
-var _MGR_TERM_LEGACY_MSG241 = '旧形式の打ち切りです。解除する場合はカードを開き、管理職がJudgmentを再判定してください。';
+// [SUPERSEDED DAN243] 旧文言（是正第9回時点）：
+// var _MGR_TERM_LEGACY_MSG241 = '旧形式の打ち切りです。解除する場合はカードを開き、管理職がJudgmentを再判定してください。';
+// DAN243（Opus5監査§2-Q5）：一覧の入口を撤去したため「カードを開き」という案内は
+// 死文のまま残っていた（legacyはmgr_term不在のため編集画面での再判定が実際に機能する
+// 唯一のケース。「カードを開き」の死文だけを是正し、legacy自体の回復経路＝編集画面での
+// Judgment再判定という意味は一切変更しない）。
+var _MGR_TERM_LEGACY_MSG241 = '旧形式の打ち切りです。解除する場合は、管理職が追撃タブのJudgmentを再判定してください。';
 // 是正第9回（ChatGPT独立再監査MINOR-1是正）：_MGR_TERM_INCONSISTENT_MSG241は
 // _mgrTermOnGate241/_mgrTermOffGate241（ON/OFF再ゲート。stale confirmation／
 // programmatic経路で、確認ダイアログ表示後にカード状態がinconsistentへ drift した
@@ -14144,8 +14175,15 @@ var _MGR_TERM_LEGACY_MSG241 = '旧形式の打ち切りです。解除する場�
 // （metadata-core有効）／core-invalid（自動復元不可）のどちらであっても一覧「要確認」へ
 // 案内する汎用文言へ変更する（具体的にどちらであるかは一覧を開いた時点でclassifier/
 // _mgrTermRecoveryGate241が正しく再判定する）。
-var _MGR_TERM_INCONSISTENT_MSG241 = '打ち切り状態に不整合があります。一覧の「要確認」から状態を確認してください。';
-var _MGR_TERM_EDITING_MSG241 = 'このカードを編集中です。いったん一覧へ戻ってから操作してください。';
+// [SUPERSEDED DAN243] 旧文言（是正第9回時点。一覧「要確認」を指していた）：
+// var _MGR_TERM_INCONSISTENT_MSG241 = '打ち切り状態に不整合があります。一覧の「要確認」から状態を確認してください。';
+// DAN243（Opus5監査§2-Q5）：一覧の入口を撤去したため、個別カード見出し（初訪タブ上部の
+// 《 見込みカード 》見出し右側 #mgrTermCardSlot）を回復・状態確認入口として案内する。
+var _MGR_TERM_INCONSISTENT_MSG241 = '打ち切り状態に不整合があります。初訪タブ上部の「要確認」から状態を確認してください。';
+// [SUPERSEDED DAN243] 旧文言・旧定数（一覧termination UI撤去に伴い撤去。§4-5）：
+// var _MGR_TERM_EDITING_MSG241 = 'このカードを編集中です。いったん一覧へ戻ってから操作してください。';
+// DAN243（BLOCKER-1是正）：同一カード編集中の単純拒否を、dirty + narrow exact-sync
+// gate（_mgrTermEditContextGate243、下記）へ置換した。無条件許可は禁止（probe A2c）。
 var _MGR_TERM_PERM_MSG241 = '「打ち切り」の判定・解除は管理職のみ操作できます。';
 var _MGR_TERM_UNRESOLVED_MSG241 = '現在のJudgment状態を確認できないため、カードを開いて再判定してください。';
 // 是正第8回（MAJOR-1是正・§3-D）：inconsistentのうちmetadata-core自体が無効な場合、
@@ -14153,6 +14191,35 @@ var _MGR_TERM_UNRESOLVED_MSG241 = '現在のJudgment状態を確認できない�
 // 是正第9回でも本文言・本定数の内容は変更しない（§4「Do not change
 // _MGR_TERM_RECOVERY_UNAVAILABLE_MSG241」に従う）。
 var _MGR_TERM_RECOVERY_UNAVAILABLE_MSG241 = '打ち切り状態に不整合があります。打ち切りデータの内容自体に不整合があるため、自動復元はできません。データを確認してください。';
+
+// ---- DAN243: dirty / 同期 編集ゲート（BLOCKER-1是正） ----
+// 一覧の入口を撤去し、個別カード見出しへ管理職限定controlを移設したことに伴い、
+// 「同一カード編集中は単純拒否」（旧_MGR_TERM_EDITING_MSG241）を、dirty + narrow
+// exact-sync gateへ置換する。全体JSON一致をゲート条件にすると、pursuit_judge_aiが
+// fillForm()正規化でopenCard()直後から即座にdriftするため（Opus5監査BLOCKER-1・probe B）、
+// 比較対象はtransactionが実際に読み書きする狭い7フィールドへ限定する。
+var _MGR_TERM_SYNC_FIELDS243 = ['pursuit_judge_sel','pursuit_judge_sel_at','revisit_judge','revisit_judge_at','pursuit_judge','pursuit_judge_date','mgr_term'];
+var _MGR_TERM_DIRTY_MSG243  = '未保存の変更があります。先に「保存」してから打ち切り操作を行ってください。';
+var _MGR_TERM_DESYNC_MSG243 = '表示中の内容と保存内容が一致していません。先に「保存」するか、カードを開き直してから操作してください。';
+// 戻り値：{ok:true}＝許可（未編集／別カード編集中はそのまま許可。同一カード編集中でも
+// clean＋narrow7フィールド完全一致なら許可）。{ok:false, msg}＝拒否（dirty・cur型不正・
+// cur.id不一致・対象card不在・narrow7フィールドいずれか不一致・比較中の例外はいずれも
+// fail-closedで拒否する）。
+function _mgrTermEditContextGate243(id){
+  if(!_mgrTermIsEditing241(id)) return {ok:true};          // 未編集／別カード編集中は従来どおり許可
+  if(typeof isDirty!=='undefined' && isDirty===true) return {ok:false, msg:_MGR_TERM_DIRTY_MSG243};
+  if(!cur || typeof cur!=='object' || Array.isArray(cur))  return {ok:false, msg:_MGR_TERM_DESYNC_MSG243};
+  if(cur.id!==id)                                          return {ok:false, msg:_MGR_TERM_DESYNC_MSG243};
+  var c=_mgrTermFindCard241(id);
+  if(!c)                                                   return {ok:false, msg:_MGR_TERM_DESYNC_MSG243};
+  try{
+    for(var i=0;i<_MGR_TERM_SYNC_FIELDS243.length;i++){
+      var f=_MGR_TERM_SYNC_FIELDS243[i];
+      if(JSON.stringify(cur[f])!==JSON.stringify(c[f])) return {ok:false, msg:_MGR_TERM_DESYNC_MSG243};
+    }
+  }catch(_e243){ return {ok:false, msg:_MGR_TERM_DESYNC_MSG243}; }   // 循環参照等はfail-closed
+  return {ok:true};
+}
 
 // ---- ON前整合ゲート（実card変更前に候補cloneで検証） ----
 function _mgrTermOnGate241(id){
@@ -14164,7 +14231,9 @@ function _mgrTermOnGate241(id){
   if(cls==='active') return {ok:false, msg:'既に打ち切り中です。'};
   if(cls==='legacy') return {ok:false, msg:_MGR_TERM_LEGACY_MSG241, info:true};
   if(cls==='inconsistent') return {ok:false, msg:_MGR_TERM_INCONSISTENT_MSG241, info:true};
-  if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  // [SUPERSEDED DAN243] 旧: if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  var _ec243=_mgrTermEditContextGate243(id);
+  if(!_ec243.ok) return {ok:false, msg:_ec243.msg};
   if(!(typeof isMgrUnlocked==='function' && isMgrUnlocked())) return {ok:false, msg:_MGR_TERM_PERM_MSG241};
   var candidate=_mgrTermDeepClone241(c);
   if(!candidate) return {ok:false, msg:'カード内容を読み取れなかったため中止しました。'};
@@ -14225,7 +14294,9 @@ function _mgrTermOffGate241(id){
   if(cls==='legacy') return {ok:false, msg:_MGR_TERM_LEGACY_MSG241, info:true};
   if(cls==='inconsistent') return {ok:false, msg:_MGR_TERM_INCONSISTENT_MSG241, info:true};
   if(cls!=='active') return {ok:false, msg:'打ち切り状態ではありません。'};
-  if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  // [SUPERSEDED DAN243] 旧: if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  var _ec243=_mgrTermEditContextGate243(id);
+  if(!_ec243.ok) return {ok:false, msg:_ec243.msg};
   var candidate=_mgrTermDeepClone241(c);
   if(!candidate) return {ok:false, msg:'カード内容を読み取れなかったため中止しました。'};
   return {ok:true, card:c, candidate:candidate, prev:c.mgr_term.prev};
@@ -14253,7 +14324,9 @@ function _mgrTermRecoveryGate241(id){
   if(cls!=='inconsistent') return {ok:false, msg:_MGR_TERM_UNRESOLVED_MSG241};
   var core=_mgrTermMetaCore241(c);
   if(!core.ok) return {ok:false, msg:_MGR_TERM_RECOVERY_UNAVAILABLE_MSG241, info:true};
-  if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  // [SUPERSEDED DAN243] 旧: if(_mgrTermIsEditing241(id)) return {ok:false, msg:_MGR_TERM_EDITING_MSG241};
+  var _ec243=_mgrTermEditContextGate243(id);
+  if(!_ec243.ok) return {ok:false, msg:_ec243.msg};
   var candidate=_mgrTermDeepClone241(c);
   if(!candidate) return {ok:false, msg:'カード内容を読み取れなかったため中止しました。'};
   return {ok:true, card:c, candidate:candidate, prev:core.prev};
@@ -14383,48 +14456,157 @@ function _mgrTermConfirmedRecover241(id){
   _mgrTermSaveTransaction241(id, candidate, 'recover');
 }
 
-// ---- 保存中の対象行UI lock（MAJOR-1是正） ----
-// raw idをCSS selector文字列へ連結しない：.lcardを列挙しgetAttribute('data-id')===idで
-// 対象行を特定する。戻り値のfoundは「対象行がDOMに存在したか」、okは「lock処理自体が
-// 例外なく完了したか」を独立して示す。found=falseの経路（VM試験・programmatic経路等）は
-// 既存の他fail-closed guardで安全性を担保したうえで処理を継続してよい。found=trueかつ
-// ok=falseの場合は、呼出し元がmutationを開始してはならない。
-function _mgrTermLockRow241(id){
+// [SUPERSEDED DAN243] 一覧のtermination UI撤去に伴い、旧`_mgrTermLockRow241`（`.lcard`行を
+// 対象とするlock）は個別カードの実コントロールを対象とする`_mgrTermLockControl243`へ
+// 置換した。一覧のinteractive controlを撤去しても`.lcard`行自体はDOMに残るため、旧実装の
+// ままだと`found=true`で非表示の一覧行にinertが付き、`[data-mgrid]`は0件しかlockされない
+// （Opus5監査Q4・probe D3/D4）。旧実装は逐語保存のみ（実行しない）：
+// function _mgrTermLockRow241(id){
+//   var result={ found:false, ok:false, restore:function(){} };
+//   try{
+//     if(typeof document==='undefined' || !document || typeof document.querySelectorAll!=='function') return result;
+//     var rows=document.querySelectorAll('.lcard');
+//     for(var i=0;i<rows.length;i++){
+//       var row=rows[i];
+//       if(row && typeof row.getAttribute==='function' && row.getAttribute('data-id')===id){
+//         result.found=true;
+//         try{
+//           row.setAttribute('inert','');
+//           row.setAttribute('aria-busy','true');
+//           var btns=row.querySelectorAll('[data-mgrid]');
+//           var saved=[];
+//           for(var j=0;j<btns.length;j++){
+//             saved.push({ el:btns[j], html:btns[j].innerHTML, hadDisabled:btns[j].disabled });
+//             btns[j].disabled=true;
+//             btns[j].setAttribute('aria-disabled','true');
+//             btns[j].innerHTML='処理中…';
+//           }
+//           result.ok=true;
+//           result.restore=function(){
+//             try{
+//               row.removeAttribute('inert');
+//               row.removeAttribute('aria-busy');
+//               saved.forEach(function(s){
+//                 try{ s.el.disabled=s.hadDisabled; s.el.removeAttribute('aria-disabled'); s.el.innerHTML=s.html; }catch(_eEach241){}
+//               });
+//             }catch(_eRestoreOuter241){}
+//           };
+//         }catch(_eLock241){ result.ok=false; }
+//         return result;
+//       }
+//     }
+//     return result;
+//   }catch(_eOuter241){ return { found:false, ok:false, restore:function(){} }; }
+// }
+
+// ---- DAN243: 保存中の個別カード可視control UI lock（§4-7） ----
+// raw idをCSS selector文字列へ連結しない：getElementById('mgrTermCardBtn')＋
+// getAttribute('data-mgrid')===idで対象controlを特定する。戻り値のfoundは「対象controlが
+// DOMに存在したか」、okは「lock処理自体が例外なく完了したか」を独立して示す（旧
+// _mgrTermLockRow241と同じ3値契約。found/okの判定式と呼出し位置は_mgrTermSaveTransaction241
+// 側で変更しない）。found=falseの経路（VM試験・programmatic経路等）は既存の他fail-closed
+// guardで安全性を担保したうえで処理を継続してよい。found=trueかつok=falseの場合は、
+// 呼出し元がmutationを開始してはならない。
+function _mgrTermLockControl243(id){
   var result={ found:false, ok:false, restore:function(){} };
   try{
-    if(typeof document==='undefined' || !document || typeof document.querySelectorAll!=='function') return result;
-    var rows=document.querySelectorAll('.lcard');
-    for(var i=0;i<rows.length;i++){
-      var row=rows[i];
-      if(row && typeof row.getAttribute==='function' && row.getAttribute('data-id')===id){
-        result.found=true;
+    if(typeof document==='undefined' || !document || typeof document.getElementById!=='function') return result;
+    var btn=document.getElementById('mgrTermCardBtn');
+    var slot=document.getElementById('mgrTermCardSlot');
+    if(!btn) return result;                 // VM／programmatic経路等、controlがDOMに無い場合は継続してよい
+    result.found=true;
+    if(btn.getAttribute('data-mgrid')!==id){ result.ok=false; return result; }   // 別カードのcontrolをlockしない
+    try{
+      var savedHtml=btn.innerHTML;
+      var savedDisabled=btn.disabled;
+      btn.disabled=true;
+      btn.setAttribute('aria-disabled','true');
+      btn.innerHTML='処理中…';
+      if(slot) slot.setAttribute('aria-busy','true');
+      result.ok=true;
+      result.restore=function(){
         try{
-          row.setAttribute('inert','');
-          row.setAttribute('aria-busy','true');
-          var btns=row.querySelectorAll('[data-mgrid]');
-          var saved=[];
-          for(var j=0;j<btns.length;j++){
-            saved.push({ el:btns[j], html:btns[j].innerHTML, hadDisabled:btns[j].disabled });
-            btns[j].disabled=true;
-            btns[j].setAttribute('aria-disabled','true');
-            btns[j].innerHTML='処理中…';
-          }
-          result.ok=true;
-          result.restore=function(){
-            try{
-              row.removeAttribute('inert');
-              row.removeAttribute('aria-busy');
-              saved.forEach(function(s){
-                try{ s.el.disabled=s.hadDisabled; s.el.removeAttribute('aria-disabled'); s.el.innerHTML=s.html; }catch(_eEach241){}
-              });
-            }catch(_eRestoreOuter241){}
-          };
-        }catch(_eLock241){ result.ok=false; }
-        return result;
-      }
-    }
+          btn.disabled=savedDisabled;
+          btn.removeAttribute('aria-disabled');
+          btn.innerHTML=savedHtml;
+          if(slot) slot.removeAttribute('aria-busy');
+        }catch(_eRestoreOuter243){}
+      };
+    }catch(_eLock243){ result.ok=false; }
     return result;
-  }catch(_eOuter241){ return { found:false, ok:false, restore:function(){} }; }
+  }catch(_eOuter243){ return { found:false, ok:false, restore:function(){} }; }
+}
+
+// ---- DAN243: transaction成功／rollback成功時の同期（BLOCKER-2・MAJOR-1・MAJOR-2是正） ----
+// A. 常に実行（カードが開いているかに依存しない）。
+function _mgrTermPostCommitAnchor243(id){
+  // 1) undo baseline再アンカー（BLOCKER-2：undoCardEdit()による権限外の打ち切り解除を防ぐ）。
+  //    _undoSnaps[id]が存在しない場合は作らない（undo対象でないカードにsnapshotを新設しない）。
+  try{
+    if(typeof _undoSnaps!=='undefined' && _undoSnaps &&
+       Object.prototype.hasOwnProperty.call(_undoSnaps, id)){
+      var c=_mgrTermFindCard241(id);
+      if(c) _undoSnaps[id]=JSON.stringify(c);
+    }
+  }catch(_e){}
+  // 2) 下書き（DRAFTK）消去＋消去確認（MAJOR-2：stale draft経由のmgr_term消失を防ぐ）。
+  //    戻り値 true=安全、false=stale下書きが残っている（呼出し元は成功toastを主張しない）。
+  try{
+    var dr=(typeof getDraft==='function')?getDraft():null;
+    if(dr && dr.id===id){
+      if(typeof clearDraft==='function') clearDraft();
+      var again=(typeof getDraft==='function')?getDraft():null;
+      if(again && again.id===id) return false;
+    }
+  }catch(_e){ return false; }
+  return true;
+}
+// B. カードが開いているときだけ実行。
+function _mgrTermSyncEditState243(id){
+  if(!(typeof curId!=='undefined' && curId===id)) return true;
+  if(!_mgrTermIsEditing241(id)) return true;
+  var c=_mgrTermFindCard241(id); if(!c) return false;
+  var clone=_mgrTermDeepClone241(c); if(!clone) return false;
+  cur = clone;                                   // ← 必ずsetPJ/setRJより前
+  if(typeof setDirty==='function') setDirty(false);
+  _mgrTermRepaintCard243();
+  return true;
+}
+// C. 限定再描画（fillFormを呼ばない。MAJOR-1是正：全体適用によるAI参考ランク不正昇格・
+//    guard誤発火・副作用範囲過大を防ぐ）。
+function _mgrTermRepaintCard243(){
+  try{ if(typeof setRJ==='function') setRJ(cur.revisit_judge||''); }catch(_e){}
+  try{ if(typeof setPJ==='function') setPJ(cur.pursuit_judge_sel||''); }catch(_e){}
+  try{ var pjd=document.getElementById('f_pjdate'); if(pjd) pjd.value=cur.pursuit_judge_date||''; }catch(_e){}
+  try{ if(typeof applyRevisitLock==='function') applyRevisitLock(); }catch(_e){}
+  try{ if(typeof applyPursuitLock==='function') applyPursuitLock(); }catch(_e){}   // 内部でcontrolも再描画
+  try{ if(typeof updateAiRankDisp==='function') updateAiRankDisp(cur.pursuit_judge||''); }catch(_e){}
+  try{ if(typeof renderJudgeDetail==='function') renderJudgeDetail(); }catch(_e){}
+}
+
+// ---- DAN243: 個別カード見出しcontrolの動的生成（§4-4） ----
+// 静的HTML（initial_visit_panel.html）にはbutton本体を書かない。managerの時だけJSで
+// button DOMを生成する（MAJOR-4是正：非管理職へのDOM露出リスク）。
+function _mgrTermRenderCardControl243(){
+  try{
+    var slot=document.getElementById('mgrTermCardSlot');
+    if(!slot) return;                                             // no-op
+    if(_mgrTerm241Busy===true) return;                            // lock中に再構築しない（rollback-failure契約の保護）
+    if(!(typeof isMgrUnlocked==='function' && isMgrUnlocked())){ slot.innerHTML=''; return; }  // 非管理職はDOM 0件
+    if(!curId){ slot.innerHTML=''; return; }                       // 新規カード
+    var c=_mgrTermFindCard241(curId);
+    if(!c){ slot.innerHTML=''; return; }
+    var cls=mgrTermClassify241(c);
+    var label='', stateCls='', title='';
+    if(cls==='none'){ label='打切'; stateCls=''; title='追客打ち切り（管理職）'; }
+    else if(cls==='active'){ label='打切中'; stateCls=' is-active'; title='打ち切り解除（管理職）'; }
+    else if(cls==='legacy'){ label='打切(旧)'; stateCls=' is-legacy'; title='旧形式の打ち切り'; }
+    else if(cls==='inconsistent'){ label='要確認'; stateCls=' is-inconsistent'; title='打ち切り状態の確認（管理職）'; }
+    else { slot.innerHTML=''; return; }
+    slot.innerHTML='<button id="mgrTermCardBtn" data-mgrid="'+e(curId)+'" onclick="mgrTermToggle(this.getAttribute(\'data-mgrid\'))" class="mt-btn243'+stateCls+'" title="'+e(title)+'" aria-label="'+e(title)+'">'+e(label)+'</button>';
+  }catch(_eRenderCard243){
+    try{ var s=document.getElementById('mgrTermCardSlot'); if(s) s.innerHTML=''; }catch(_eInner243){}
+  }
 }
 
 // ---- 保存transaction（S0〜S3、本module専用single-flight） ----
@@ -14433,6 +14615,11 @@ function _mgrTermSaveTransaction241(id, candidate, mode){
   // 是正第1回（MAJOR-2）：確認ダイアログ表示後にcards[]が変化した可能性があるため、
   // mutation直前にもID一意性を再検証する。exact1件でなければmutationせず拒否する。
   if(_mgrTermCountById241(id)!==1){ toast('カードIDに重複があります。カードを開いて確認してください。'); return; }
+  // DAN243（§4-6）：mutation直前の最終再ゲート。編集文脈（同一カード編集中か・dirty有無・
+  // sync fields一致）が確認ダイアログ表示後に変化した可能性があるため、cards[idx]書換えより
+  // 前にもう一度確認する。不成立ならtoastのみでmutationを一切開始しない。
+  var _ec243t=_mgrTermEditContextGate243(id);
+  if(!_ec243t.ok){ toast(_ec243t.msg); return; }
   var idx=-1;
   for(var i=0;i<cards.length;i++){ if(cards[i] && cards[i].id===id){ idx=i; break; } }
   if(idx<0){ toast('対象のカードが見つかりません'); return; }
@@ -14441,7 +14628,10 @@ function _mgrTermSaveTransaction241(id, candidate, mode){
   // 是正第1回（MAJOR-1）：mutationより前に対象行をUI lockする。対象行がDOMに存在するのに
   // lock自体が例外を投げた場合は、mutationを開始せず中止する（UI lock処理自体の例外で
   // card mutationを先行させない）。行がDOMに存在しない経路（found=false）は継続してよい。
-  var lockRes241=_mgrTermLockRow241(id);
+  // DAN243（§4-7）：対象は一覧行(.lcard)ではなく個別カード見出しの実control
+  // （#mgrTermCardBtn/#mgrTermCardSlot）。関数名だけ_mgrTermLockControl243へ置換し、
+  // found/okの判定式と位置は変更しない。
+  var lockRes241=_mgrTermLockControl243(id);
   if(lockRes241.found && !lockRes241.ok){ toast('⚠ 表示の更新に失敗したため中止しました'); return; }
   _mgrTerm241Busy=true;
   cards[idx]=candidate;
@@ -14452,9 +14642,35 @@ function _mgrTermSaveTransaction241(id, candidate, mode){
   doSaveCards(function(ok){
     if(ok){
       if(_kev241){ try{ klogCapturePaste.appEventAppendV1(_kev241); }catch(_e241b){} }
-      _mgrTerm241Busy=false;
+      // DAN243 是正第1回（Opus5 コード監査 Finding A・新 §4-6-D）：
+      // post-commit 同期（anchor/sync）が両方成功するまで _mgrTerm241Busy を下ろさない。
+      // busy=true の間は _mgrTermRenderCardControl243() の busy guard が働くため、
+      // _mgrTermSyncEditState243() → _mgrTermRepaintCard243() → applyPursuitLock() 内部の
+      // control 再描画は no-op になる。DAN243 で一覧から termination control を撤去した
+      // ため renderList() は #mgrTermCardBtn へ触れず、lock を破壊しない（DAN241 是正第2回
+      // MAJOR-1R の前提は DAN243 では消滅している）。
+      // [SUPERSEDED DAN243 Correction1] 旧順序（§4-6-D 撤回版）：
+      //   _mgrTerm241Busy=false → renderList() → lockRes241.restore() →
+      //   _mgrTermPostCommitAnchor243(id) → _mgrTermSyncEditState243(id) →
+      //   _mgrTermRenderCardControl243() → toast。いずれかがfalseを返した場合は
+      //   _mgrTerm241Busy=true; aibisAlert('打ち切りの保存は完了しましたが、画面の同期に
+      //   失敗しました。再読込して状態を確認してください。'); return;
+      //   （restore()が先に走り旧DOMが復帰したうえ、busy=falseの間に再描画されるcontrolが
+      //   新しい有効なボタンへ丸ごと差し替わるため、可視lockが保持されない欠陥があった）
       try{ if(typeof renderList==='function') renderList(); }catch(_eR241){}
+      var _anchorOk243=true, _syncOk243=true;
+      try{ _anchorOk243=_mgrTermPostCommitAnchor243(id); }catch(_eAnchor243){ _anchorOk243=false; }
+      try{ _syncOk243=_mgrTermSyncEditState243(id); }catch(_eSync243){ _syncOk243=false; }
+      if(_anchorOk243===false || _syncOk243===false){
+        // busy は true のまま。restore() も _mgrTermRenderCardControl243() も呼ばない
+        // ＝ 可視 control の disabled / aria-disabled / slot aria-busy を reload まで保持する。
+        // データは保存済みのため rollback はしない。
+        aibisAlert(_MGR_TERM_SYNC_FAIL_MSG243);
+        return;
+      }
+      _mgrTerm241Busy=false;
       try{ lockRes241.restore(); }catch(_eRestoreCall241){}
+      try{ _mgrTermRenderCardControl243(); }catch(_eRenderCallSite243){}
       // 是正第8回（§3-D）：modeに'recover'を追加（回復専用トースト文言）。rollback exact1・
       // rollback-failure busy/UI lock・app_eventの各既存契約は一切変更していない。
       toast(mode==='on' ? '追客打ち切りにしました' : (mode==='recover' ? '元のJudgment内容へ復元しました' : '追客打ち切りを解除しました'));
@@ -14473,9 +14689,29 @@ function _mgrTermSaveTransaction241(id, candidate, mode){
       // renderList()もlockRes241.restore()も一切呼ばず、mutation前にlockした現在DOM行を
       // inert/aria-busy/[data-mgrid]disabledのまま保持する。
       if(ok2){
-        _mgrTerm241Busy=false;
+        // DAN243 是正第1回（Opus5 コード監査 Finding A・新 §4-6-D）：C-1と同一構造。
+        // rollback成功時も、post-commit同期（anchor/sync）が両方成功するまで
+        // _mgrTerm241Busyを下ろさない（rollback後のcurはbeforeSnapshotへ戻っているため、
+        // 編集中カードの画面もそれに追随させる必要がある）。rollback時はapp_event生成/
+        // append禁止の契約はここでは変更していない（このブロックには元々app_event呼出しが
+        // 無い）。
+        // [SUPERSEDED DAN243 Correction1] 旧順序（§4-6-D 撤回版）：
+        //   _mgrTerm241Busy=false → renderList() → lockRes241.restore() →
+        //   _mgrTermPostCommitAnchor243(id) → _mgrTermSyncEditState243(id) →
+        //   _mgrTermRenderCardControl243() → 判定。いずれかがfalseを返した場合は
+        //   _mgrTerm241Busy=true; aibisAlert('保存に失敗したため操作を元に戻しましたが、
+        //   画面の同期に失敗しました。再読込して状態を確認してください。'); return;
         try{ if(typeof renderList==='function') renderList(); }catch(_eR2241){}
+        var _anchorOk243b=true, _syncOk243b=true;
+        try{ _anchorOk243b=_mgrTermPostCommitAnchor243(id); }catch(_eAnchor243b){ _anchorOk243b=false; }
+        try{ _syncOk243b=_mgrTermSyncEditState243(id); }catch(_eSync243b){ _syncOk243b=false; }
+        if(_anchorOk243b===false || _syncOk243b===false){
+          aibisAlert(_MGR_TERM_ROLLBACK_SYNC_FAIL_MSG243);
+          return;
+        }
+        _mgrTerm241Busy=false;
         try{ lockRes241.restore(); }catch(_eRestoreCall2241){}
+        try{ _mgrTermRenderCardControl243(); }catch(_eRenderCallSite243b){}
         aibisAlert('⚠ 保存に失敗したため、打ち切り操作を元に戻しました。');
       } else {
         // rollback再保存も失敗：in-memoryはbeforeのまま、永続状態は不定。busyとUI lockは
@@ -15667,6 +15903,11 @@ function applyPursuitLock(){
     var pjd=document.getElementById('f_pjdate');
     if(pjd) pjd.disabled=mgrTermManaged;
   }catch(_ePjdLock241){}
+  // DAN243（§4-4 描画フック）：applyPursuitLock()はfillForm()末尾とsetRJ(user)から既に
+  // 呼ばれるため、カードを開くたび・Judgmentを触るたびに個別カード見出しのmgr_termination
+  // controlが追随する。既存の#f_pjdate disabled処理・pursuit-locked/pj-locked処理は
+  // 一切変更しない（guarded 1呼出しのみを末尾へ純増）。
+  if(typeof _mgrTermRenderCardControl243==='function') _mgrTermRenderCardControl243();
 }
 window.isRevisitJudgeDone=isRevisitJudgeDone; window.applyPursuitLock=applyPursuitLock;
 // 是正第3回（ChatGPT是正第2回再監査BLOCKER-1是正）：setPJ/setRJのmanager guardが
@@ -15723,8 +15964,8 @@ function _mgrTermIsActualActive241(c){
     return mgrTermClassify241(c)==='active';
   }catch(_eMgrTermCls241){ return false; }
 }
-function setRJ(v,user){ var _cur241=cur; var _current241=_cur241?((_cur241.revisit_judge===undefined)?'':_cur241.revisit_judge):''; var _toggled241=v; if(user&&_cur241&&_cur241.revisit_judge===v){ _toggled241=''; } if(_toggled241!==_current241){ if(_cur241&&_cur241.mgr_term!==undefined){ if(_mgrTermIsActualActive241(_cur241)){ aibisAlert('管理職打ち切り中です。解除は一覧の「打切中」から行ってください。'); } else { aibisAlert('打ち切り状態に不整合があります。一覧の「要確認」から管理職が復元してください。'); } return; } if(_current241==='打ち切り'||_toggled241==='打ち切り'){ if(!(typeof isMgrUnlocked==='function'&&isMgrUnlocked())){ aibisAlert('「打ち切り」の判定・解除は管理職のみ操作できます。'); return; } } } if(user){ if(typeof collectForm==='function') collectForm(); if(isRevisitJudgeLocked()){ applyRevisitLock(); aibisAlert('再訪Judgmentはまだロック中だよ🔒<br><br>ヒアリングは足りてる？課長と協議した？<br><br>再訪3回目の「訪問日・訪問内容・録音要約」のどれかを記録するとJudgmentできるよ。'); return; } } v=_toggled241; cur.revisit_judge=v; if(user){ cur.revisit_judge_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-rj]').forEach(function(b){b.classList.toggle('active',b.dataset.rj===v);}); if(user){ recomputeRank(); if(window.applyPursuitLock) applyPursuitLock(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
-function setPJ(v,user){ var _cur241=cur; var _current241=_cur241?((_cur241.pursuit_judge_sel===undefined)?'':_cur241.pursuit_judge_sel):''; var _toggled241=v; if(user&&_cur241&&_cur241.pursuit_judge_sel===v){ _toggled241=''; } if(_toggled241!==_current241){ if(_cur241&&_cur241.mgr_term!==undefined){ if(_mgrTermIsActualActive241(_cur241)){ aibisAlert('管理職打ち切り中です。解除は一覧の「打切中」から行ってください。'); } else { aibisAlert('打ち切り状態に不整合があります。一覧の「要確認」から管理職が復元してください。'); } return; } if(_current241==='打ち切り'||_toggled241==='打ち切り'){ if(!(typeof isMgrUnlocked==='function'&&isMgrUnlocked())){ aibisAlert('「打ち切り」の判定・解除は管理職のみ操作できます。'); return; } } } if(user){ if(typeof collectForm==='function') collectForm(); if(!isRevisitJudgeDone()){ if(window.applyPursuitLock) applyPursuitLock(); aibisAlert('先に再訪Judgmentを行ってね🔒<br><br>追撃Judgmentは、再訪Judgment（判定日・フォーアイズ・判定ボタンのどれか）を入れてからだよ。<br><br>課長と協議した？'); return; } } v=_toggled241; cur.pursuit_judge_sel=v; if(user){ cur.pursuit_judge_sel_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-pj]').forEach(function(b){b.classList.toggle('active',b.dataset.pj===v);}); if(window.renderJudgeDetail) renderJudgeDetail(); if(user){ recomputeRank(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
+function setRJ(v,user){ var _cur241=cur; var _current241=_cur241?((_cur241.revisit_judge===undefined)?'':_cur241.revisit_judge):''; var _toggled241=v; if(user&&_cur241&&_cur241.revisit_judge===v){ _toggled241=''; } if(_toggled241!==_current241){ if(_cur241&&_cur241.mgr_term!==undefined){ if(_mgrTermIsActualActive241(_cur241)){ aibisAlert('管理職打ち切り中です。解除は初訪タブ上部の「打切中」から行ってください。'); } else { aibisAlert('打ち切り状態に不整合があります。初訪タブ上部の「要確認」から管理職が復元してください。'); } return; } if(_current241==='打ち切り'||_toggled241==='打ち切り'){ if(!(typeof isMgrUnlocked==='function'&&isMgrUnlocked())){ aibisAlert('「打ち切り」の判定・解除は管理職のみ操作できます。'); return; } } } if(user){ if(typeof collectForm==='function') collectForm(); if(isRevisitJudgeLocked()){ applyRevisitLock(); aibisAlert('再訪Judgmentはまだロック中だよ🔒<br><br>ヒアリングは足りてる？課長と協議した？<br><br>再訪3回目の「訪問日・訪問内容・録音要約」のどれかを記録するとJudgmentできるよ。'); return; } } v=_toggled241; cur.revisit_judge=v; if(user){ cur.revisit_judge_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-rj]').forEach(function(b){b.classList.toggle('active',b.dataset.rj===v);}); if(user){ recomputeRank(); if(window.applyPursuitLock) applyPursuitLock(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
+function setPJ(v,user){ var _cur241=cur; var _current241=_cur241?((_cur241.pursuit_judge_sel===undefined)?'':_cur241.pursuit_judge_sel):''; var _toggled241=v; if(user&&_cur241&&_cur241.pursuit_judge_sel===v){ _toggled241=''; } if(_toggled241!==_current241){ if(_cur241&&_cur241.mgr_term!==undefined){ if(_mgrTermIsActualActive241(_cur241)){ aibisAlert('管理職打ち切り中です。解除は初訪タブ上部の「打切中」から行ってください。'); } else { aibisAlert('打ち切り状態に不整合があります。初訪タブ上部の「要確認」から管理職が復元してください。'); } return; } if(_current241==='打ち切り'||_toggled241==='打ち切り'){ if(!(typeof isMgrUnlocked==='function'&&isMgrUnlocked())){ aibisAlert('「打ち切り」の判定・解除は管理職のみ操作できます。'); return; } } } if(user){ if(typeof collectForm==='function') collectForm(); if(!isRevisitJudgeDone()){ if(window.applyPursuitLock) applyPursuitLock(); aibisAlert('先に再訪Judgmentを行ってね🔒<br><br>追撃Judgmentは、再訪Judgment（判定日・フォーアイズ・判定ボタンのどれか）を入れてからだよ。<br><br>課長と協議した？'); return; } } v=_toggled241; cur.pursuit_judge_sel=v; if(user){ cur.pursuit_judge_sel_at=v?new Date().toISOString():''; } document.querySelectorAll('[data-pj]').forEach(function(b){b.classList.toggle('active',b.dataset.pj===v);}); if(window.renderJudgeDetail) renderJudgeDetail(); if(user){ recomputeRank(); if(typeof setDirty==='function') setDirty(true); } if(window.updateTabProgress) updateTabProgress(); }
 // 追撃Judgmentの選択に応じて重点ボックス（A見込み/追撃継続/変化待ち）を1つだけ表示
 function renderJudgeDetail(){
   var sel=(cur&&cur.pursuit_judge_sel)||'';
@@ -25137,7 +25378,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
         </div>
       </div>
     </div>
-    <h2>《 見込みカード 》</h2>
+    <h2 class="mt-head243">《 見込みカード 》<span id="mgrTermCardSlot" class="no-print"></span></h2>
     <div class="sec" id="secMikomi">
       <div id="mikomiTop">
       <div class="pc-name-contact">
