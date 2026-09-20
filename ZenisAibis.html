@@ -2699,7 +2699,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.34";
+var APP_VERSION = "v11.35";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12352,6 +12352,47 @@ function _sortieEffectiveAreaKey(c, foldMap) {
   return p.townKey;
 }
 
+// ===== DAN242: 「土地見込み」ソート 共有filter+sort単一実装（Main/Inbox/AibisCam） =====
+// 純粋関数のみ。副作用なし・カードオブジェクトを変更しない。
+// グローバル _cTs（本体/カメラ双方の bundle に既存定義）をタイブレークに参照する。
+// discovery_date が有効('YYYY-MM-DD')なカードは常に無効(欠損/空/null/非文字列/別形式)
+// なカードより前に来る（asc/desc 両方向とも）。有効同士は日付、同日または両方無効は
+// _cTs（新しい編集ほど「新→」側）でタイブレークする。
+// DAN242 Correction（20260919・Fable5.1設計差分監査 CORRECTION REQUIRED対応）:
+// 外部公開入口は zLandLeadSort のみ。zLandLeadCompare/zLandLeadValidateはこのファイル内の
+// 内部helperであり、他ファイルへglobal公開しない（Inbox側の別<script>タグからの誤参照を防止）。
+function zLandLeadValidDate(d) {
+  return typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+}
+function zLandLeadCompare(a, b, dir) {
+  var d = (dir === 'desc' || dir === -1) ? -1 : 1; // asc(既定)=新→, desc=古→
+  var av = zLandLeadValidDate(a && a.discovery_date);
+  var bv = zLandLeadValidDate(b && b.discovery_date);
+  if (av !== bv) return av ? -1 : 1; // 有効な日付は方向に関わらず常に先頭側
+  if (av && bv) {
+    var c = d * b.discovery_date.localeCompare(a.discovery_date);
+    if (c !== 0) return c;
+  }
+  return d * (_cTs(b) - _cTs(a));
+}
+// DAN242 Correction（スコープ境界修正）: filter+sortを1本化した唯一の公開入口。
+// Main/Camera/Inboxはこの関数だけを呼ぶ（zLandLeadCompare/zLandLeadValidDate/_isLandLeadは
+// 直接参照しない・globalにも公開しない）。入力配列・カードobjectは変更せず、常に新しい配列を返す。
+function zLandLeadSort(arr, dir) {
+  return (arr || [])
+    .filter(_isLandLead)
+    .slice()
+    .sort(function (a, b) {
+      return zLandLeadCompare(a, b, dir);
+    });
+}
+// ブラウザ限定のguarded window export（Inbox側は別<script>タグでincludeされ本ファイルの
+// 関数スコープを直接参照できないため、zLandLeadSortのみをwindow経由で越境可能にする）。
+// Node/vmのwindow無しsandboxでは何もしない（副作用なし）。
+if (typeof window !== 'undefined' && window) {
+  window.zLandLeadSort = zLandLeadSort;
+}
+
 // ===== 一覧 =====
 function renderList() {
   updateCount(); updateSaved(); updateFileDisp();
@@ -12437,7 +12478,7 @@ function updateSortBtns() {
     pace: {desc:'⏰ 遅れ 小→',  asc:'⏰ 遅れ 大→'},
     rv:   {desc:'🔁 再訪 0→',   asc:'🔁 再訪 3→'},
     jw:   {desc:'⚖ ジャッジ 古→', asc:'⚖ ジャッジ 古→'},
-    lm:   {desc:'🗺 土地 古→', asc:'🗺 土地 古→'},
+    lm:   {desc:'🗺 土地 古→', asc:'🗺 土地 新→'},
     cust: {desc:'👤 顧客 新→', asc:'👤 顧客 新→'}
   };
   Object.keys(base).forEach(function(k){
@@ -12706,9 +12747,7 @@ function getSorted() {
       return dir * (rb - ra); // 超過率が高い順
     });
   } else if (sortKey==='lm') {
-    arr = arr.filter(_isLandLead);
-    var _dk=function(c){ return c.discovery_date || '9999-99-99'; };
-    arr.sort(function(a,b){ return _dk(a).localeCompare(_dk(b)); }); // 古い発掘順
+    arr = zLandLeadSort(arr, dir); // DAN242 Correction: 共有filter+sort単一入口（zLandLeadSort）
   } else if (sortKey==='kw') {
     arr.sort(function(a,b){ return dir * (_kaiwaMax(b) - _kaiwaMax(a)); });
   } else { // dt
@@ -26998,7 +27037,7 @@ window.updateRyokuchiBtn=function(){var btn=document.getElementById("ryokuchiBtn
 <div id="inboxPick">
   <div class="ipc">
     <div class="iph"><b>🔗 紐付け先のカードを選択</b><button onclick="_inboxPickBackBtn()">閉じる</button></div>
-    <div class="ipsort"><span class="sortbar-lab">🔀 並替：</span><div class="sortbar-scroll"><button class="sbtn active" id="psk_lv" onclick="pickSort('lv')">🚶 最新</button><button class="sbtn" id="psk_rv" onclick="pickSort('rv')">🔁 再訪</button><button class="sbtn" id="psk_jw" onclick="pickSort('jw')">⚖ 判定待ち</button><button class="sbtn" id="psk_ad" onclick="pickSort('ad')">🏠 住所</button><button class="sbtn" id="psk_sc" onclick="pickSort('sc')">⭐ スコア</button><button class="sbtn" id="psk_st" onclick="pickSort('st')">📊 心理</button><button class="sbtn" id="psk_pj" onclick="pickSort('pj')">🎯 ランク</button><button class="sbtn" id="psk_pace" onclick="pickSort('pace')">⏰ 遅れ</button><button class="sbtn" id="psk_dt" onclick="pickSort('dt')">📅 初訪</button></div></div>
+    <div class="ipsort"><span class="sortbar-lab">🔀 並替：</span><div class="sortbar-scroll"><button class="sbtn active" id="psk_lv" onclick="pickSort('lv')">🚶 最新</button><button class="sbtn" id="psk_rv" onclick="pickSort('rv')">🔁 再訪</button><button class="sbtn" id="psk_jw" onclick="pickSort('jw')">⚖ 判定待ち</button><button class="sbtn" id="psk_ad" onclick="pickSort('ad')">🏠 住所</button><button class="sbtn" id="psk_sc" onclick="pickSort('sc')">⭐ スコア</button><button class="sbtn" id="psk_st" onclick="pickSort('st')">📊 心理</button><button class="sbtn" id="psk_pj" onclick="pickSort('pj')">🎯 ランク</button><button class="sbtn" id="psk_pace" onclick="pickSort('pace')">⏰ 遅れ</button><button class="sbtn" id="psk_dt" onclick="pickSort('dt')">📅 初訪</button><button class="sbtn" id="psk_lm" onclick="pickSort('lm')">🗺 土地</button></div></div>
     <div class="ipsearchrow"><button type="button" class="mic-btn hb" onclick="micStart('inboxPickSearch',this)" title="音声で検索" style="flex-shrink:0;margin-top:0">🎤</button><div style="position:relative;flex:1"><span class="ipsicon">🔍</span><input id="inboxPickSearch" placeholder="名前・担当・住所で検索" oninput="renderInboxPickList()"></div></div>
     <div id="inboxPickList"></div>
   </div>
@@ -27585,6 +27624,7 @@ function _pickSortArr(arr){
   else if(k==="rv"){ arr=arr.filter(_rvEligible); arr.sort(function(a,b){ var d=dir*(_revisitCount(b)-_revisitCount(a)); return d!==0?d:(_cTs(b)-_cTs(a)); }); }
   else if(k==="jw"){ arr=arr.filter(_jwReady); arr.sort(function(a,b){ return dir*(_cTs(a)-_cTs(b)); }); }
   else if(k==="pace"){ arr.sort(function(a,b){ var ra=calcPaceOverrate(a),rb=calcPaceOverrate(b); if(ra===-1&&rb===-1)return 0; if(ra===-1)return 1; if(rb===-1)return -1; return dir*(rb-ra); }); }
+  else if(k==="lm"){ arr=zLandLeadSort(arr,dir); } // DAN242 Correction: 共有filter+sort単一入口（zLandLeadSort・window export経由）
   else { arr.sort(function(a,b){ var d=dir*(b.discovery_date||"").localeCompare(a.discovery_date||""); return d!==0?d:(_cTs(b)-_cTs(a)); }); }
   return arr;
 }
@@ -27595,7 +27635,9 @@ function renderInboxPickList(){
   var f=(document.getElementById("inboxPickSearch").value||"").trim().toLowerCase();
   if(f){ list=list.filter(function(c){ return ((c.name||"")+(c.manager||"")+(c.address||"")+(c.plan_address||"")).toLowerCase().indexOf(f)>=0; }); }
   try{ list=_pickSortArr(list); }catch(_e){}
-  ['lv','rv','jw','ad','sc','st','pj','pace','dt'].forEach(function(k){ var b=document.getElementById('psk_'+k); if(b) b.classList.toggle('active', k===_pickSortKey); });
+  ['lv','rv','jw','ad','sc','st','pj','pace','dt','lm'].forEach(function(k){ var b=document.getElementById('psk_'+k); if(b) b.classList.toggle('active', k===_pickSortKey); });
+  var _lmBtn=document.getElementById('psk_lm'); // DAN242: 「土地」ボタンのみ方向文言を表示（他ボタンは静的文言のまま）
+  if(_lmBtn){ _lmBtn.textContent=(_pickSortKey==="lm")?((_pickSortDir.lm==="desc")?"🗺 土地 古→":"🗺 土地 新→"):"🗺 土地"; }
   var host=document.getElementById("inboxPickList");
   if(!list.length){ host.innerHTML='<div class="iempty">該当するカードがありません。</div>'; return; }
   host.innerHTML=list.slice(0,200).map(function(c){ var meta=[c.manager,(c.address||c.plan_address)].filter(Boolean).join("・");

@@ -488,7 +488,7 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.80";
+const APP_VERSION = "cam-v1.81";
 
 /* 第237弾 CP2: 利き手（prospect_hand_v1）read-only consumer。唯一の状態源は本体と共有する
    localStorageのprospect_hand_v1のみ。cameraはこのkeyへ一切書き込まない（新規key 0）。
@@ -1508,7 +1508,7 @@ const SORT_ACT={
   sc:{desc:"⭐ スコア 低→",asc:"⭐ スコア 高→"}, st:{desc:"📊 心理 低→",asc:"📊 心理 高→"},
   pj:{desc:"🎯 ランク X→",asc:"🎯 ランク S→"}, kw:{desc:"💬 会話 浅→",asc:"💬 会話 深→"},
   pace:{desc:"⏰ 遅れ 小→",asc:"⏰ 遅れ 大→"}, dt:{desc:"📅 初訪 古→",asc:"📅 初訪 新→"},
-  lm:{desc:"🗺 土地 古→",asc:"🗺 土地 古→"}, cust:{desc:"👤 顧客 新→",asc:"👤 顧客 新→"}
+  lm:{desc:"🗺 土地 古→",asc:"🗺 土地 新→"}, cust:{desc:"👤 顧客 新→",asc:"👤 顧客 新→"}
 };
 /* ===== z.Aibis 共有スコアモジュール（第154弾: shared/score.js） =====
  * 本体・カメラ双方のテンプレートから読み込む単一情報源（includeマーカーで取り込み）。
@@ -1768,6 +1768,47 @@ function _sortieEffectiveAreaKey(c, foldMap) {
   return p.townKey;
 }
 
+// ===== DAN242: 「土地見込み」ソート 共有filter+sort単一実装（Main/Inbox/AibisCam） =====
+// 純粋関数のみ。副作用なし・カードオブジェクトを変更しない。
+// グローバル _cTs（本体/カメラ双方の bundle に既存定義）をタイブレークに参照する。
+// discovery_date が有効('YYYY-MM-DD')なカードは常に無効(欠損/空/null/非文字列/別形式)
+// なカードより前に来る（asc/desc 両方向とも）。有効同士は日付、同日または両方無効は
+// _cTs（新しい編集ほど「新→」側）でタイブレークする。
+// DAN242 Correction（20260919・Fable5.1設計差分監査 CORRECTION REQUIRED対応）:
+// 外部公開入口は zLandLeadSort のみ。zLandLeadCompare/zLandLeadValidateはこのファイル内の
+// 内部helperであり、他ファイルへglobal公開しない（Inbox側の別<script>タグからの誤参照を防止）。
+function zLandLeadValidDate(d) {
+  return typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+}
+function zLandLeadCompare(a, b, dir) {
+  var d = (dir === 'desc' || dir === -1) ? -1 : 1; // asc(既定)=新→, desc=古→
+  var av = zLandLeadValidDate(a && a.discovery_date);
+  var bv = zLandLeadValidDate(b && b.discovery_date);
+  if (av !== bv) return av ? -1 : 1; // 有効な日付は方向に関わらず常に先頭側
+  if (av && bv) {
+    var c = d * b.discovery_date.localeCompare(a.discovery_date);
+    if (c !== 0) return c;
+  }
+  return d * (_cTs(b) - _cTs(a));
+}
+// DAN242 Correction（スコープ境界修正）: filter+sortを1本化した唯一の公開入口。
+// Main/Camera/Inboxはこの関数だけを呼ぶ（zLandLeadCompare/zLandLeadValidDate/_isLandLeadは
+// 直接参照しない・globalにも公開しない）。入力配列・カードobjectは変更せず、常に新しい配列を返す。
+function zLandLeadSort(arr, dir) {
+  return (arr || [])
+    .filter(_isLandLead)
+    .slice()
+    .sort(function (a, b) {
+      return zLandLeadCompare(a, b, dir);
+    });
+}
+// ブラウザ限定のguarded window export（Inbox側は別<script>タグでincludeされ本ファイルの
+// 関数スコープを直接参照できないため、zLandLeadSortのみをwindow経由で越境可能にする）。
+// Node/vmのwindow無しsandboxでは何もしない（副作用なし）。
+if (typeof window !== 'undefined' && window) {
+  window.zLandLeadSort = zLandLeadSort;
+}
+
 const REVISIT_PHASE={span:14,times:3,interval:5};
 function getLastVD(c){ var d=[]; (c.pursuits||[]).forEach(v=>{if(v.date)d.push(v.date);}); (c.revisits||[]).forEach(v=>{if(v.date)d.push(v.date);}); if(c.discovery_date)d.push(c.discovery_date); return d.length?d.sort((a,b)=>b.localeCompare(a))[0]:""; }
 /* 第191弾: 旧getArea()（都道府県+市区町村までの単純比較。町名を見ない・全角番地混入の恐れ）は
@@ -1802,7 +1843,7 @@ function getSortedCards(src,foldMap){
   else if(sortKey==="jw"){ arr=arr.filter(_jwReady); arr.sort(function(a,b){ return dir*(_cTs(a)-_cTs(b)); }); }
   else if(sortKey==="pace"){ arr.sort(function(a,b){ var ra=calcPaceOverrate(a),rb=calcPaceOverrate(b); if(ra===-1&&rb===-1)return 0; if(ra===-1)return 1; if(rb===-1)return -1; return dir*(rb-ra); }); }
   else if(sortKey==="kw"){ arr.sort(function(a,b){ return dir*(_kaiwaMax(b)-_kaiwaMax(a)); }); }
-  else if(sortKey==="lm"){ arr=arr.filter(_isLandLead); var _dk=function(c){ return c.discovery_date||"9999-99-99"; }; arr.sort(function(a,b){ return _dk(a).localeCompare(_dk(b)); }); }
+  else if(sortKey==="lm"){ arr=zLandLeadSort(arr,dir); } /* DAN242 Correction: 共有filter+sort単一入口（zLandLeadSort） */
   else { arr.sort(function(a,b){ var d=dir*(b.discovery_date||"").localeCompare(a.discovery_date||""); return d!==0?d:(_cTs(b)-_cTs(a)); }); }
   return arr;
 }
