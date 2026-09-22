@@ -1642,6 +1642,19 @@ body.is-mob .mob-menu{display:inline-block}
       <button onclick="mailSelectedToManager()" class="bw" style="font-size:11px;padding:5px 8px"><span class="bic">📧 </span>課長<span style="font-size:.8em;opacity:.85">へ</span></button>
     </div>
   </div>
+  <!-- DAN244: 選択基盤＋破壊的一括操作の安全化。選択1件以上でのみ表示。削除はbulk_ops.js側で
+       二段階確認＋復元ポイント（aibis_restore_v1）＋ジャーナルによる安全化・Undo対応。 -->
+  <div id="bulkOpBar" style="display:none;background:#fff5f5;border:1px solid #feb2b2;border-radius:8px;padding:8px 12px;margin:0 8px 8px;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap">
+    <button id="bulkAssignBtn" onclick="bulkAssignManagerPrompt()" style="display:none;font-size:11px;padding:5px 8px;background:#5a67d8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">👤 担当変更（0件）</button>
+    <button id="bulkDeleteBtn" onclick="bulkDeleteSelected()" style="font-size:11px;padding:5px 8px;background:#c53030;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">🗑 選択削除（0件）</button>
+  </div>
+  <!-- DAN244 Correction 1 MAJOR-1: 15秒で消えるbulkUndoToastとは別に、有効なUndo
+       （bulkOps._lastOp）が存在する間は常設で表示する。bulk_ops.js._bulkRenderPersistentUndo()
+       が表示/非表示を切り替える。新規画面は追加せず、既存の一括操作UI領域内に置く。 -->
+  <div id="bulkPersistentUndo" style="display:none;background:#edf2f7;border:1px solid #cbd5e0;border-radius:8px;padding:8px 12px;margin:0 8px 8px;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+    <span id="bulkPersistentUndoMsg" style="font-size:12px;color:#2d3748"></span>
+    <button id="bulkPersistentUndoBtn" onclick="bulkOpsUndo()" style="font-size:11px;padding:5px 10px;background:#2c5282;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">↩ 元に戻す</button>
+  </div>
   <div id="staffFilterBar" style="display:none;background:white;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin:0 8px 6px">
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap">
       <span style="font-size:12px;color:#4a5568;font-weight:600;flex-shrink:0">👤 担当：</span>
@@ -1778,6 +1791,13 @@ body.is-mob .mob-menu{display:inline-block}
         <details id="devSelfMirrorWrap" class="dev-selfacc" style="display:none"><summary>🛠 開発確認用：担当ダッシュボード（本番のみ非表示）</summary><div style="padding:6px 0"><label style="font-size:11px;color:#553c9a">担当者を選択：</label><select id="devSelfMirrorRep" onchange="renderSelfDash('devSelfMirror', this.value==='__ALL__'?'':this.value)" style="font-size:12px;padding:4px 6px;margin-left:4px"></select></div><div id="devSelfMirror"></div></details>
       </div>
     </div>
+  </div>
+
+  <!-- DAN244: 一括削除Undo通知バー。bulk_ops.js（_bulkShowUndoBar/_bulkHideUndoBar）が制御。
+       復元は必ず検証済みマニフェスト一致を確認してから成功表示する（未検証成功表示は禁止）。 -->
+  <div id="bulkUndoToast" style="display:none;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#2d3748;color:#fff;border-radius:8px;padding:10px 14px;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:9500;align-items:center;gap:10px;max-width:92vw">
+    <span id="bulkUndoToastMsg" style="font-size:12px"></span>
+    <button onclick="bulkOpsUndo()" style="background:#4299e1;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">↩ 元に戻す</button>
   </div>
 </div>
 
@@ -2607,6 +2627,13 @@ var DEV_UNLOCK_HASH='d2077f5f6886f83503d4c1dd4b9543933b165c4246ca784052d92a05d57
 var copyHandle = null; // コピー保存先ハンドル
 var FHDB = 'prospect_fh_db';
 var RPAK = 'roleplay_ai_slots_v1'; // 第220弾: 二系統ロープレAI宛先スロット（[{name,url},{name,url}]）。CPKとは別key・非接触。
+// DAN244: 選択基盤＋破壊的一括操作の安全化。bulk_ops.js専用のジャーナル・復元ポイントDB・多タブロック。
+// aibis_media_v1（version 1固定・store追加禁止）とは完全に別領域。
+var BULK_JOURNAL_KEY = 'prospect_bulk_journal_v1'; // 破壊的一括操作の進行フェーズ記録（localStorage）
+var BULK_RESTORE_DB = 'aibis_restore_v1';          // 復元ポイント本体（IndexedDB・新規DB・store: points）
+var BULK_RESTORE_STORE = 'points';
+var BULK_LOCK_KEY = 'aibis_bulk_op_lock_v1';       // 多タブ排他ロック（TTL付・localStorage）
+var BULK_LOCK_TTL_MS = 60000;
 
 // ===== 第177弾: 控えbaseline統一（backup-baseline） =====
 // 目的：「外部控えを作った日時」(aibis_last_backup) と、
@@ -2710,7 +2737,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.36";
+var APP_VERSION = "v11.37";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6475,6 +6502,15 @@ function _sfg230ChoiceHtml(browserSnap, fileProbe, late){
     +'</div>';
   return msg;
 }
+// DAN244 Correction 3（O7是正）：browser≠FSAでchoiceを提示する場合、canonical data source
+// （browser維持か・PC採用か）は利用者の選択（または背景タップ＝browser維持・5秒fallback＝
+// browser確定のいずれか）が確定するまで決まらない。_sfg230ShowBrowser()でcardsをbrowser値へ
+// セットした直後にrepairを呼ぶと、後でPC側が採用された場合に「browser状態を基準に前進完了
+// させた写真削除」がPC側カード復活後も取り消せない不整合を生む（旧実装のBLOCKER）。
+// このためrepairはofferChoiceの外では呼ばず、必ず choice確定点（_sfg230ChooseBrowser／
+// _sfg230ChoosePc成功後／_sfg230ChoosePc失敗時のbrowserへのrollback完了後／背景タップに
+// よるbrowser維持確定）からのみ呼ぶ。_dan244ScheduleBootRepairは一度きりガード済みのため、
+// 複数の確定経路から呼ばれても実行は1回のみ。
 function _sfg230OfferChoice(browserSnap, fileProbe, late){
   var priorBackupRaw=null, priorBackupMeta=null, priorBackupHad=false, priorBackupMetaHad=false;
   try{ priorBackupRaw=localStorage.getItem(BACKUP_KEY); priorBackupHad=(priorBackupRaw!==null); }catch(_e){}
@@ -6494,13 +6530,21 @@ function _sfg230OfferChoice(browserSnap, fileProbe, late){
   aibisAlert(_sfg230ChoiceHtml(browserSnap,fileProbe,late));
   try{
     var ov=document.getElementById('aibisAlertOverlay');
-    if(ov) ov.addEventListener('click',function(ev){ if(ev.target===ov) _sfg230ClearChoice(); });
+    ov && ov.addEventListener('click',function(ev){
+      if(ev.target!==ov) return;
+      _sfg230ClearChoice();
+      // O7是正：背景タップ＝browser維持として確定（既存UX文言どおり）。この時点でcanonical
+      // sourceが確定するため、ここではじめてrepairを許可する。
+      _dan244ScheduleBootRepair(0);
+    });
   }catch(_e2){}
 }
 function _sfg230ChooseBrowser(){
   _sfg230ClearChoice();
   try{ closeAibisAlert(); }catch(_e){}
   try{ toast('✅ 端末内データを維持して開きました'); }catch(_e2){}
+  // O7是正：利用者がbrowserを明示選択＝canonical source確定。ここではじめてrepairを許可する。
+  _dan244ScheduleBootRepair(0);
 }
 function _sfg230RestoreBrowserAfterFailedAdopt(st){
   try{
@@ -6556,12 +6600,16 @@ function _sfg230ChoosePc(){
     _sfg230RestoreBrowserAfterFailedAdopt(st);
     _sfg230ClearChoice();
     try{ aibisAlert('⚠ PC保存先への切替は完了していません。端末内の直前状態を安全に退避できなかったため、端末内データへ戻しました。<br><br>先に「📦 フルバックアップを作成」で現在のデータを確保してください。'); }catch(_e5){}
+    // O7是正：PC採用失敗→browserへのrollbackが完了＝canonical sourceはbrowserに確定。
+    _dan244ScheduleBootRepair(0);
     return;
   }
   lastSaveSnapshot=JSON.stringify(cards);
   try{ showList(); }catch(_e6){}
   _sfg230ClearChoice();
   try{ toast('✅ PC保存先で開きました。端末内の直前状態は「1つ前に戻す」用に退避しました'); }catch(_e7){}
+  // O7是正：PC採用成功＝canonical sourceがPC側cardsに確定。ここではじめてrepairを許可する。
+  _dan244ScheduleBootRepair(0);
 }
 try{ window._sfg230ChooseBrowser=_sfg230ChooseBrowser; window._sfg230ChoosePc=_sfg230ChoosePc; }catch(_e){}
 
@@ -6577,6 +6625,11 @@ function _sfg230AutoAdoptNoBrowser(browserSnap, fileProbe){
   try{ toast('✅ PC保存先から'+cards.length+'件を読み込みました'); }catch(_e2){}
   return true;
 }
+// §13: 以下の各分岐は「cardsが実際にどちらか一方の値へ確定した直後」に
+// _dan244ScheduleBootRepair(0)を呼ぶ。offerChoice（PC/browser選択待ち）はユーザーの
+// 明示選択を待つが、その時点でも既にbrowser側の値でcardsは確定済み（_sfg230ShowBrowser済み）
+// であり、後でPC側へ切り替わっても、それは正当なcards再代入（repairの一度きりの実行とは
+// 無関係）として扱って問題ない。
 function _sfg230HandleProbe(browserSnap, fileProbe, late){
   if(fileProbe.status!=='valid'){
     _sfg230ShowBrowser();
@@ -6584,6 +6637,7 @@ function _sfg230HandleProbe(browserSnap, fileProbe, late){
       ? '⚠ PC保存先ファイルの内容を安全に確認できないため、端末内データで表示しました。PC保存先は自動採用していません。'
       : '⚠ PC保存先ファイルを読み込めないため、端末内データで表示しました。PC保存先は自動採用していません。';
     try{ aibisAlert(m); }catch(_e){}
+    _dan244ScheduleBootRepair(0);
     return;
   }
 
@@ -6594,14 +6648,42 @@ function _sfg230HandleProbe(browserSnap, fileProbe, late){
     if(browserSnap.serialized!==fileProbe.serialized){
       try{ aibisAlert('⚠ PC保存先の読込が遅れて完了し、端末内データとの差を確認しました。<br><br><b>この起動中は端末内データを維持し、PC保存先は採用しません。</b><br>保存中の作業を守るため、PC保存先への切替は行いません。必要ならフルバックアップを確保したうえで再起動し、起動時の差異確認から選択してください。'); }catch(_e){}
     }
+    // late＝5秒fallback側で既にcards確定・repair呼出済みのため、ここでは呼ばない。
     return;
   }
 
-  if(_sfg230AutoAdoptNoBrowser(browserSnap,fileProbe)) return;
+  if(_sfg230AutoAdoptNoBrowser(browserSnap,fileProbe)){ _dan244ScheduleBootRepair(0); return; }
 
   _sfg230ShowBrowser();
-  if(browserSnap.serialized===fileProbe.serialized) return;
+  // O7是正（BLOCKER）：browser≠FSAでchoiceを提示する場合はcanonical sourceが未確定のため、
+  // ここではrepairを呼ばない。内容が同一（=事実上choiceの余地が無い）場合のみ、browserが
+  // 即座にcanonicalとして確定するためrepairを許可する。差異がある場合は
+  // _sfg230ChooseBrowser／_sfg230ChoosePc／背景タップ確定のいずれかから呼ばれる。
+  if(browserSnap.serialized===fileProbe.serialized){ _dan244ScheduleBootRepair(0); return; }
   _sfg230OfferChoice(browserSnap,fileProbe,false);
+}
+
+// DAN244: 前回セッションが一括削除の途中（prepared/cards-saved/media-deleting）で
+// 中断された場合のジャーナル修復。復元ポイントが検証可能なら前進完了を優先する。
+// mAll/mDel/doSaveCardsのみに依存し、cardsのメモリ読込状態には依存しないため、
+// PC・スマホ・初期設定未完了のどの起動経路からも安全に呼べる（bulk_ops.js側で自己完結）。
+//
+// DAN244 Correction 1 §13是正：旧実装は「固定delay(300ms/900ms)を待てば読込が終わっている
+// だろう」という推測に依存しており、PC側ではFSA正式データソース確定（loadHandleCb以降の
+// 非同期解決）より前にrepairが走り得た（cards＝まだbrowser既定値の状態で実状態判定をする
+// 危険）。是正後は、各起動経路で実際にcards（browser採用・PC採用いずれか）が確定した
+// 「その時点」でのみ_dan244ScheduleBootRepairを呼ぶ（固定delayでの憶測をやめる）。
+// また「初期設定未完了」分岐ではrepairを一切呼ばない（Correction 1 §13で明示的に禁止）。
+// 1回の起動につき一度しか実際のrepairを走らせない（複数の解決経路から重複して呼ばれても
+// 2回目以降は無視する。журнал/RestorePointの状態から見て冪等ではあるが、無駄な二重実行を防ぐ）。
+// 呼び出し位置は、第230弾で確立済みの「700ms=マネージャー確認プロンプト」
+// 「5000ms=5秒fallback」の2本のsetTimeout登録順（tools/test-startup-freshness-guard.jsが
+// sb.timers[0]/[1]を直接参照）を崩さないよう、必ずその両方の登録の後に置く。
+var _dan244BootRepairScheduled = false;
+function _dan244ScheduleBootRepair(delayMs) {
+  if (_dan244BootRepairScheduled) return; // 一度きり（実状態が確定した最初の経路だけが起動する）
+  _dan244BootRepairScheduled = true;
+  setTimeout(function(){ try{ if(typeof bulkOpsRepairJournalOnBoot==='function') bulkOpsRepairJournalOnBoot(); }catch(_e){} }, delayMs || 0);
 }
 
 // ===== 初期化 =====
@@ -6628,14 +6710,14 @@ function init() {
   if (!uName || !mgrEmail || !branch || !section) {
     if (window.IS_DEV) {
       uName=uName||'開発ユーザー'; mgrEmail=mgrEmail||'dev@example.com'; branch=branch||'開発支店'; section=section||'1課'; userRole=userRole||'課長';
-    } else { showSetup(); return; }
+    } else { showSetup(); return; } // §13: 初期設定未完了branchではrepairを呼ばない
   }
 
   applyRoleUI();
 
-  // スマホまたはFSA非対応 → LocalStorageから読込
+  // スマホまたはFSA非対応 → LocalStorageから読込（この時点でcardsが確定するので、ここで呼ぶ）
   if (isMob || !hasFSA) {
-    readLS(); showList(); return;
+    readLS(); showList(); _dan244ScheduleBootRepair(0); return;
   }
 
   // PC版：IndexedDBから保存先ハンドルを読込（非同期）
@@ -6647,6 +6729,8 @@ function init() {
       readLS();
       showList();
       toast('⚠ 読込に時間がかかったためローカルデータで表示しました（PC保存先は自動採用しません）');
+      // §13: このfallbackでbrowser側cardsが確定した「その時点」で呼ぶ（固定delayの憶測をやめる）。
+      _dan244ScheduleBootRepair(0);
     }
   }, 5000);
 
@@ -6660,10 +6744,11 @@ function init() {
     if (!fHandle || !copyHandle) {
       if(startupFallbackFired230){
         try{ aibisAlert('⚠ 保存先の確認が遅れて完了しました。この起動中は端末内データを維持します。必要ならフルバックアップを確保したうえで、初期設定から保存先を確認してください。'); }catch(_e){}
+        // cardsはこの分岐に入る前（5秒fallback）で既に確定・repair済みのため、ここでは呼ばない。
         return;
       }
-      if (window.IS_DEV) { readLS(); showList(); return; }
-      showSetup(); return;
+      if (window.IS_DEV) { readLS(); showList(); _dan244ScheduleBootRepair(0); return; }
+      showSetup(); return; // §13: 初期設定未完了branchではrepairを呼ばない
     }
 
     // 保存先あり → パーミッション確認後、fileを非破壊probeする。
@@ -6671,8 +6756,9 @@ function init() {
     checkPerm(fHandle, function(ok){
       if (!ok) {
         // パーミッション取得失敗でもfHandleは消さない。
-        // 5秒fallback後ならin-memory編集保護のためreadLS()で巻き戻さない。
-        if(!startupFallbackFired230){ readLS(); showList(); }
+        // 5秒fallback後ならin-memory編集保護のためreadLS()で巻き戻さない
+        // （その場合はfallback側で既にcardsが確定・repair済み）。
+        if(!startupFallbackFired230){ readLS(); showList(); _dan244ScheduleBootRepair(0); }
         setTimeout(function(){
           aibisAlert('💾 保存先ファイルへのアクセス許可が必要だよ！<br><br>「💾 保存」ボタンを押すと許可ダイアログが出るよ。<br>許可すると自動保存が再開されるよ😊');
         }, 800);
@@ -7202,6 +7288,9 @@ function _staffDiffSend(email,name){
 window._staffDiffSend=_staffDiffSend;
 window.mailSelectedToStaff=mailSelectedToStaff; window._sendSelectedToEmail=_sendSelectedToEmail; window._multiMgrOk=_multiMgrOk;
 // ===== 担当フィルター =====
+// DAN244: 旧「✏ 改名」「🗑 全削除」（担当者全削除）は撤去した（B-1/M-1是正）。
+// 「改名」は選択カードの担当を一括変更する新機能（bulk_ops.js::bulkAssignManagerPrompt、
+// 選択バー下の「👤 担当変更（n件）」・管理職限定）へ置き換えた。担当filter自体は維持する。
 var staffFilter='all';
 function updateStaffFilter(){
   var names=[];
@@ -7221,65 +7310,17 @@ function updateStaffFilter(){
   names.forEach(function(n){
     html+='<button class="sbtn'+(staffFilter===n?' active':'')+'" onclick="setStaffFilter(\''+eAttr(n)+'\')" style="white-space:nowrap">'+e(n)+'</button>';
   });
-  if(staffFilter!=='all'){
-    var sf=eAttr(staffFilter);
-    html+='<span style="margin-left:auto;display:inline-flex;gap:4px;align-items:center">'
-      +'<button class="sbtn" onclick="renameStaff(\''+sf+'\')" style="white-space:nowrap;border-color:#3182ce;color:#2c5282">✏ 改名</button>'
-      +'<button class="sbtn" onclick="deleteStaffCards(\''+sf+'\')" style="white-space:nowrap;border-color:#fc8181;color:#c53030">🗑 全削除</button>'
-      +'</span>';
-  }
   btns.innerHTML=html;
 }
+// DAN244: 母集団を変える操作のため選択ガード経由（INV-2）。脱落0件時は即時反映。
 function setStaffFilter(name){
-  staffFilter=name; currentPage=1; updateStaffFilter(); renderCards();
+  var nextState={ staffFilter:name };
+  var apply=function(){ staffFilter=name; currentPage=1; updateStaffFilter(); renderCards(); };
+  if(typeof _bulkSelGuardedChange==='function'){ _bulkSelGuardedChange(nextState, apply); }
+  else { apply(); }
 }
 window.setStaffFilter=setStaffFilter;
 function staffCardCount(nm){ return cards.filter(function(c){return (c.manager||'')===nm;}).length; }
-function renameStaff(name){
-  var n=staffCardCount(name);
-  aibisAlert('担当「'+e(name)+'」（'+n+'件）の担当者名を変更するよ✏<br>新しい担当者名を入力してね（後任者名や自分の名前など）。<br><br>'
-    +'<input id="renameStaffInput" type="text" placeholder="新しい担当者名" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;font-family:inherit;margin-bottom:8px">'
-    +'<div style="display:flex;gap:8px">'
-    +'<button onclick="doRenameStaff(\''+name.replace(/'/g,"\\'")+'\')" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">変更する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
-    +'</div>');
-}
-function doRenameStaff(oldName){
-  var inp=document.getElementById('renameStaffInput');
-  var newName=inp?inp.value.trim():'';
-  if(!newName){ toast('新しい担当者名を入力してね'); return; }
-  if(newName===oldName){ closeAibisAlert(); toast('名前が同じだよ'); return; }
-  var now=new Date().toISOString(), n=0;
-  cards.forEach(function(c){ if((c.manager||'')===oldName){ c.manager=newName; c.updated_at=now; n++; } });
-  if(staffFilter===oldName) staffFilter=newName;
-  closeAibisAlert();
-  doSaveCards(function(ok){ if(!ok){ toast('⚠ 保存に失敗しました'); return; } renderList(); updateStaffFilter(); toast('「'+oldName+'」→「'+newName+'」に '+n+'件 付け替えました✏'); });
-}
-function deleteStaffCards(name){
-  var n=staffCardCount(name);
-  if(n===0){ toast('「'+name+'」のカードはありません'); return; }
-  aibisAlert('退職などで担当「<b>'+e(name)+'</b>」の <b>'+n+'件</b> を完全に削除するよ⚠<br>取り消せません。消す前にバックアップ推奨。<br><br>'
-    +'<div style="display:flex;gap:8px">'
-    +'<button onclick="closeAibisAlert();deleteStaffCards2(\''+name.replace(/'/g,"\\'")+'\')" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
-    +'</div>');
-}
-function deleteStaffCards2(name){
-  aibisAlert('最終確認！「'+e(name)+'」のカードを本当に全部削除する？😢<br><br>'
-    +'<div style="display:flex;gap:8px">'
-    +'<button onclick="closeAibisAlert();doDeleteStaffCards(\''+name.replace(/'/g,"\\'")+'\')" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">本当に削除する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
-    +'</div>');
-}
-function doDeleteStaffCards(name){
-  var before=cards.length;
-  cards=cards.filter(function(c){ return (c.manager||'')!==name; });
-  var removed=before-cards.length;
-  if(staffFilter===name) staffFilter='all';
-  doSaveCards(function(ok){ if(!ok){ toast('⚠ 保存に失敗しました'); return; } renderList(); updateStaffFilter(); toast('「'+name+'」の '+removed+'件を削除しました'); });
-}
-window.renameStaff=renameStaff; window.doRenameStaff=doRenameStaff;
-window.deleteStaffCards=deleteStaffCards; window.deleteStaffCards2=deleteStaffCards2; window.doDeleteStaffCards=doDeleteStaffCards;
 var STRATEGY_THEMES=['general','next_visit','motivation','personality','objection','hearing','training','inheritance'];
 function _fmtStamp(iso){if(!iso)return '';var d=new Date(iso);if(isNaN(d))return '';return d.getFullYear()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2)+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
 function _fmtDateJP(iso){if(!iso)return '';var d=new Date(iso);if(isNaN(d))return '';return d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日';}
@@ -12408,6 +12449,9 @@ if (typeof window !== 'undefined' && window) {
 function renderList() {
   updateCount(); updateSaved(); updateFileDisp();
   updateSortBtns();
+  // DAN244 Correction 1 MAJOR-1: renderList()の再描画のたびにpersistent Undo表示を
+  // bulkOps._lastOpの現況へ同期する（起動時repairでの再構成・Undo成功後のクリア等を反映）。
+  if (typeof _bulkRenderPersistentUndo === 'function') _bulkRenderPersistentUndo();
 
   // バナー
   var ban = document.getElementById('banner'), bb = document.getElementById('bannerBody');
@@ -12465,14 +12509,58 @@ function getArea(addr) {
   var m=addr.match(/^(.+?[都道府県])(.+?[市区町村郡])/);
   return m ? m[1]+m[2] : addr.substring(0,10);
 }
-function toggleSort(key) {
-  if (sortKey === key) {
-    sortDir[key] = sortDir[key]==='desc' ? 'asc' : 'desc';
-  } else {
-    sortKey = key;
+// ===== DAN244: computeVisible — renderCards/getFilteredCount/選択ガードの唯一の母集団算出入口 =====
+// 現在のsortKey/sortDir/staffFilter/検索語を退避し、渡されたstateで一時的に差し替えて既存の
+// getSorted()＋filter/検索ロジック（renderCardsと同一6項目。m-2是正：getFilteredCountと統一）を
+// 適用してから復元する。JSは単一スレッド・同期実行のため、この一時差し替えの間に他のコードが
+// 割り込むことはない（呼び出し前後でグローバル状態は不変）。
+// renderCards/getFilteredCount/選択ガード(list_select_send.js)はこれ以外の方法で母集団を
+// 算出してはならない（DAN244 §19-B・Q6-a：カード除去はbulk_ops核だけ、母集団算出はここだけ）。
+function computeVisible(state){
+  state = state || {};
+  var hasSK = Object.prototype.hasOwnProperty.call(state, 'sortKey');
+  var hasDirOverride = Object.prototype.hasOwnProperty.call(state, 'sortDirForKey');
+  var hasSF = Object.prototype.hasOwnProperty.call(state, 'staffFilter');
+  var hasQ = Object.prototype.hasOwnProperty.call(state, 'query');
+  var savedSK = sortKey, savedSF = staffFilter;
+  var useKey = hasSK ? state.sortKey : sortKey;
+  var savedDirVal = sortDir[useKey];
+  try {
+    sortKey = useKey;
+    if (hasDirOverride) sortDir[useKey] = state.sortDirForKey;
+    if (hasSF) staffFilter = state.staffFilter;
+    var q = hasQ ? (state.query || '') : ((document.getElementById('searchInput') && document.getElementById('searchInput').value) || '');
+    q = q.trim();
+    var keywords = q ? q.split(/[\s　]+/).filter(Boolean) : [];
+    var sorted = getSorted();
+    if (staffFilter !== 'all') sorted = sorted.filter(function(c){ return (c.manager || '') === staffFilter; });
+    var result = keywords.length === 0 ? sorted : sorted.filter(function(c){
+      var haystack = [c.name, c.address, c.plan_address, c.initial_content, c.manager, c.branch, c.section].filter(Boolean).join(' ');
+      return keywords.some(function(kw){ return haystack.indexOf(kw) >= 0; });
+    });
+    return result;
+  } finally {
+    sortKey = savedSK; staffFilter = savedSF;
+    if (hasDirOverride) sortDir[useKey] = savedDirVal;
   }
-  updateSortBtns();
-  renderCards();
+}
+window.computeVisible = computeVisible;
+
+// DAN244: 選択ガード対応。並替ボタンは「操作種別」ではなく実際に脱落するIDの有無で判定する
+// （_bulkSelGuardedChange・list_select_send.js）。母集団に脱落が出ない通常の並替は従来どおり
+// 即時反映（モーダルなし）。
+function toggleSort(key) {
+  var nextDir = sortDir[key];
+  var sameKey = (sortKey === key);
+  if (sameKey) { nextDir = sortDir[key] === 'desc' ? 'asc' : 'desc'; }
+  var nextState = { sortKey: key, sortDirForKey: nextDir };
+  var _apply = function(){
+    if (sortKey === key) { sortDir[key] = nextDir; } else { sortKey = key; }
+    updateSortBtns();
+    renderCards();
+  };
+  if (typeof _bulkSelGuardedChange === 'function') { _bulkSelGuardedChange(nextState, _apply); }
+  else { _apply(); }
 }
 function updateSortBtns() {
   // 非アクティブ時の基本ラベル
@@ -12770,18 +12858,41 @@ var PAGE_SIZE=20;
 var currentPage=1;
 
 var _searchTimer=null;
+var _bulkLastConfirmedQuery='';
+// DAN244: 検索確定の唯一の入口。選択に脱落が出る場合だけ確認モーダルを出す（INV-2）。
+// 脱落がある間は入力欄の見た目を直前の確定値へ戻し、OK時にのみ入力値を再適用する
+// （「検索は入力値を直前値へ戻す」。aibisConfirmはキャンセル専用コールバックを持たないため、
+// 楽観的に戻してからOK時だけ復元する設計でキャンセル時の状態不変を保証する）。
+function _bulkCommitSearch(){
+  var el=document.getElementById('searchInput');
+  var typedQ = el ? el.value : '';
+  var nextState = { query: typedQ };
+  var apply = function(){ _bulkLastConfirmedQuery=typedQ; if(el) el.value=typedQ; currentPage=1; renderCards(); };
+  if(typeof _bulkSelDropped!=='function'){ apply(); return; }
+  var dropped=_bulkSelDropped(nextState);
+  if(dropped.length===0){ apply(); return; }
+  if(el) el.value=_bulkLastConfirmedQuery; // 確認待ちの間は見た目を直前値へ
+  // MAJOR-5是正：list_select_send.jsの_bulkSelGuardMessageと同一文言（総選択数が主文言）に統一する。
+  var curIds=Object.keys(selectedIds);
+  var msg=(typeof _bulkSelGuardMessage==='function')
+    ? _bulkSelGuardMessage(curIds.length, dropped.length)
+    : ('選択中の'+curIds.length+'件があります。<br>条件を変更すると現在の選択は解除されます。');
+  aibisConfirm(msg,
+    function(){ selectedIds={}; if(typeof updateSelectCount==='function') updateSelectCount(); apply(); },
+    '選択を解除して変更','キャンセル');
+}
 // 入力中に即時フィルタ（デバウンス）。ボタン操作は不要。
 function onSearchInput(immediate){
   clearTimeout(_searchTimer);
-  if(immediate){ currentPage=1; renderCards(); return; }
-  _searchTimer=setTimeout(function(){ currentPage=1; renderCards(); }, 150);
+  if(immediate){ _bulkCommitSearch(); return; }
+  _searchTimer=setTimeout(function(){ _bulkCommitSearch(); }, 150);
 }
 // Enter（スマホの「検索」キー含む）で即確定＋キーボードを閉じる
 function onSearchEnter(ev){
   if(ev.key==='Enter'||ev.keyCode===13){
     ev.preventDefault();
     clearTimeout(_searchTimer);
-    currentPage=1; renderCards();
+    _bulkCommitSearch();
     if(ev.target&&ev.target.blur) ev.target.blur();
   }
 }
@@ -12824,25 +12935,21 @@ function _tempoFollowerTag(c){
 }
 function renderCards() {
   var list=document.getElementById('cardList'); if(!list) return;
+  // DAN244 INV-6: 削除済み・存在しないIDをselectedIdsから除去する（doDelCard等の単発削除後も、
+  // 一覧が再描画されるたびに選択とcardsの整合を取る。hidden selectionをbulk操作へ持ち込ませない）。
+  if(typeof _bulkPruneSelection==='function') _bulkPruneSelection();
   updateStaffFilter();
   var query=(document.getElementById('searchInput')?.value||'').trim();
   var clrBtn=document.getElementById('searchClear');
   if(clrBtn) clrBtn.style.display=query?'inline-block':'none';
-  var keywords=query?query.split(/[\s　]+/).filter(Boolean):[];
 
   if(cards.length===0){
     list.innerHTML='<div class="empty"><div class="ei">📋</div><p>まだカードがありません</p><p style="font-size:12px;margin-top:6px">「＋ 新規」から始めましょう</p></div>';
     renderPager(0,0); return;
   }
 
-  // フィルタ
-  var sorted = getSorted();
-  if(staffFilter!=='all') sorted=sorted.filter(function(c){return (c.manager||'')===staffFilter;});
-
-  var result = keywords.length===0 ? sorted : sorted.filter(function(c){
-    var haystack=[c.name,c.address,c.plan_address,c.manager,c.branch,c.section].filter(Boolean).join(' ');
-    return keywords.some(function(kw){ return haystack.indexOf(kw)>=0; });
-  });
+  // DAN244: 母集団算出はcomputeVisible()に統一（list_core.js）。検索対象6項目もこれで統一される。
+  var result = computeVisible();
   lastVisible=result;
 
   if(result.length===0){
@@ -12944,16 +13051,9 @@ function goPage(p){
   if(lv) lv.scrollTo(0,0);
 }
 
+// DAN244: computeVisible()に統一（renderCardsと同一母集団・同一6検索項目。m-2是正）。
 function getFilteredCount(){
-  var sorted=getSorted();
-  if(staffFilter!=='all') sorted=sorted.filter(function(c){return (c.manager||'')===staffFilter;});
-  var q=(document.getElementById('searchInput')?.value||'').trim();
-  if(!q) return sorted.length;
-  var kws=q.split(/[\s　]+/).filter(Boolean);
-  return sorted.filter(function(c){
-    var h=[c.name,c.address,c.plan_address,c.initial_content,c.manager,c.branch,c.section].filter(Boolean).join(' ');
-    return kws.some(function(kw){return h.indexOf(kw)>=0;});
-  }).length;
+  return computeVisible().length;
 }
 window.goPage=goPage;
 
@@ -13006,13 +13106,61 @@ function toggleSelect(id){
   var card=document.querySelector('.lcard[data-id="'+id+'"]');
   if(card) card.style.background=selectedIds[id]?'#ebf8ff':'white';
 }
+// DAN244 INV-3: 全選択は「現在母集団で置換」（加算ではない）。INV-1（selectedIds⊆母集団）の
+// 下では加算と置換は同値だが、防御的に置換を採用する。
 function selectAll(){
-  lastVisible.forEach(function(c){ selectedIds[c.id]=true; });
+  var next={};
+  (lastVisible||[]).forEach(function(c){ next[c.id]=true; });
+  selectedIds=next;
   updateSelectCount(); renderCards();
 }
 function selectNone(){
   selectedIds={}; updateSelectCount(); renderCards();
 }
+// ===== DAN244: 選択ガード（INV-1〜5） =====
+// 母集団を変え得る操作（担当filter・並替・検索確定）は必ずこのガードを経由する。
+// 判定は「操作種別」ではなく実際のID差分（nextPopulationとの照合）で行う（INV-2・INV-4）。
+function _bulkSelDropped(nextState){
+  var curIds=Object.keys(selectedIds);
+  if(!curIds.length) return [];
+  if(typeof computeVisible!=='function') return [];
+  var nextVisible=computeVisible(nextState);
+  var nextIds={}; nextVisible.forEach(function(c){ nextIds[c.id]=1; });
+  return curIds.filter(function(id){ return !nextIds[id]; });
+}
+// MAJOR-5是正：モーダルのメイン件数は「選択中の総数」を表示する（脱落数ではない）。
+// 旧実装はdropped.length（脱落数）をそのまま「選択中のn件」として表示しており、
+// 例えば10件選択中4件だけ脱落する場合に「選択中4件」と表示され実際の解除件数（10件）と
+// 乖離していた。総数を主文言にし、脱落数は補足として添える。
+function _bulkSelGuardMessage(totalN, droppedN){
+  var msg = '選択中の' + totalN + '件があります。<br>条件を変更すると現在の選択は解除されます。';
+  if (droppedN && droppedN > 0 && droppedN < totalN) {
+    msg += '<br><span style="font-size:12px;color:#718096">この変更で' + droppedN + '件が表示対象外になります。</span>';
+  }
+  return msg;
+}
+window._bulkSelGuardMessage = _bulkSelGuardMessage;
+// applyFn: 脱落0件、またはOK確認後に実際の状態変更＋再描画を行う。
+function _bulkSelGuardedChange(nextState, applyFn){
+  var dropped=_bulkSelDropped(nextState);
+  if(dropped.length===0){ applyFn(); return; }
+  var curIds=Object.keys(selectedIds);
+  aibisConfirm(_bulkSelGuardMessage(curIds.length, dropped.length),
+    function(){ selectedIds={}; updateSelectCount(); applyFn(); },
+    '選択を解除して変更','キャンセル');
+}
+// DAN244 INV-6: cards配列に存在しないIDをselectedIdsから除去する（deleted-ID・非存在IDの
+// 残留を防ぐ。hidden selectionをbulk操作の対象へ持ち込ませない）。renderCards()の冒頭で毎回呼ぶ。
+function _bulkPruneSelection(){
+  var changed=false;
+  Object.keys(selectedIds).forEach(function(id){
+    if(!cards.some(function(c){ return c && c.id===id; })){ delete selectedIds[id]; changed=true; }
+  });
+  if(changed) updateSelectCount();
+}
+window._bulkSelDropped=_bulkSelDropped;
+window._bulkSelGuardedChange=_bulkSelGuardedChange;
+window._bulkPruneSelection=_bulkPruneSelection;
 function updateSelectCount(){
   var n=Object.keys(selectedIds).length;
   var el=document.getElementById('selectCount'); if(el) el.textContent=n;
@@ -13020,6 +13168,17 @@ function updateSelectCount(){
   var bar=document.getElementById('selectBar');
   if(bar) bar.style.background=n>0?'#ebf4ff':'#f7fafc';
   if(bar) bar.style.borderColor=n>0?'#2c5282':'#e2e8f0';
+  // DAN244: 選択バー直下の一括操作行（選択削除・担当変更）
+  var opBar=document.getElementById('bulkOpBar');
+  if(opBar) opBar.style.display=n>0?'flex':'none';
+  var delBtn=document.getElementById('bulkDeleteBtn');
+  if(delBtn) delBtn.textContent='🗑 選択削除（'+n+'件）';
+  var asBtn=document.getElementById('bulkAssignBtn');
+  if(asBtn){
+    var mgr=(typeof isMgrUnlocked==='function')&&isMgrUnlocked();
+    asBtn.style.display=mgr?'inline-block':'none';
+    asBtn.textContent='👤 担当変更（'+n+'件）';
+  }
 }
 // ===== 送信ヘルパ：Web共有（ファイル添付）優先・mailtoフォールバック v6.75 =====
 /* 第166弾: extraBody（任意）は本文末尾にそのまま追記する。省略時（他5箇所の既存呼び出し）は
@@ -13233,6 +13392,1585 @@ function sendDiag(){
     +'<br><br><span style="font-size:11px;color:#718096">※ アプリ内ブラウザ（LINE等）で開くと失敗します。ホーム画面のアイコンかChromeで開いてね。</span>');
 }
 window.sendDiag=sendDiag;
+// ===== DAN244 Correction 3: selection-and-bulk-ops — 破壊的一括操作の安全核（是正版） =====
+// 対象：選択削除（一括）／担当変更（一括・管理職限定）／全カードを削除（PC）／スマホをリセット。
+// Correction 3で是正した契約（O1〜O6・O8〜O15。O7/O16はapp_init.js側）：
+//  O1：journal read/write/clearをfail-closed化した（例外を握り潰さない。「存在しない」と
+//     「読めなかった／壊れていた」を区別する。writeはsetItem→readback→exact一致確認まで
+//     成功して初めてok:trueとする）。破壊前のprepared phase書込み失敗はhard gate
+//     （card/photo変更0のまま中止）。破壊開始後の方向転換phase（rolling-back／undo-*／
+//     assign-rolling-back）の書込み失敗は、別方向へ推測で進まずrecovery-requiredへ回す。
+//  O2：Undo（bulkOpsUndo）もdelete/assignと同じshared owner lockを開始時に取得する。
+//     lock取得失敗＝Undo開始禁止・card/photo変更0。
+//  O3：削除後verify失敗（_bulkVerifyRemoval）でrecoveryRequiredを立てる経路は、
+//     shared lockを解放しない（O9で全経路統一）。
+//  O4：担当変更（bulkAssignManagerConfirm→_bulkAssignExecute）もカードのみの永続
+//     RestorePoint＋journal（assign-prepared/assign-saving/assign-rolling-back）を持つ。
+//     rollback再保存が失敗した場合はrecoveryRequired＋journal/RP＋shared lockを保持し、
+//     起動時repairで旧担当状態へ復元可能にする（memory退避のみのfail-openを是正）。
+//  O5：RestorePoint作成時の読み戻し検証を、manifest一致だけでなく元snapshotとreadback
+//     実体のdeep equality（DAN240 _deepEqualAsync240を再利用）まで拡張した。card全フィールド・
+//     media(set＋photos＋full/thumb Blob実体)の破損・差替え・欠落を削除開始前に検出する。
+//  O6：done journal + RestorePoint欠損／破損を正常状態として扱わない。persistent Undo成功
+//     扱いを禁止し、recoveryRequiredを立てて明示警告する。永久デッドロックにしないため、
+//     既存aibisConfirmによる唯一の明示finalize経路（整合検査＋利用者確認）を用意する。
+//  O8：起動時journal修復（bulkOpsRepairJournalOnBoot）もmutationを行う前にshared owner
+//     lockを取得する。他タブが非stale lockを保持している間は同時repairしない。done journal
+//     のUndo表示再構成／finalize導線提示など、mutationを伴わない読取専用処理は例外とする。
+//  O9：recoveryRequired=trueになった経路は、delete/assign/Undo/repair/journal/RPいずれの
+//     原因でも共有ロックを解放しない（新規破壊操作を他タブからも止め続ける）よう統一した。
+//  O11：各不可逆境界（cards mutation直前・media削除直前・Undo/assign/repair mutation直前）
+//     の直前でowner保持を再確認する（_bulkLockStillOwned）。heartbeat自体もread/write失敗・
+//     owner不一致を無視せず_bulkLockFaultを立て、以降の境界チェックをfail-closedにする。
+//  O12：O5と同じdeep verifyで、media側のset全フィールド・photos配列・Blob size/typeまで
+//     検証する（_deepEqualAsync240が配列・オブジェクト・Blob/Fileを再帰的に比較するため、
+//     専用の再実装は行わない＝244-2e pin維持）。
+//  O13：Undo（_bulkUndoAttempt、interactive・起動時repair共通）は、写真を1件も復元する前に
+//     対象cardIdごとのconflict preflightを行う（A:カード無し→restore可、B:内容完全一致→
+//     冪等restore可、C:内容不一致→conflict＝写真0件・card非接触・success禁止）。
+//  O14：O4のrollback仕様の詳細（下記O4参照）。
+//  O15：O6の明示finalize経路の詳細（下記O6参照）。
+// これ以前（Correction 1/2）で確立した契約は維持する（§17）：
+//  1) BLOCKER-1：二段階確認（1回目・2回目とも無改変のaibisConfirmを使用）が完全に終わり、
+//     利用者が最終確認でYESを押した「後」にのみ永続状態を作り始める。
+//  2) BLOCKER-2：起動時ジャーナル修復はphase別に意味を分離し、ラベルだけでなく実状態を
+//     検査してから安全側の分岐を選ぶ。
+//  3) BLOCKER-3：Undoもjournalを伴うtransactionとして扱う。
+//  4) BLOCKER-4：rollback／Undoが完全に完了しなかった場合はbulkOps._recoveryRequired=true
+//     を保持し、bulkOpsCanStart()がこれを見て新たな破壊的一括操作の開始を拒否する。
+//  5) カード側(localStorage)と写真側(IndexedDB)は別ストレージのため単一トランザクションに
+//     できない。永続復元ポイント＋順序固定＋ジャーナルによる再開修復＋自動検証で実効的な
+//     原子性を保証する。
+//  6) doDelCard・doSaveCards・undoCardEdit・_mgrTerm241Busy・_inbOrphanDelBusyのいずれかが
+//     busyの間、およびbulkOps._recoveryRequiredの間は一括操作を開始しない。
+//  7) MAJOR-3：一括操作中は編集画面側もこのファイル側から独立にロックする。
+//  8) MAJOR-4：多タブロックはowner token方式。
+//  9) card_delete.js／local_storage_backup.js／full_backup.js／file_ops.js／camera/**へは
+//     一切触れない（denylist）。写真の再読取・復元にはDAN240の_deepEqualAsync240／
+//     _restorePhotosForUndo240を再利用し、写真復元ロジックを二重実装しない。
+//  10) cards=cards.filter(...) / cards=[] による除去はこのファイル以外で行わない（静的pin対象）。
+//  11) aibis_media_v1のversion／store追加は一切行わない。新規永続領域（aibis_restore_v1・
+//     prospect_bulk_journal_v1・aibis_bulk_op_lock_v1）はkeys.js/storage_keys.jsに登録済み
+//     （Correction 3でも新規storage keyは追加しない。assign用RestorePoint／journalも既存の
+//     3領域のみを再利用する）。
+
+// ---- 復元ポイントDB（aibis_restore_v1・store: points・keyPath: opId） ----
+var _brdb = null;
+var _bulkRestoreChain = Promise.resolve();
+function _bulkRestoreOpen(){
+  return new Promise(function(res, rej){
+    if (_brdb) { res(_brdb); return; }
+    var done = false, r;
+    var to = setTimeout(function(){ if (done) return; done = true; _brdb = null; rej(new Error('復元DBオープンがタイムアウトしました')); }, 6000);
+    try { r = indexedDB.open(BULK_RESTORE_DB, 1); } catch (err) { clearTimeout(to); done = true; rej(err); return; }
+    r.onupgradeneeded = function(){ var db = r.result; if (!db.objectStoreNames.contains(BULK_RESTORE_STORE)) { db.createObjectStore(BULK_RESTORE_STORE, { keyPath: 'opId' }); } };
+    r.onsuccess = function(){
+      if (done) { try { r.result.close(); } catch (e) {} return; }
+      done = true; clearTimeout(to); _brdb = r.result;
+      try { _brdb.onclose = function(){ _brdb = null; }; _brdb.onversionchange = function(){ try { _brdb.close(); } catch (e) {} _brdb = null; }; } catch (e) {}
+      res(_brdb);
+    };
+    r.onerror = function(){ if (done) return; done = true; clearTimeout(to); _brdb = null; rej(r.error || new Error('復元DBオープン失敗')); };
+    r.onblocked = function(){ if (done) return; done = true; clearTimeout(to); _brdb = null; rej(new Error('他のタブが復元DBを使用中です')); };
+  });
+}
+function _bulkRestoreRunRaw(mode, fn, ms){
+  return new Promise(function(res, rej){
+    var done = false, db = null;
+    var to = setTimeout(function(){ if (done) return; done = true; try { if (db) db.close(); } catch (e) {} rej(new Error('復元DBタイムアウト')); }, ms || 8000);
+    var r; try { r = indexedDB.open(BULK_RESTORE_DB, 1); } catch (e) { clearTimeout(to); done = true; rej(e); return; }
+    r.onupgradeneeded = function(){ var d = r.result; if (!d.objectStoreNames.contains(BULK_RESTORE_STORE)) { d.createObjectStore(BULK_RESTORE_STORE, { keyPath: 'opId' }); } };
+    r.onerror = function(){ if (done) return; done = true; clearTimeout(to); rej(r.error || new Error('復元DB open失敗')); };
+    r.onsuccess = function(){
+      if (done) { try { r.result.close(); } catch (e) {} return; }
+      db = r.result;
+      var req = null;
+      try {
+        var t = db.transaction(BULK_RESTORE_STORE, mode), store = t.objectStore(BULK_RESTORE_STORE);
+        req = fn(store);
+        t.oncomplete = function(){ if (done) return; done = true; clearTimeout(to); try { db.close(); } catch (e) {} res(req ? req.result : undefined); };
+        t.onerror = function(){ if (done) return; done = true; clearTimeout(to); try { db.close(); } catch (e) {} rej(t.error || new Error('復元DB tx失敗')); };
+        t.onabort = function(){ if (done) return; done = true; clearTimeout(to); try { db.close(); } catch (e) {} rej(t.error || new Error('復元DB tx中断')); };
+      } catch (e) { if (done) return; done = true; clearTimeout(to); try { db.close(); } catch (e2) {} rej(e); }
+    };
+  });
+}
+function _bulkRestoreRun(mode, fn, ms){
+  var run = function(){ return _bulkRestoreRunRaw(mode, fn, ms); };
+  var p = _bulkRestoreChain.then(run, run);
+  _bulkRestoreChain = p.then(function(){}, function(){});
+  return p;
+}
+function _rpPut(rec){ return _bulkRestoreRun('readwrite', function(s){ return s.put(rec); }, 12000); }
+function _rpGet(opId){ return _bulkRestoreRun('readonly', function(s){ return s.get(opId); }, 8000); }
+function _rpDelete(opId){ return _bulkRestoreRun('readwrite', function(s){ return s.delete(opId); }, 8000); }
+function _rpAllKeys(){ return _bulkRestoreRun('readonly', function(s){ return (s.getAllKeys ? s.getAllKeys() : s.getAll()); }, 8000); }
+window._bulkRestoreOpen = _bulkRestoreOpen;
+
+// ---- マニフェスト（ID集合・枚数・linkage・photo identityの軽量照合。Blob実体はRestorePoint内に
+// そのまま保持する） ----
+function _bulkPhotoIdentityList(mediaSets){
+  var out = [];
+  (mediaSets || []).forEach(function(s){
+    ((s && s.photos) || []).forEach(function(p){
+      out.push({ setId: s.id, pid: (p && p.pid) || '', size: (p && p.size) || 0 });
+    });
+  });
+  return out;
+}
+function _bulkBuildManifest(cardIds, mediaSets){
+  var setIds = (mediaSets || []).map(function(s){ return s.id; });
+  var photoCount = (mediaSets || []).reduce(function(n, s){ return n + ((s && s.photos && s.photos.length) || 0); }, 0);
+  var siteLinks = (mediaSets || []).map(function(s){ return { setId: s.id, cardId: s.cardId }; });
+  var photos = _bulkPhotoIdentityList(mediaSets);
+  return { cardIds: (cardIds || []).slice(), setIds: setIds, photoCount: photoCount, siteLinks: siteLinks, photos: photos };
+}
+function _bulkSortedJoin(arr){ return (arr || []).slice().sort().join('\u0001'); }
+function _bulkManifestsEqual(a, b){
+  if (!a || !b) return false;
+  if (_bulkSortedJoin(a.cardIds) !== _bulkSortedJoin(b.cardIds)) return false;
+  if (_bulkSortedJoin(a.setIds) !== _bulkSortedJoin(b.setIds)) return false;
+  if (a.photoCount !== b.photoCount) return false;
+  var al = (a.siteLinks || []).map(function(x){ return x.setId + '::' + x.cardId; }).sort();
+  var bl = (b.siteLinks || []).map(function(x){ return x.setId + '::' + x.cardId; }).sort();
+  if (al.join('\u0001') !== bl.join('\u0001')) return false;
+  var ap = (a.photos || []).map(function(x){ return x.setId + '::' + x.pid + '::' + x.size; }).sort();
+  var bp = (b.photos || []).map(function(x){ return x.setId + '::' + x.pid + '::' + x.size; }).sort();
+  if (ap.join('\u0001') !== bp.join('\u0001')) return false;
+  return true;
+}
+function _bulkVerifyCardContents(cardsSnapshot, idsToCheck){
+  try {
+    return (idsToCheck || []).every(function(id){
+      var snap = (cardsSnapshot || []).filter(function(en){ return en && en.card && en.card.id === id; })[0];
+      var now = cards.filter(function(c){ return c && c.id === id; })[0];
+      if (!snap || !now) return false;
+      return JSON.stringify(snap.card) === JSON.stringify(now);
+    });
+  } catch (_e) { return false; }
+}
+function _bulkVerifyRemoval(idSet, setIdsTargeted){
+  var cardsOk = !cards.some(function(c){ return c && idSet[c.id]; });
+  // S2是正（Correction7）：mAll()が呼べない＝写真set側の真偽が確認不能。カード側が一見
+  // 揃っていても「未確認＝成功扱い」にしない（fail-closed）。旧実装はcardsOkのみで成立
+  // させていた（DAN244 Correction6報告§8の「fail-closed」記述は誤りだった＝本Correctionで
+  // 訂正）。
+  if (typeof mAll !== 'function') return Promise.resolve(false);
+  return mAll().then(function(all){
+    var setsStillThere = (all || []).some(function(s){ return s && setIdsTargeted.indexOf(s.id) >= 0; });
+    return cardsOk && !setsStillThere;
+  }).catch(function(){ return false; });
+}
+
+// ---- ジャーナル（localStorage・prospect_bulk_journal_v1） ----
+// O1是正（BLOCKER）：「存在しない」と「読めなかった／壊れていた」を区別する。
+//   read  → { ok:true, exists:false } / { ok:true, exists:true, value:j } / { ok:false, error }
+//   write → setItem→readback→exact一致確認まで成功して初めて { ok:true }
+//   clear → removeItem→readback不存在確認まで成功して初めて { ok:true }
+// JSON parse破損も「journal無し」とは扱わない（fail-closed）。
+function _bulkJournalWrite(j){
+  try {
+    var s = JSON.stringify(j);
+    localStorage.setItem(BULK_JOURNAL_KEY, s);
+    var rb;
+    try { rb = localStorage.getItem(BULK_JOURNAL_KEY); } catch (_eR) { return { ok: false, error: 'readback-read-failed' }; }
+    if (rb !== s) return { ok: false, error: 'readback-mismatch' };
+    return { ok: true };
+  } catch (_e) { return { ok: false, error: (_e && _e.message) || String(_e) }; }
+}
+function _bulkJournalRead(){
+  var raw;
+  try { raw = localStorage.getItem(BULK_JOURNAL_KEY); } catch (_e) { return { ok: false, error: (_e && _e.message) || String(_e) }; }
+  if (raw === null || raw === undefined) return { ok: true, exists: false };
+  var j;
+  try { j = JSON.parse(raw); } catch (_eP) { return { ok: false, error: 'parse-error' }; }
+  if (!j || typeof j !== 'object' || !j.opId) return { ok: false, error: 'malformed' };
+  return { ok: true, exists: true, value: j };
+}
+function _bulkJournalClear(){
+  try {
+    localStorage.removeItem(BULK_JOURNAL_KEY);
+    var rb;
+    try { rb = localStorage.getItem(BULK_JOURNAL_KEY); } catch (_eR) { return { ok: false, error: 'readback-read-failed' }; }
+    if (rb !== null && rb !== undefined) return { ok: false, error: 'clear-readback-mismatch' };
+    return { ok: true };
+  } catch (_e) { return { ok: false, error: (_e && _e.message) || String(_e) }; }
+}
+
+// ---- 多タブロック（owner token・write→readback確認・fail-closed・heartbeat） ----
+function _bulkGenOwnerToken(){ return 'o_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '_' + Math.random().toString(36).slice(2); }
+var _bulkLockOwner = null;
+var _bulkLockHeartbeatTimer = null;
+var _bulkLockFault = false; // O11是正：heartbeat失敗／owner不一致を検出したフラグ
+function _bulkLockIsStale(l){ return !(l && typeof l.at === 'number' && (Date.now() - l.at) < BULK_LOCK_TTL_MS); }
+// O10是正：no-lock／valid-lock／read-error／parse-errorを区別する（旧実装はgetItem/parse
+// 失敗時もnullを返し「lock無し」と区別できなかった＝fail-open）。
+function _bulkLockReadState(){
+  var raw;
+  try { raw = localStorage.getItem(BULK_LOCK_KEY); } catch (_e) { return { state: 'read-error' }; }
+  if (raw === null || raw === undefined) return { state: 'no-lock' };
+  var l;
+  try { l = JSON.parse(raw); } catch (_eP) { return { state: 'parse-error' }; }
+  if (!l || typeof l !== 'object' || typeof l.owner !== 'string') return { state: 'parse-error' };
+  return { state: 'valid-lock', lock: l };
+}
+function _bulkLockReadRaw(){ var st = _bulkLockReadState(); return st.state === 'valid-lock' ? st.lock : null; }
+function _bulkLockStopHeartbeat(){ if (_bulkLockHeartbeatTimer) { clearInterval(_bulkLockHeartbeatTimer); _bulkLockHeartbeatTimer = null; } }
+function _bulkLockStartHeartbeat(){
+  _bulkLockStopHeartbeat();
+  _bulkLockHeartbeatTimer = setInterval(function(){
+    if (!_bulkLockOwner) return;
+    var st = _bulkLockReadState();
+    if (st.state === 'read-error' || st.state === 'parse-error') {
+      // O11是正：heartbeat中のread失敗を無視せずfaultを立てる（owner確認不能）。
+      _bulkLockFault = true;
+      return;
+    }
+    if (st.state === 'no-lock' || (st.lock && st.lock.owner !== _bulkLockOwner)) {
+      // 他タブに回収された、または消失＝owner mismatch。
+      _bulkLockFault = true;
+      return;
+    }
+    try { localStorage.setItem(BULK_LOCK_KEY, JSON.stringify({ owner: _bulkLockOwner, at: Date.now() })); }
+    catch (_eSet) { _bulkLockFault = true; }
+  }, Math.max(5000, Math.floor(BULK_LOCK_TTL_MS / 3)));
+}
+function _bulkLockAcquire(){
+  var st = _bulkLockReadState();
+  if (st.state === 'read-error' || st.state === 'parse-error') return false; // O10：最初のreadも成功して初めて取得処理へ進む
+  if (st.state === 'valid-lock' && !_bulkLockIsStale(st.lock)) return false; // 他owner保持中・TTL内 → 取得失敗
+  var token = _bulkGenOwnerToken();
+  try { localStorage.setItem(BULK_LOCK_KEY, JSON.stringify({ owner: token, at: Date.now() })); }
+  catch (_e) { return false; } // fail-closed
+  var st2 = _bulkLockReadState();
+  if (st2.state !== 'valid-lock' || st2.lock.owner !== token) return false; // readback不一致＝他タブが割り込んだ→fail-closed
+  _bulkLockOwner = token;
+  _bulkLockFault = false;
+  _bulkLockStartHeartbeat();
+  return true;
+}
+function _bulkLockRelease(){
+  try {
+    if (_bulkLockOwner) {
+      var l = _bulkLockReadRaw();
+      if (l && l.owner === _bulkLockOwner) { localStorage.removeItem(BULK_LOCK_KEY); }
+      // owner不一致（既にTTL失効→他タブが回収済み等）の場合は他ownerのlockを一切releaseしない。
+    }
+  } catch (_e) {}
+  _bulkLockOwner = null;
+  _bulkLockFault = false;
+  _bulkLockStopHeartbeat();
+}
+// O11是正：各不可逆境界（cards mutation直前・media削除直前・Undo/assign/repair mutation
+// 直前）の直前で呼ぶ。owner喪失／heartbeat faultならfalseを返し、呼出し元はそれ以上の
+// 破壊を進めずrecovery-requiredへ回す。
+function _bulkLockStillOwned(){
+  if (!_bulkLockOwner) return false;
+  if (_bulkLockFault) return false;
+  var st = _bulkLockReadState();
+  if (st.state !== 'valid-lock') return false;
+  return st.lock.owner === _bulkLockOwner;
+}
+
+// ---- C4是正：shared journal gate（new-op / undo / repair modeの分離） ----
+// 根本原因（C4-1/C4-2＝P1/P2）：旧実装はbulkOps._recoveryRequiredがtab-localである一方、
+// 新規破壊操作の開始判定（_bulkLockAcquire）はlock owner/TTLしか見ておらず、共有journal
+// そのものを実測していなかった。lockがTTL失効（他タブが閉じられた等）すれば、journalが
+// 未完了／破損のままでも別タブから新規破壊操作を開始できてしまっていた。
+// 「共有journalが安全でない限り、新しいdestructive operationを開始できない」を恒久不変
+// 条件とする。新規storage keyは追加せず、既存のBULK_JOURNAL_KEY／BULK_LOCK_KEY／
+// RestorePoint DBのみを用いる。
+//
+// new-op mode（選択削除・全カード削除・スマホリセット・担当変更の開始点で使用）：
+//   A. journal read失敗            → 開始禁止（journal-unreadable）
+//   B. parse-error/malformed       → 開始禁止（_bulkJournalReadが既にerrorとして返す）
+//   C. journalが未完phase          → 開始禁止（journal-incomplete）
+//   D. 未知phase                   → 開始禁止（journal-incompleteに含める。個別分岐しない）
+//   E. journal不存在                → 新規操作開始可能
+//   F. journal phase=done           → pending Undo retireフローへ（無言で上書きしない）
+function _bulkNewOpJournalGate(){
+  var rr = _bulkJournalRead();
+  if (!rr.ok) return { allow: false, reason: 'journal-unreadable' };
+  if (!rr.exists) return { allow: true };
+  if (rr.value.phase === 'done') return { allow: false, reason: 'pending-undo', journal: rr.value };
+  return { allow: false, reason: 'journal-incomplete', journal: rr.value };
+}
+// new-op modeの実際の取得点（_bulkNewOpJournalGateと同じ判定を行った上で、journal不存在の
+// 場合のみ実際にlockを取得する＝判定とlock取得の間に新たな競合が入ってもlock自体が唯一の
+// 排他調停者になる）。呼出し元はこの関数が返すreasonに応じて分岐する（pending-undoは
+// _bulkNewOpJournalGateの事前チェックで既にretire済みのはずだが、競合で再度発生しても
+// 安全にdenyする）。
+// C5是正（BLOCKER Q2＝cross-tab TOCTOU）：pre-read（journal不存在確認）とlock取得の間に
+// 別タブがoperationを完了してjournalを書き（例：done）lockを解放した場合、こちらはその後
+// lock取得自体には成功できてしまう。post-lock revalidationが無いと、その新しいjournalを
+// 無視してprepared書込みへ進み、他operationのpersistent Undo journalを上書きし得る
+// （ChatGPT probe再現：Q2 FAIL）。lock取得後に必ずjournalを再読取し、依然として不存在で
+// あることを確認して初めてok:trueとする。
+function _bulkLockAcquireNewOp(){
+  var rr = _bulkJournalRead();
+  if (!rr.ok) return { ok: false, reason: 'journal-unreadable' };
+  if (rr.exists) return { ok: false, reason: (rr.value.phase === 'done') ? 'pending-undo' : 'journal-incomplete', journal: rr.value };
+  if (!_bulkLockAcquire()) return { ok: false, reason: 'locked' };
+  var rr2 = _bulkJournalRead();
+  if (!rr2.ok) { _bulkLockRelease(); return { ok: false, reason: 'journal-unreadable' }; }
+  if (rr2.exists) {
+    _bulkLockRelease();
+    return { ok: false, reason: (rr2.value.phase === 'done') ? 'pending-undo' : 'journal-incomplete', journal: rr2.value };
+  }
+  return { ok: true };
+}
+// undo mode（§9）：共有journalがphase='done'かつ対象opIdと一致する場合のみlockを取得する。
+// 他タブが既にretire／finalize／新規操作でjournalを変化させていないかを、lock取得前に
+// 実測する。
+// C5是正（BLOCKER Q3＝cross-tab TOCTOU）：pre-read（journal done＋opId一致確認）とlock取得の
+// 間に別タブがjournalを別operation（例：op2）へ変更した場合、こちらはその後lock取得自体には
+// 成功できてしまう。post-lock revalidationが無いと、古いUndo要求（op1向け）が新しい
+// operation（op2）の共有状態上で進行し得る（ChatGPT probe再現：Q3 FAIL）。lock取得後に
+// 必ずjournalを再読取し、依然としてdone＋expected opIdと完全一致することを確認して初めて
+// ok:trueとする。
+function _bulkLockAcquireUndo(op){
+  var rr = _bulkJournalRead();
+  if (!rr.ok) return { ok: false, reason: 'journal-unreadable' };
+  if (!rr.exists || rr.value.phase !== 'done' || rr.value.opId !== op.opId) return { ok: false, reason: 'journal-mismatch' };
+  if (!_bulkLockAcquire()) return { ok: false, reason: 'locked' };
+  var rr2 = _bulkJournalRead();
+  if (!rr2.ok || !rr2.exists || rr2.value.phase !== 'done' || rr2.value.opId !== op.opId) {
+    _bulkLockRelease();
+    return { ok: false, reason: 'journal-mismatch' };
+  }
+  return { ok: true };
+}
+function _bulkNewOpDenyMessage(reason){
+  if (reason === 'journal-unreadable') return '⚠ 前回の一括操作の記録を確認できなかったため、新しい一括操作を開始できません。初期設定→保存診断をご確認ください';
+  if (reason === 'journal-incomplete') return '⚠ 前回の一括操作が完了していないため、新しい一括操作を開始できません。初期設定→保存診断をご確認ください';
+  if (reason === 'locked') return '他のタブで一括操作が進行中です。しばらくしてからお試しください';
+  return '⚠ 新しい一括操作を開始できませんでした';
+}
+// §8是正：pending Undo（journal done）がある状態で新規破壊操作を開始しようとした場合の
+// 明示確認。Cancel（aibisConfirmの「やめる」）＝旧Undo完全維持（journal/RP/_lastOp無変更・
+// 何も実行されない＝onRetireCompleteは呼ばれない）。「続ける」＝_bulkRetirePendingUndoを
+// 実行し、成功時のみonRetireComplete(true)を呼ぶ。
+// C5是正（BLOCKER Q6＝retire確認自体のstale confirmation）：確認modalを表示した時点の
+// 共有journal（expectedJournal＝opId/kind/cardIds/setIds）をsnapshotする。ユーザーが確認を
+// 見ている間に別タブで旧operationのUndo／retire／finalizeや新operationの完了が起きても、
+// YES押下時に「その時点の現在journal」をそのままretireしない。_bulkRetirePendingUndoへ
+// expectedJournalを渡し、lock取得後にexact opId一致を再確認させる（ChatGPT probe再現：Q6 FAIL
+// の是正）。
+function _bulkOfferRetireForNewOp(onRetireComplete){
+  var rrSnap = _bulkJournalRead();
+  if (!rrSnap.ok || !rrSnap.exists || rrSnap.value.phase !== 'done') {
+    // 表示しようとした時点で既にdone状態ではない＝pending Undo自体が既に解消している。
+    onRetireComplete(false);
+    return;
+  }
+  var expectedJournal = rrSnap.value;
+  if (typeof aibisConfirm !== 'function') { onRetireComplete(false); return; }
+  aibisConfirm(
+    '直前の一括削除をまだ元に戻せます。<br>新しい一括操作を開始すると、この取り消し権は終了します。<br>続けますか？',
+    function(){ _bulkRetirePendingUndo(expectedJournal, function(ok){ onRetireComplete(!!ok); }); },
+    '続ける', 'やめる'
+  );
+}
+// §8/§9是正：pending Undoの明示retire。lockを取得したうえで、①journal再読取②Q6是正：
+// expectedJournal（modal表示時点snapshot）のopIdと現在journalのopIdが完全一致することを
+// 確認（不一致はstale confirmationとして拒否・現在journal/RP非接触）③対応RP存在確認
+// ④Q1是正：target cardIds全件不存在に加え、target setIdsが全件media DBから真に消えている
+// ことをmAll()ベースで確認（写真setが後から再出現していた場合はretire自体を拒否する。
+// ChatGPT probe再現：Q1 FAILの是正）⑤journal clearをwrite/readbackで検証⑥旧RP削除
+// ⑦_lastOp解除⑧lock解放、の順で行う。いずれかが失敗した場合はrecoveryRequired・journal/RP
+// 保持・lock保持（RPが本当に見つからない場合は既存のdone+RP missing finalize経路へ委譲する）。
+function _bulkRetirePendingUndo(expectedJournal, onDone){
+  if (!_bulkLockAcquire()) { onDone(false, 'locked'); return; }
+  var rr = _bulkJournalRead();
+  if (!rr.ok || !rr.exists || rr.value.phase !== 'done') {
+    _bulkLockRelease();
+    onDone(false, 'journal-changed');
+    return;
+  }
+  var j = rr.value;
+  if (!expectedJournal || j.opId !== expectedJournal.opId) {
+    // Q6是正：確認時点のoperationと現在journalのoperationが異なる＝stale confirmation。
+    // 現在journal/RPには一切触れず、lockだけ自分の分を解放する。
+    _bulkLockRelease();
+    onDone(false, 'stale-journal');
+    return;
+  }
+  // S5是正（Correction7）：journal.cardIds/setIdsが配列でない（欠損・null・非配列）場合、
+  // 対象範囲が確認不能な状態でretireを進めない。journal/RPには一切触れず、lockは保持した
+  // まま新規破壊操作だけを止める（既存O9のrecoveryRequired規約に合わせる）。
+  if (!Array.isArray(j.cardIds) || !Array.isArray(j.setIds)) {
+    bulkOps._recoveryRequired = true;
+    try { toast('⚠ 直前の一括操作の記録が壊れているため、安全に終了できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    onDone(false, 'journal-malformed');
+    return;
+  }
+  _rpGet(j.opId).then(function(rp){
+    if (!rp) {
+      bulkOps._recoveryRequired = true; // lockは保持したまま明示finalize導線へ委譲
+      try { toast('⚠ 直前の一括削除の復元ポイントが失われているため、元に戻せません'); } catch (_e) {}
+      try { _bulkOfferDoneRpMissingFinalize(j); } catch (_e2) {}
+      onDone(false, 'rp-missing');
+      return;
+    }
+    // §14追加項目9 + S5是正（Correction7）：RestorePointのmanifest自体が欠損している場合、
+    // またはmanifest.setIdsが配列でない場合も、journal.setIdsとの不一致と同様に拒否する
+    // （従来はmanifest欠損時にこの検査自体がすり抜けていた＝抜け穴だった）。
+    if (!rp.manifest || !Array.isArray(rp.manifest.setIds) || _bulkSortedJoin(rp.manifest.setIds) !== _bulkSortedJoin(j.setIds)) {
+      bulkOps._recoveryRequired = true;
+      try { toast('⚠ 直前の削除記録が一致しないため、安全に終了できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+      onDone(false, 'manifest-mismatch');
+      return;
+    }
+    var cardsOk = !j.cardIds.some(function(id){ return cards.some(function(c){ return c && c.id === id; }); });
+    if (!cardsOk) {
+      bulkOps._recoveryRequired = true;
+      try { toast('⚠ 直前の削除状態が現在の内容と一致しないため、安全に終了できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+      onDone(false, 'state-mismatch');
+      return;
+    }
+    // Q1是正：カードだけでなく、対象写真setが本当にmedia DBから消えているかをmAll()ベースの
+    // 真値で確認する。何らかの理由（異常復旧・古いJSON再取込等）で削除済み写真setが再出現
+    // していた場合、retireを続行すると迷子写真として残存したままUndo権だけが失われる。
+    _bulkRepairVerifySetsGone(j.setIds).then(function(setsGone){
+      if (!setsGone) {
+        bulkOps._recoveryRequired = true;
+        try { toast('⚠ 直前の削除状態（写真）が現在の内容と一致しないため、安全に終了できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+        onDone(false, 'media-state-mismatch');
+        return;
+      }
+      var cl = _bulkJournalClear();
+      if (!cl.ok) {
+        bulkOps._recoveryRequired = true;
+        try { toast('⚠ 直前の取り消し権の終了記録に失敗しました。初期設定→保存診断をご確認ください'); } catch (_e) {}
+        onDone(false, 'clear-failed');
+        return;
+      }
+      _rpDelete(j.opId).catch(function(){});
+      bulkOps._lastOp = null;
+      _bulkLockRelease();
+      try { _bulkRenderPersistentUndo(); } catch (_e2) {}
+      onDone(true);
+    });
+  }).catch(function(){
+    bulkOps._recoveryRequired = true;
+    try { toast('⚠ 直前の一括操作の復元ポイント確認に失敗しました。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    onDone(false, 'rp-read-failed');
+  });
+}
+
+// ---- busy/排他ゲート ----
+var bulkOps = { _busy: false, _lastOp: null, _recoveryRequired: false };
+window.bulkOps = bulkOps;
+function bulkOpsCanStart(){
+  if (bulkOps._busy) return false;
+  if (bulkOps._recoveryRequired) return false; // BLOCKER-4：復旧未完は新規破壊操作を禁止
+  if (typeof doDelCard !== 'undefined' && doDelCard._busy) return false;
+  if (typeof doSaveCards !== 'undefined' && doSaveCards._busy) return false;
+  if (typeof undoCardEdit === 'function' && undoCardEdit._busy) return false;
+  if (typeof _mgrTerm241Busy !== 'undefined' && _mgrTerm241Busy) return false;
+  if (typeof _inbOrphanDelBusy !== 'undefined' && _inbOrphanDelBusy) return false;
+  return true;
+}
+function bulkOpsRecoveryRequired(){ return !!bulkOps._recoveryRequired; }
+window.bulkOpsCanStart = bulkOpsCanStart;
+window.bulkOpsRecoveryRequired = bulkOpsRecoveryRequired;
+
+// O9是正（BLOCKER）：recoveryRequiredになる経路（delete verify failure／rollback failure／
+// Undo failure／journal failure／RP corruption／assignment rollback failure／repair
+// failure）を全て統一する。共有lockは解放しない（他タブの新規破壊操作を止め続ける）。
+function _bulkEnterRecovery(msg){
+  bulkOps._recoveryRequired = true;
+  bulkOps._busy = false;
+  _bulkSetUILock(false);
+  if (msg) { try { toast(msg); } catch (_e) {} }
+}
+// 破壊操作が未着手（または安全に巻き戻し済み）の状態でのクリーンな終了。共有lockを解放する。
+function _bulkExitClean(msg){
+  bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+  if (msg) { try { toast(msg); } catch (_e) {} }
+}
+
+// MAJOR-3：一括操作中は一覧の選択削除・担当変更に加え、編集画面側もこのファイル側から
+// 独立にロックする。
+function _bulkSetUILock(on){
+  try {
+    var ids = ['bulkDeleteBtn', 'bulkAssignBtn'];
+    ids.forEach(function(id){ var el = document.getElementById(id); if (el) el.disabled = !!on; });
+    document.querySelectorAll('.lcard [onclick^="delCard("]').forEach(function(el){ el.disabled = !!on; });
+  } catch (_e) {}
+  try { var delMenuBtn = document.getElementById('cardDelMenuBtn'); if (delMenuBtn) delMenuBtn.disabled = !!on; } catch (_e2) {}
+  try { var saveBtn = document.getElementById('saveCardBtn'); if (saveBtn) saveBtn.disabled = !!on; } catch (_e3) {}
+  try {
+    var ev = document.getElementById('editView');
+    if (ev) {
+      ev.inert = !!on;
+      if (typeof ev.setAttribute === 'function') ev.setAttribute('aria-busy', on ? 'true' : 'false');
+    }
+  } catch (_e4) {}
+}
+
+function _bulkPurgeOldRestorePoints(keepOpId){
+  return _rpAllKeys().then(function(keys){
+    var lastOpId = bulkOps._lastOp && bulkOps._lastOp.opId;
+    (keys || []).forEach(function(k){
+      if (k === keepOpId) return;
+      if (lastOpId && k === lastOpId) return; // 直前の完了Undo対象は保持
+      _rpDelete(k);
+    });
+  }).catch(function(){});
+}
+
+// ---- カード＋写真スナップショット・復元ポイント作成 ----
+function _bulkSnapshotCards(idSet){
+  var out = [];
+  for (var i = 0; i < cards.length; i++) { if (cards[i] && idSet[cards[i].id]) out.push({ index: i, card: JSON.parse(JSON.stringify(cards[i])) }); }
+  return out;
+}
+// O5/O12是正（BLOCKER）：manifest一致だけでなく、元snapshotとreadback実体をdeep equality
+// 比較する（DAN240 _deepEqualAsync240を再利用・専用の再実装はしない＝244-2e pin維持）。
+// card全フィールド・media(set全フィールド＋photos配列＋full/thumb Blob実体)の破損・
+// 差替え・欠落を、削除開始前（journal 'prepared'書込みより前）に検出する。
+function _bulkCreateRestorePoint(kind, idSet, cardIdsArr){
+  return mAll().then(function(all){
+    var linkedSets = (all || []).filter(function(s){ return s && s.cardId && s.cardId !== MEDIA_INBOX && idSet[s.cardId]; });
+    var cardsSnapshot = _bulkSnapshotCards(idSet);
+    var manifest = _bulkBuildManifest(cardIdsArr, linkedSets);
+    var opId = 'bulk_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    var rec = { opId: opId, kind: kind, createdAt: Date.now(), cards: cardsSnapshot, media: linkedSets, manifest: manifest };
+    return _rpPut(rec).then(function(){ return _rpGet(opId); }).then(function(readback){
+      if (!readback) return { ok: false, opId: opId, reason: 'readback-empty' };
+      var rbManifest = _bulkBuildManifest((readback.cards || []).map(function(x){ return x.card && x.card.id; }), readback.media || []);
+      if (!_bulkManifestsEqual(rbManifest, manifest)) return { ok: false, opId: opId, reason: 'readback-mismatch' };
+      return Promise.all([
+        _deepEqualAsync240(cardsSnapshot, readback.cards || []),
+        _deepEqualAsync240(linkedSets, readback.media || [])
+      ]).then(function(res){
+        if (!res[0] || !res[1]) return { ok: false, opId: opId, reason: 'readback-deep-mismatch' };
+        return { ok: true, opId: opId, manifest: manifest, linkedSets: linkedSets, cardsSnapshot: cardsSnapshot };
+      }).catch(function(){ return { ok: false, opId: opId, reason: 'deep-verify-failed' }; });
+    }).catch(function(err){ return { ok: false, opId: opId, reason: 'put-or-readback-failed:' + ((err && err.message) || err) }; });
+  }).catch(function(err){ return { ok: false, opId: null, reason: 'mAll-failed:' + ((err && err.message) || err) }; });
+}
+// O4/O14是正：担当変更用の軽量RestorePoint（カードのみ・media不要）。同じdeep verifyを行う。
+function _bulkCreateCardOnlyRestorePoint(kind, idSet, cardIdsArr){
+  var cardsSnapshot = _bulkSnapshotCards(idSet);
+  var manifest = _bulkBuildManifest(cardIdsArr, []);
+  var opId = 'bulk_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  var rec = { opId: opId, kind: kind, createdAt: Date.now(), cards: cardsSnapshot, media: [], manifest: manifest };
+  return _rpPut(rec).then(function(){ return _rpGet(opId); }).then(function(readback){
+    if (!readback) return { ok: false, opId: opId, reason: 'readback-empty' };
+    var rbManifest = _bulkBuildManifest((readback.cards || []).map(function(x){ return x.card && x.card.id; }), readback.media || []);
+    if (!_bulkManifestsEqual(rbManifest, manifest)) return { ok: false, opId: opId, reason: 'readback-mismatch' };
+    return _deepEqualAsync240(cardsSnapshot, readback.cards || []).then(function(same){
+      if (!same) return { ok: false, opId: opId, reason: 'readback-deep-mismatch' };
+      return { ok: true, opId: opId, manifest: manifest, cardsSnapshot: cardsSnapshot };
+    }).catch(function(){ return { ok: false, opId: opId, reason: 'deep-verify-failed' }; });
+  }).catch(function(err){ return { ok: false, opId: opId, reason: 'put-or-readback-failed:' + ((err && err.message) || err) }; });
+}
+
+// ---- カード復元（元index優先・既存ID競合は上書きしない。delete/wipe系専用） ----
+function _bulkRestoreCardsFromSnapshot(cardsSnapshot){
+  var changed = false;
+  (cardsSnapshot || []).slice().sort(function(a, b){ return a.index - b.index; }).forEach(function(entry){
+    var exists = cards.some(function(c){ return c && c.id === entry.card.id; });
+    if (exists) return; // 既存優先。上書きしない（doDelCard undo A2と同方針）
+    var at = Math.min(entry.index, cards.length);
+    cards.splice(at, 0, entry.card);
+    changed = true;
+  });
+  return changed;
+}
+// O4/O14是正：担当変更rollback専用。対象カードは削除されていない前提のため、既存カードの
+// manager/updated_atフィールドをsnapshot値へ上書きする（_bulkRestoreCardsFromSnapshotの
+// 「既存優先・上書きしない」ではカードの内容ロールバックができないため別実装とする）。
+function _bulkRestoreAssignFieldsFromSnapshot(cardsSnapshot){
+  (cardsSnapshot || []).forEach(function(entry){
+    var c = cards.find(function(x){ return x && x.id === entry.card.id; });
+    if (c) { c.manager = entry.card.manager; c.updated_at = entry.card.updated_at; }
+  });
+}
+
+// =========================================================
+// 一括削除（選択削除）— BLOCKER-1是正：二段階確認は完全に無状態。最終YES後にのみ
+// lock→busy→RestorePoint→journalの順で永続状態を作る。
+// =========================================================
+function bulkDeleteSelected(){
+  var ids = Object.keys(selectedIds);
+  if (!ids.length) { toast('選択されているカードがありません'); return; }
+  if (!bulkOpsCanStart()) { toast('他の処理中のため少し待ってからお試しください'); return; }
+  // C4是正（§7/§8）：新規破壊操作の開始前に共有journalを実測する。
+  var gate0 = _bulkNewOpJournalGate();
+  if (!gate0.allow) {
+    if (gate0.reason === 'pending-undo') { _bulkOfferRetireForNewOp(function(ok){ if (ok) bulkDeleteSelected(); }); return; }
+    toast(_bulkNewOpDenyMessage(gate0.reason));
+    return;
+  }
+  var idSet = {}; ids.forEach(function(id){ idSet[id] = true; });
+  var targets = cards.filter(function(c){ return c && idSet[c.id]; });
+  if (!targets.length) { toast('対象のカードが見つかりません（既に削除済みの可能性があります）'); return; }
+  var n = targets.length;
+  var names = targets.slice(0, 3).map(function(c){ return c.name || '無名'; }).join('・') + (n > 3 ? ' 他' : '');
+  aibisConfirm(
+    '選択した <b>' + n + '件</b>（' + e(names) + '）を削除します。<br>' +
+    '<span style="font-size:12px;color:#718096">カードと紐付く写真も一緒に削除します。</span>',
+    function(){ _bulkDeleteConfirm2(idSet, targets); },
+    '次へ', 'やめる'
+  );
+}
+function _bulkDeleteConfirm2(idSet, targets){
+  if (!bulkOpsCanStart()) { toast('他の処理中のため少し待ってからお試しください'); return; }
+  var n = targets.length;
+  aibisConfirm(
+    '最終確認！<br>選択した <b>' + n + '件</b> と紐付く写真を削除します。<br>' +
+    '<span style="font-size:12px;color:#718096">削除が完了した場合は「↩ 元に戻す」から復元できます。</span>',
+    function(){ _bulkDeleteStart(idSet, targets); },
+    '削除する', 'やめる'
+  );
+}
+function _bulkDeleteStart(idSet, targets){
+  // BLOCKER-1：ここが最終YES後の唯一の開始点。
+  if (!bulkOpsCanStart()) { toast('他の処理中のため少し待ってからお試しください'); return; }
+  // C4是正（§7）：new-op mode＝共有journal不存在を実測できた場合のみlockを取得する。
+  var acq = _bulkLockAcquireNewOp();
+  if (!acq.ok) {
+    if (acq.reason === 'pending-undo') { _bulkOfferRetireForNewOp(function(ok){ if (ok) _bulkDeleteStart(idSet, targets); }); return; }
+    toast(_bulkNewOpDenyMessage(acq.reason));
+    return;
+  }
+  bulkOps._busy = true; _bulkSetUILock(true);
+  var ids = Object.keys(idSet);
+  _bulkCreateRestorePoint('bulkDelete', idSet, ids).then(function(rp){
+    if (!rp.ok) { _bulkExitClean('⚠ 復元ポイントを作成・検証できなかったため削除を中止しました'); return; }
+    _bulkPurgeOldRestorePoints(rp.opId);
+    var setIds = rp.linkedSets.map(function(s){ return s.id; });
+    // O1/§5是正（BLOCKER）：journal 'prepared' write→readback exact確認までがhard gate。
+    var prep = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkDelete', phase: 'prepared', cardIds: ids, setIds: setIds });
+    if (!prep.ok) {
+      _rpDelete(rp.opId).catch(function(){});
+      _bulkExitClean('⚠ 操作記録の保存に失敗したため削除を中止しました（データは変更されていません）');
+      return;
+    }
+    if (!_bulkLockStillOwned()) { // O11：cards mutation直前のowner再確認
+      // C4是正（§15）：journal clearの結果を確認してから初めてRPを削除する。clear失敗時は
+      // RPを先に消さず、clean exitもしない（共有journalがprepared状態のまま安全に残り、
+      // shared gateが他タブの新規操作を止め続ける）。
+      var clr0 = _bulkJournalClear();
+      if (!clr0.ok) {
+        bulkOps._recoveryRequired = true; bulkOps._busy = false; _bulkSetUILock(false);
+        try { toast('⚠ 排他ロックを維持できなかったため削除を中止しましたが、操作記録の消去に失敗しました。初期設定→保存診断をご確認ください'); } catch (_e) {}
+        return;
+      }
+      _rpDelete(rp.opId).catch(function(){});
+      _bulkExitClean('⚠ 排他ロックを維持できなかったため削除を中止しました（データは変更されていません）');
+      return;
+    }
+    _bulkDeleteExecute(rp, idSet);
+  });
+}
+function _bulkDeleteExecute(rp, idSet){
+  if (!_bulkLockStillOwned()) { _bulkEnterRecovery('⚠ 排他ロックを確認できなかったため処理を中断しました。初期設定→保存診断をご確認ください'); return; }
+  var removedSnapshot = cards.filter(function(c){ return c && idSet[c.id]; });
+  cards = cards.filter(function(c){ return !(c && idSet[c.id]); });
+  doSaveCards(function(ok){
+    if (!ok) {
+      var rb = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkDelete', phase: 'rolling-back', cardIds: Object.keys(idSet), setIds: rp.linkedSets.map(function(s){ return s.id; }) });
+      if (!rb.ok) {
+        // O1/§6：rolling-back方向へのtransition永続化不能＝別方向へ推測で進まない。
+        _bulkEnterRecovery('⚠ 保存に失敗しましたが、復旧記録を保存できませんでした。初期設定→保存診断をご確認ください');
+        return;
+      }
+      if (!_bulkLockStillOwned()) { _bulkEnterRecovery('⚠ 排他ロックを確認できなかったため復旧を中断しました。初期設定→保存診断をご確認ください'); return; }
+      _bulkRestoreCardsFromSnapshot(rp.cardsSnapshot);
+      doSaveCards(function(ok2){
+        if (ok2) {
+          var cl = _bulkJournalClear();
+          if (!cl.ok) { _bulkEnterRecovery('⚠ 元に戻しましたが、操作記録の消去に失敗しました。初期設定→保存診断をご確認ください'); return; }
+          _bulkExitClean('⚠ 保存に失敗したため削除を中止し、元に戻しました');
+          try { renderList(); } catch (_e) {}
+        } else {
+          bulkOps._recoveryRequired = true; // BLOCKER-4：rollback未完＝新規破壊操作を禁止し続ける
+          bulkOps._busy = false; _bulkSetUILock(false);
+          toast('⚠ 保存に失敗しました。復元ポイントは保持されています。初期設定→保存診断をご確認ください');
+        }
+      });
+      return;
+    }
+    var w1 = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkDelete', phase: 'cards-saved', cardIds: Object.keys(idSet), setIds: rp.linkedSets.map(function(s){ return s.id; }) });
+    if (!w1.ok) { _bulkEnterRecovery('⚠ 削除は完了しましたが、操作記録の更新に失敗しました。初期設定→保存診断をご確認ください'); return; }
+    var w2 = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkDelete', phase: 'media-deleting', cardIds: Object.keys(idSet), setIds: rp.linkedSets.map(function(s){ return s.id; }) });
+    if (!w2.ok) { _bulkEnterRecovery('⚠ 写真削除の開始記録に失敗しました。初期設定→保存診断をご確認ください'); return; }
+    _bulkDeleteCascadeMedia(rp, idSet, removedSnapshot);
+  });
+}
+function _bulkDeleteCascadeMedia(rp, idSet, removedSnapshot){
+  var list = rp.linkedSets.slice();
+  var deleted = [];
+  var failed = false;
+  (function next(){
+    if (failed || !list.length) {
+      if (failed) { _bulkDeleteRollback(rp, idSet, removedSnapshot, deleted); return; }
+      var setIdsTargeted = rp.linkedSets.map(function(s){ return s.id; });
+      _bulkVerifyRemoval(idSet, setIdsTargeted).then(function(verified){
+        if (!verified) {
+          // O3是正（BLOCKER）：verify失敗時はshared lockを解放しない（O9で統一）。
+          _bulkEnterRecovery('⚠ 削除結果の確認に失敗しました。初期設定→保存診断をご確認ください');
+          return;
+        }
+        var wd = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkDelete', phase: 'done', cardIds: Object.keys(idSet), setIds: setIdsTargeted });
+        if (!wd.ok) {
+          // O6是正：done書込みが検証できない状態をpersistent Undo可能な正常状態として扱わない。
+          _bulkEnterRecovery('⚠ 削除は完了しましたが、完了記録の保存に失敗しました。初期設定→保存診断をご確認ください');
+          return;
+        }
+        bulkOps._lastOp = { opId: rp.opId, kind: 'bulkDelete', cardIds: Object.keys(idSet), setIds: setIdsTargeted, manifest: rp.manifest, at: Date.now() };
+        bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+        selectedIds = {}; try { updateSelectCount(); } catch (_e) {}
+        try { renderList(); } catch (_e2) {}
+        try { updateInboxBadge(); } catch (_e3) {}
+        try { _bulkRenderPersistentUndo(); } catch (_e4) {}
+        _bulkShowUndoBar(removedSnapshot.length + '件を削除しました');
+      });
+      return;
+    }
+    if (!_bulkLockStillOwned()) { // O11：各media delete前のowner再確認
+      _bulkEnterRecovery('⚠ 排他ロックを確認できなかったため処理を中断しました。初期設定→保存診断をご確認ください');
+      return;
+    }
+    var s = list.shift();
+    mDel(s.id).then(function(){ deleted.push(s); next(); }, function(){ failed = true; next(); });
+  })();
+}
+function _bulkDeleteRollback(rp, idSet, removedSnapshot, deletedSoFar){
+  var rb = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkDelete', phase: 'rolling-back', cardIds: Object.keys(idSet), setIds: rp.linkedSets.map(function(s){ return s.id; }) });
+  if (!rb.ok) {
+    // O1/§6：rolling-back方向のtransition永続化不能＝別方向へ推測で進まない。
+    _bulkEnterRecovery('⚠ 写真削除が一部失敗し、復旧記録も保存できませんでした。初期設定→保存診断をご確認ください');
+    return;
+  }
+  if (!_bulkLockStillOwned()) { // O11：rollback（Undo相当）mutation直前のowner再確認
+    _bulkEnterRecovery('⚠ 排他ロックを確認できなかったため復旧を中断しました。初期設定→保存診断をご確認ください');
+    return;
+  }
+  _bulkRestoreCardsFromSnapshot(rp.cardsSnapshot);
+  var toRestore = deletedSoFar; // 実際に削除できた写真のみ復元対象（DAN240 C2と同方針）
+  _restorePhotosForUndo240(toRestore, function(photoOk, photoConflict){
+    doSaveCards(function(okSave){
+      var complete = okSave && photoOk && !photoConflict;
+      if (complete) {
+        var cl = _bulkJournalClear();
+        if (!cl.ok) { _bulkEnterRecovery('⚠ 元に戻しましたが、操作記録の消去に失敗しました。初期設定→保存診断をご確認ください'); return; }
+        _bulkExitClean('⚠ 写真削除が一部失敗したため、選択した内容を元に戻しました');
+        try { renderList(); } catch (_e) {}
+      } else {
+        // BLOCKER-4：回復未完＝busyは解くがrecoveryRequiredを立て、新規破壊操作・多タブ
+        // ロック解放のどちらも行わない。
+        _bulkEnterRecovery('⚠ 削除が一部失敗し、復元にも失敗しました。初期設定→保存診断・緊急バックアップをご確認ください');
+      }
+    });
+  });
+}
+window.bulkDeleteSelected = bulkDeleteSelected;
+
+// =========================================================
+// 完了バー（Undo）— MAJOR-1：15秒トーストに加え、有効なUndoが存在する間は常設の
+// persistent Undo表示（_bulkRenderPersistentUndo）を別途行う。
+// =========================================================
+function _bulkShowUndoBar(msg){
+  try {
+    var t = document.getElementById('bulkUndoToast');
+    var m = document.getElementById('bulkUndoToastMsg');
+    if (!t || !m) { toast('🗑 ' + msg); return; }
+    m.textContent = msg;
+    t.style.display = 'flex';
+    clearTimeout(window._bulkUndoHideTimer);
+    window._bulkUndoHideTimer = setTimeout(function(){ try { t.style.display = 'none'; } catch (_e) {} }, 15000);
+  } catch (_e) { toast('🗑 ' + msg); }
+}
+function _bulkHideUndoBar(){ try { var t = document.getElementById('bulkUndoToast'); if (t) t.style.display = 'none'; } catch (_e) {} }
+function _bulkRenderPersistentUndo(){
+  try {
+    var el = document.getElementById('bulkPersistentUndo');
+    if (!el) return;
+    var msgEl = document.getElementById('bulkPersistentUndoMsg');
+    var op = bulkOps._lastOp;
+    if (op) {
+      el.style.display = 'flex';
+      if (msgEl) msgEl.textContent = '↩ 直前の一括削除を取り消せます（' + ((op.cardIds || []).length) + '件）';
+    } else {
+      el.style.display = 'none';
+    }
+  } catch (_e) {}
+}
+window._bulkRenderPersistentUndo = _bulkRenderPersistentUndo;
+
+// ---- BLOCKER-3：Undoの共通transaction本体（interactive Undoと起動時repairの双方から使う） ----
+// O13是正（BLOCKER）：写真を1件も復元する前に、対象cardIdごとのconflict preflightを行う。
+//   A. card無し → restore可能
+//   B. cardあり＋RestorePointと完全一致 → 冪等・restore可能
+//   C. cardあり＋内容不一致 → conflict：写真を1件も復元しない・cardも変更しない・success禁止
+function _bulkUndoAttempt(op, rp, onDone){
+  var snapshotCardIds = (rp.cards || []).map(function(en){ return en.card && en.card.id; }).filter(Boolean);
+  var preflightChain = Promise.resolve(true);
+  snapshotCardIds.forEach(function(id){
+    preflightChain = preflightChain.then(function(ok){
+      if (!ok) return false;
+      var nowCard = cards.filter(function(c){ return c && c.id === id; })[0];
+      if (!nowCard) return true; // A：無し→restore可能
+      var snapEntry = (rp.cards || []).filter(function(en){ return en.card && en.card.id === id; })[0];
+      return _deepEqualAsync240(nowCard, snapEntry ? snapEntry.card : null); // B（true）／C（false）
+    });
+  });
+  preflightChain.then(function(preflightOk){
+    if (!preflightOk) { onDone(false, 'undo-conflict'); return; }
+    _bulkRestoreCardsFromSnapshot(rp.cards || []);
+    _restorePhotosForUndo240(rp.media || [], function(photoOk, photoConflict){
+      doSaveCards(function(okSave){
+        if (!okSave) { onDone(false, 'save-failed'); return; }
+        if (typeof mAll !== 'function') { onDone(false, 'no-mall'); return; }
+        mAll().then(function(all){
+          var cardIdsNow = ((rp.manifest && rp.manifest.cardIds) || []).filter(function(id){ return cards.some(function(c){ return c && c.id === id; }); });
+          var setsNow = (all || []).filter(function(s){ return ((rp.manifest && rp.manifest.setIds) || []).indexOf(s.id) >= 0; });
+          var nowManifest = _bulkBuildManifest(cardIdsNow, setsNow);
+          var manifestOk = _bulkManifestsEqual(nowManifest, rp.manifest);
+          var contentOk = _bulkVerifyCardContents(rp.cards || [], cardIdsNow);
+          var okAll = manifestOk && contentOk && photoOk && !photoConflict;
+          onDone(okAll, okAll ? null : 'verify-mismatch');
+        }).catch(function(){ onDone(false, 'verify-failed'); });
+      });
+    });
+  }, function(){ onDone(false, 'preflight-failed'); });
+}
+function bulkOpsUndo(){
+  var op = bulkOps._lastOp;
+  if (!op) { toast('元に戻せる一括操作がありません'); return; }
+  if (bulkOps._busy) { toast('他の処理中のため少し待ってからお試しください'); return; }
+  if (bulkOps._recoveryRequired) { toast('前回の操作の復旧が未完了です。初期設定→保存診断をご確認ください'); return; }
+  // O2/§7是正（BLOCKER）＋C4/§9是正：Undoは共有journalがphase='done'かつ対象opId一致の
+  // 場合のみlockを取得する（undo mode）。他タブが既にjournalを変化させていないかを
+  // lock取得前に実測する。
+  var acq = _bulkLockAcquireUndo(op);
+  if (!acq.ok) {
+    if (acq.reason === 'locked') { toast('他のタブで一括操作が進行中です。しばらくしてからお試しください'); return; }
+    // journal-mismatch/journal-unreadable：共有状態が既に変わっている（他タブでretire／
+    // finalize済み等）。ローカルの_lastOp表示を安全側へ同期する（mutationは一切行わない）。
+    bulkOps._lastOp = null;
+    try { _bulkRenderPersistentUndo(); } catch (_e) {}
+    toast('⚠ 元に戻す操作の対象が見つからないか、状態が変わっています。画面を更新してください');
+    return;
+  }
+  bulkOps._busy = true; _bulkSetUILock(true); _bulkHideUndoBar();
+  _rpGet(op.opId).then(function(rp){
+    if (!rp) {
+      // C4是正（BLOCKER P4）：RP欠損をsuccess相当のclean exitにしない。起動時のdone+RP
+      // missingと同じ契約へ統一する（recoveryRequired・journal(done)保持・shared lock保持・
+      // 明示finalize経路以外での解除不可）。
+      bulkOps._recoveryRequired = true;
+      bulkOps._busy = false; _bulkSetUILock(false);
+      try { toast('⚠ 復元ポイントが見つからないため元に戻せません。初期設定→保存診断をご確認ください'); } catch (_e) {}
+      try { _bulkOfferDoneRpMissingFinalize({ opId: op.opId, kind: op.kind, cardIds: op.cardIds, setIds: op.setIds }); } catch (_e2) {}
+      return;
+    }
+    var uw = _bulkJournalWrite({ opId: op.opId, kind: op.kind, phase: 'undo-restoring', cardIds: op.cardIds, setIds: op.setIds });
+    if (!uw.ok) {
+      // O1/§7：undo journal write失敗＝Undo mutation開始0。
+      _bulkExitClean('⚠ 操作記録の保存に失敗したため元に戻す処理を中止しました（データは変更されていません）');
+      return;
+    }
+    if (!_bulkLockStillOwned()) {
+      // C5是正（BLOCKER Q5）：undo-restoring journal書込み後にowner喪失を検知した場合、
+      // 安易にjournal clearへ進まない。旧実装は_bulkJournalClear()の成功可否を見ずに
+      // clean exit（_bulkExitClean）へ進んでいたため、journal='undo-restoring'が残存した
+      // ままrecoveryRequired=falseでclean exitし得た（ChatGPT probe再現：Q5 FAIL）。
+      // ユーザーは既にUndoを実行しようとしているため、安全側はmutationをその場で開始せず、
+      // journal='undo-restoring'とRestorePointを保持したままrecoveryRequiredを立てて終了
+      // する（success禁止・clean exit禁止。shared journal gateにより他タブのnew-opも
+      // 禁止され続ける。次回起動repairでUndo方向へ再開する）。ownerを失った状態では
+      // 別タブが共有状態を操作している可能性があるため、journalを書き戻す・clearすると
+      // いった推測操作も一切行わない。
+      _bulkEnterRecovery('⚠ 排他ロックを維持できなかったため元に戻す処理を中止しました。初期設定→保存診断をご確認ください');
+      return;
+    }
+    _bulkUndoAttempt(op, rp, function(ok, reason){
+      try { renderList(); } catch (_e) {}
+      if (ok) {
+        var cl = _bulkJournalClear();
+        if (!cl.ok) { _bulkEnterRecovery('⚠ 元に戻しましたが、操作記録の消去に失敗しました。初期設定→保存診断をご確認ください'); return; }
+        _rpDelete(op.opId);
+        bulkOps._lastOp = null;
+        bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+        try { _bulkRenderPersistentUndo(); } catch (_e2) {}
+        toast('↩ ' + ((rp.manifest && rp.manifest.cardIds || []).length) + '件を元に戻しました');
+      } else if (reason === 'undo-conflict') {
+        // O13：conflict時はcard/photoとも非接触のまま。success禁止・RP/journal保持・recovery-required。
+        _bulkEnterRecovery('⚠ 元に戻せません（対象カードが別内容で存在するため競合しました）。初期設定→保存診断をご確認ください');
+      } else {
+        // BLOCKER-4：Undo未完＝新規破壊操作を禁止する。journalは'undo-restoring'のまま・
+        // RestorePointも保持し、次回起動修復に委ねる。
+        _bulkEnterRecovery('⚠ 一部が復元できなかったため、完全に元に戻せませんでした。初期設定→保存診断をご確認ください');
+      }
+    });
+  }).catch(function(){
+    // C4是正（BLOCKER P5）：RP読取自体の失敗（reject/例外）もP4と同じ契約へ統一する。
+    bulkOps._recoveryRequired = true;
+    bulkOps._busy = false; _bulkSetUILock(false);
+    try { toast('⚠ 復元ポイントの読み出しに失敗しました。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    try { _bulkOfferDoneRpMissingFinalize({ opId: op.opId, kind: op.kind, cardIds: op.cardIds, setIds: op.setIds }); } catch (_e2) {}
+  });
+}
+window.bulkOpsUndo = bulkOpsUndo;
+
+// =========================================================
+// 担当変更（一括・管理職限定）
+// O4/O14是正（BLOCKER）：担当変更もカードのみの永続RestorePoint＋journal
+// （assign-prepared/assign-saving/assign-rolling-back）を持つ。rollback再保存が失敗した
+// 場合はmemory退避のみで終わらせず、recoveryRequired＋journal/RP＋shared lockを保持し、
+// 起動時repairで旧担当状態へ復元可能にする。担当変更自体のUndo機能は不要（§14）。
+// =========================================================
+function bulkAssignManagerPrompt(){
+  if (!isMgrUnlocked()) { toast('この操作は管理職のみ利用できます'); return; }
+  if (!bulkOpsCanStart()) { toast('他の処理中のため少し待ってからお試しください'); return; }
+  var ids = Object.keys(selectedIds);
+  if (!ids.length) { toast('選択されているカードがありません'); return; }
+  // C4是正（§7/§8）：新規破壊操作の開始前に共有journalを実測する。
+  var gate0 = _bulkNewOpJournalGate();
+  if (!gate0.allow) {
+    if (gate0.reason === 'pending-undo') { _bulkOfferRetireForNewOp(function(ok){ if (ok) bulkAssignManagerPrompt(); }); return; }
+    toast(_bulkNewOpDenyMessage(gate0.reason));
+    return;
+  }
+  aibisAlert('選択したカードの担当を変更するよ👤<br>新しい担当者名を入力してね。<br><br>'
+    + '<input id="bulkAssignInput" type="text" placeholder="新しい担当者名" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;font-family:inherit;margin-bottom:8px">'
+    + '<div style="display:flex;gap:8px">'
+    + '<button onclick="bulkAssignManagerConfirm()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">次へ</button>'
+    + '<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    + '</div>');
+}
+function bulkAssignManagerConfirm(){
+  if (!isMgrUnlocked()) { toast('この操作は管理職のみ利用できます'); return; }
+  var inp = document.getElementById('bulkAssignInput');
+  var newName = inp ? inp.value.trim() : '';
+  if (!newName) { toast('新しい担当者名を入力してね'); return; }
+  closeAibisAlert();
+  var ids = Object.keys(selectedIds);
+  var idSet = {}; ids.forEach(function(id){ idSet[id] = true; });
+  var targets = cards.filter(function(c){ return c && idSet[c.id]; });
+  if (!targets.length) { toast('対象のカードが見つかりません'); return; }
+  var fromNames = []; targets.forEach(function(c){ var m = c.manager || '(未設定)'; if (fromNames.indexOf(m) < 0) fromNames.push(m); });
+  var n = targets.length;
+  aibisConfirm(
+    '選択した <b>' + n + '件</b> の担当を<br><b>' + e(fromNames.join('・')) + '</b> → <b>' + e(newName) + '</b><br>に変更します。',
+    function(){ _bulkAssignExecute(idSet, targets, newName); },
+    '変更する', 'やめる'
+  );
+}
+function _bulkAssignExecute(idSet, targets, newName){
+  if (!isMgrUnlocked()) { toast('この操作は管理職のみ利用できます'); return; } // 関数入口で再確認（IS_DEV迂回不可・UI非表示だけに頼らない）
+  if (!bulkOpsCanStart()) { toast('他の処理中のため少し待ってからお試しください'); return; }
+  // C4是正（§7）：new-op mode＝共有journal不存在を実測できた場合のみlockを取得する。
+  var acq = _bulkLockAcquireNewOp();
+  if (!acq.ok) {
+    if (acq.reason === 'pending-undo') { _bulkOfferRetireForNewOp(function(ok){ if (ok) _bulkAssignExecute(idSet, targets, newName); }); return; }
+    toast(_bulkNewOpDenyMessage(acq.reason));
+    return;
+  }
+  bulkOps._busy = true; _bulkSetUILock(true);
+  var ids = targets.map(function(c){ return c.id; });
+  var idSetOnly = {}; ids.forEach(function(id){ idSetOnly[id] = true; });
+  _bulkCreateCardOnlyRestorePoint('bulkAssign', idSetOnly, ids).then(function(rp){
+    if (!rp.ok) { _bulkExitClean('⚠ 復元ポイントを作成・検証できなかったため担当変更を中止しました'); return; }
+    _bulkPurgeOldRestorePoints(rp.opId);
+    var prep = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkAssign', phase: 'assign-prepared', cardIds: ids, setIds: [] });
+    if (!prep.ok) {
+      _rpDelete(rp.opId).catch(function(){});
+      _bulkExitClean('⚠ 操作記録の保存に失敗したため担当変更を中止しました（データは変更されていません）');
+      return;
+    }
+    if (!_bulkLockStillOwned()) {
+      // C4是正（§15）：journal clearの結果を確認してから初めてRPを削除する。
+      var clr0 = _bulkJournalClear();
+      if (!clr0.ok) {
+        bulkOps._recoveryRequired = true; bulkOps._busy = false; _bulkSetUILock(false);
+        try { toast('⚠ 排他ロックを維持できなかったため担当変更を中止しましたが、操作記録の消去に失敗しました。初期設定→保存診断をご確認ください'); } catch (_e) {}
+        return;
+      }
+      _rpDelete(rp.opId).catch(function(){});
+      _bulkExitClean('⚠ 排他ロックを維持できなかったため担当変更を中止しました（データは変更されていません）');
+      return;
+    }
+    var now = new Date().toISOString();
+    var preState = targets.map(function(c){ return { id: c.id, manager: c.manager, updated_at: c.updated_at }; });
+    targets.forEach(function(c){ c.manager = newName; c.updated_at = now; });
+    var sw = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkAssign', phase: 'assign-saving', cardIds: ids, setIds: [] });
+    if (!sw.ok) { _bulkEnterRecovery('⚠ 担当変更の記録に失敗しました。初期設定→保存診断をご確認ください'); return; }
+    doSaveCards(function(ok){
+      if (ok) {
+        var cl = _bulkJournalClear();
+        if (!cl.ok) { _bulkEnterRecovery('⚠ 担当変更は完了しましたが、操作記録の消去に失敗しました。初期設定→保存診断をご確認ください'); return; }
+        _rpDelete(rp.opId);
+        bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+        selectedIds = {}; try { updateSelectCount(); } catch (_e) {}
+        try { renderList(); updateStaffFilter(); } catch (_e2) {}
+        toast('👤 ' + preState.length + '件の担当を「' + newName + '」に変更しました');
+        return;
+      }
+      var rw = _bulkJournalWrite({ opId: rp.opId, kind: 'bulkAssign', phase: 'assign-rolling-back', cardIds: ids, setIds: [] });
+      if (!rw.ok) {
+        // O1/§6：assign-rolling-back方向のtransition永続化不能＝別方向へ推測で進まない。
+        _bulkEnterRecovery('⚠ 保存に失敗し、復旧記録も保存できませんでした。初期設定→保存診断をご確認ください');
+        return;
+      }
+      if (!_bulkLockStillOwned()) { _bulkEnterRecovery('⚠ 排他ロックを確認できなかったため復旧を中断しました。初期設定→保存診断をご確認ください'); return; }
+      _bulkRestoreAssignFieldsFromSnapshot(preState.map(function(ps){ return { card: ps }; }));
+      doSaveCards(function(ok2){
+        if (ok2) {
+          var cl2 = _bulkJournalClear();
+          if (!cl2.ok) { _bulkEnterRecovery('⚠ 担当変更を取り消しましたが、操作記録の消去に失敗しました。初期設定→保存診断をご確認ください'); return; }
+          _rpDelete(rp.opId);
+          _bulkExitClean('⚠ 保存に失敗したため担当変更を取り消しました');
+          try { renderList(); updateStaffFilter(); } catch (_e3) {}
+        } else {
+          // O4是正（BLOCKER）：回復再保存も失敗＝永続復旧可能な状態を保持する
+          // （recoveryRequired・journal/RP保持・shared lock保持）。起動時repairで復元する。
+          _bulkEnterRecovery('⚠ 保存に失敗しました。復元ポイントは保持されています。初期設定→保存診断をご確認ください');
+        }
+      });
+    });
+  });
+}
+window.bulkAssignManagerPrompt = bulkAssignManagerPrompt;
+window.bulkAssignManagerConfirm = bulkAssignManagerConfirm;
+
+// =========================================================
+// 全カードを削除（PC「全データをクリア」／スマホ「リセット」の共通安全核）
+// 未紐付け（インボックス）・真の迷子（cardIdはあるがcards内に存在しない）写真は対象外にする。
+// 呼出元（public_reset.js）は既に2段階確認を終えた「後」にのみ本関数を呼ぶため、
+// BLOCKER-1は構造的に満たされている（RestorePoint等は本関数の中でのみ・確認完了後にのみ作る）。
+// =========================================================
+function bulkOpsWipeAllCards(kind, cb){
+  if (!bulkOpsCanStart()) { cb({ ok: false, reason: 'busy' }); return; }
+  if (!cards.length) { cb({ ok: true, skipped: true }); return; }
+  // C4是正（§7/§8）：呼出元（public_reset.js・denylist）は既に2段階確認を終えた「後」に
+  // 本関数を呼ぶが、shared journal gateは全ての新規破壊操作に一律適用するため、本関数
+  // 自身がここでretire導線を提示する（public_reset.js側の変更は不要・一切行わない）。
+  var gate0 = _bulkNewOpJournalGate();
+  if (!gate0.allow) {
+    if (gate0.reason === 'pending-undo') {
+      _bulkOfferRetireForNewOp(function(ok){
+        if (ok) { bulkOpsWipeAllCards(kind, cb); } else { cb({ ok: false, reason: 'pending-undo-not-retired' }); }
+      });
+      return;
+    }
+    cb({ ok: false, reason: gate0.reason });
+    return;
+  }
+  var acq = _bulkLockAcquireNewOp();
+  if (!acq.ok) { cb({ ok: false, reason: acq.reason }); return; }
+  bulkOps._busy = true; _bulkSetUILock(true);
+  var idSet = {}; var cardIds = []; cards.forEach(function(c){ if (c && c.id) { idSet[c.id] = true; cardIds.push(c.id); } });
+  _bulkCreateRestorePoint(kind, idSet, cardIds).then(function(rp){
+    if (!rp.ok) { bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease(); cb({ ok: false, reason: 'restore-point-failed' }); return; }
+    _bulkPurgeOldRestorePoints(rp.opId);
+    var setIds = rp.linkedSets.map(function(s){ return s.id; });
+    var prep = _bulkJournalWrite({ opId: rp.opId, kind: kind, phase: 'prepared', cardIds: cardIds, setIds: setIds });
+    if (!prep.ok) {
+      _rpDelete(rp.opId).catch(function(){});
+      bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+      cb({ ok: false, reason: 'journal-prepared-failed' });
+      return;
+    }
+    if (!_bulkLockStillOwned()) {
+      // C4是正（§15）：journal clearの結果を確認してから初めてRPを削除する。
+      var clr0 = _bulkJournalClear();
+      if (!clr0.ok) {
+        bulkOps._recoveryRequired = true; bulkOps._busy = false; _bulkSetUILock(false);
+        cb({ ok: false, reason: 'lock-lost-journal-clear-failed' });
+        return;
+      }
+      _rpDelete(rp.opId).catch(function(){});
+      bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+      cb({ ok: false, reason: 'lock-lost-before-mutation' });
+      return;
+    }
+    var removedSnapshot = cards.slice();
+    cards = [];
+    doSaveCards(function(ok){
+      if (!ok) {
+        var rb = _bulkJournalWrite({ opId: rp.opId, kind: kind, phase: 'rolling-back', cardIds: cardIds, setIds: setIds });
+        if (!rb.ok) { _bulkEnterRecovery(); cb({ ok: false, reason: 'rolling-back-journal-failed' }); return; }
+        if (!_bulkLockStillOwned()) { _bulkEnterRecovery(); cb({ ok: false, reason: 'lock-lost-before-rollback' }); return; }
+        _bulkRestoreCardsFromSnapshot(rp.cardsSnapshot);
+        doSaveCards(function(ok2){
+          if (ok2) {
+            var cl = _bulkJournalClear();
+            if (!cl.ok) { _bulkEnterRecovery(); cb({ ok: false, reason: 'journal-clear-failed-after-restore' }); return; }
+            bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+            cb({ ok: false, reason: 'save-failed-restored' });
+          } else {
+            _bulkEnterRecovery();
+            cb({ ok: false, reason: 'save-failed-unrestored' });
+          }
+        });
+        return;
+      }
+      var w1 = _bulkJournalWrite({ opId: rp.opId, kind: kind, phase: 'cards-saved', cardIds: cardIds, setIds: setIds });
+      if (!w1.ok) { _bulkEnterRecovery(); cb({ ok: false, reason: 'journal-cards-saved-failed' }); return; }
+      var w2 = _bulkJournalWrite({ opId: rp.opId, kind: kind, phase: 'media-deleting', cardIds: cardIds, setIds: setIds });
+      if (!w2.ok) { _bulkEnterRecovery(); cb({ ok: false, reason: 'journal-media-deleting-failed' }); return; }
+      var list = rp.linkedSets.slice(); var deleted = []; var failed = false;
+      (function next(){
+        if (failed || !list.length) {
+          if (failed) {
+            var rb2 = _bulkJournalWrite({ opId: rp.opId, kind: kind, phase: 'rolling-back', cardIds: cardIds, setIds: setIds });
+            if (!rb2.ok) { _bulkEnterRecovery(); cb({ ok: false, reason: 'rolling-back-journal-failed-2' }); return; }
+            if (!_bulkLockStillOwned()) { _bulkEnterRecovery(); cb({ ok: false, reason: 'lock-lost-before-media-rollback' }); return; }
+            _bulkRestoreCardsFromSnapshot(rp.cardsSnapshot);
+            _restorePhotosForUndo240(deleted, function(photoOk, photoConflict){
+              doSaveCards(function(okSave){
+                var complete = okSave && photoOk && !photoConflict;
+                if (complete) {
+                  var cl2 = _bulkJournalClear();
+                  if (!cl2.ok) { _bulkEnterRecovery(); cb({ ok: false, reason: 'journal-clear-failed-after-media-restore' }); return; }
+                  bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+                  try { renderList(); } catch (_e) {}
+                  cb({ ok: false, reason: 'media-delete-failed-restored' });
+                } else {
+                  _bulkEnterRecovery();
+                  cb({ ok: false, reason: 'media-delete-failed-unrestored' });
+                }
+              });
+            });
+            return;
+          }
+          var setIdsTargeted = rp.linkedSets.map(function(s){ return s.id; });
+          _bulkVerifyRemoval(idSet, setIdsTargeted).then(function(verified){
+            if (!verified) {
+              // O3/O9是正：verify失敗時はshared lockを解放しない。
+              _bulkEnterRecovery();
+              cb({ ok: false, reason: 'verify-failed' });
+              return;
+            }
+            var wd = _bulkJournalWrite({ opId: rp.opId, kind: kind, phase: 'done', cardIds: cardIds, setIds: setIdsTargeted });
+            if (!wd.ok) { _bulkEnterRecovery(); cb({ ok: false, reason: 'done-journal-failed' }); return; }
+            bulkOps._lastOp = { opId: rp.opId, kind: kind, cardIds: cardIds, setIds: setIdsTargeted, manifest: rp.manifest, at: Date.now() };
+            bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+            selectedIds = {}; try { updateSelectCount(); } catch (_e) {}
+            try { updateInboxBadge(); } catch (_e2) {}
+            try { _bulkRenderPersistentUndo(); } catch (_e3) {}
+            cb({ ok: true, cardCount: removedSnapshot.length, photoCount: rp.linkedSets.length });
+          });
+          return;
+        }
+        if (!_bulkLockStillOwned()) { failed = true; next(); return; } // O11：各media delete前
+        var s = list.shift();
+        mDel(s.id).then(function(){ deleted.push(s); next(); }, function(){ failed = true; next(); });
+      })();
+    });
+  });
+}
+window.bulkOpsWipeAllCards = bulkOpsWipeAllCards;
+
+// C6是正（BLOCKER R1＝boot repairのTOCTOU）：旧実装は「journal pre-read」→「_rpGet（非同期）」
+// →「lock取得」→（再読取なしで）「stale jのままdispatch」の順だった。pre-readからlock取得
+// までの間隙で別タブがjournalを別operationへ進めても検知できず、新しいjournalを誤って
+// clear／上書きし得た（ChatGPT probe再現：R1 FAIL）。是正：check→lock acquire→post-lock
+// revalidation→mutationの不変条件をrepairにも適用する。lock取得後にjournal identityを
+// 完全一致で再確認してから初めてRestorePointを読み取る（RPをlock取得前に読まない＝古いRPを
+// 新しい共有状態へ適用できない構造にする）。
+// 成功：{ ok:true, journal: currentExactJournal }
+// 失敗reason：locked／journal-unreadable／journal-missing／stale-journal（opId不一致）／
+//            journal-changed（opId一致だがphase/kind/cardIds/setIdsのいずれか不一致）
+// 失敗時は自分が今回取得したlockだけを解放する（他ownerのlockには一切触れない）。
+function _bulkRepairAcquireAndRevalidate(expectedJournal){
+  if (!_bulkLockAcquire()) { return { ok: false, reason: 'locked' }; }
+  var rr = _bulkJournalRead();
+  if (!rr.ok) { _bulkLockRelease(); return { ok: false, reason: 'journal-unreadable' }; }
+  if (!rr.exists) { _bulkLockRelease(); return { ok: false, reason: 'journal-missing' }; }
+  var cur = rr.value;
+  if (cur.opId !== expectedJournal.opId) { _bulkLockRelease(); return { ok: false, reason: 'stale-journal' }; }
+  var sameShape = cur.phase === expectedJournal.phase && cur.kind === expectedJournal.kind &&
+    _bulkSortedJoin(cur.cardIds || []) === _bulkSortedJoin(expectedJournal.cardIds || []) &&
+    _bulkSortedJoin(cur.setIds || []) === _bulkSortedJoin(expectedJournal.setIds || []);
+  if (!sameShape) { _bulkLockRelease(); return { ok: false, reason: 'journal-changed' }; }
+  return { ok: true, journal: cur };
+}
+// =========================================================
+// 起動時ジャーナル修復（app_init.jsから1回だけ呼ばれるフック）
+// O8是正（BLOCKER）：mutationを行う前にshared owner lockを取得する。他タブの非stale lock
+// が存在する間は同時repairしない（live ownerを上書きしない・stale lockのみ回収可）。
+// done journalのUndo表示再構成／finalize導線提示などmutationを伴わない読取処理は例外。
+// C6是正（R1）：① journal pre-read → ② expected journal snapshot固定 → ③ shared lock取得
+// → ④ lock取得後にjournal再読取 → ⑤ current journalとexpectedのexact一致確認 → ⑥ 一致時のみ
+// RestorePoint読取 → ⑦ RestorePoint検証 → ⑧ dispatchの順とする（_bulkRepairAcquireAndRevalidate
+// が②〜⑤を担う）。repair transaction本体（_bulkRepairDispatch以下）は無変更。
+// =========================================================
+function bulkOpsRepairJournalOnBoot(){
+  bulkOps._busy = true;
+  var rr = _bulkJournalRead();
+  if (!rr.ok) {
+    // O1是正：journal読取自体が失敗／破損＝fail-closed（「journal無し」と混同しない）。
+    bulkOps._recoveryRequired = true;
+    try { toast('⚠ 前回の一括操作の記録を確認できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    bulkOps._busy = false;
+    return;
+  }
+  if (!rr.exists || rr.value.phase === 'done') {
+    if (rr.exists && rr.value.phase === 'done') { _bulkRestoreLastOpFromDoneJournal(rr.value); return; }
+    bulkOps._busy = false;
+    return;
+  }
+  var expected = rr.value;
+  if (typeof mAll !== 'function' || typeof mDel !== 'function' || typeof doSaveCards !== 'function') { bulkOps._busy = false; return; }
+  var acq = _bulkRepairAcquireAndRevalidate(expected);
+  if (!acq.ok) {
+    bulkOps._busy = false;
+    if (acq.reason === 'locked') { return; } // O8既定どおり：他タブ処理中は無言でスキップ
+    // R1是正：pre-read後に共有状態が変わっていた（別タブが別operationへ進めた／journalが
+    // 消えた／読めなくなった）。stale expectedを推測で続行せず、mutation・journal上書き・
+    // RestorePoint操作のいずれも行わない（自分が今回取得したlockは既にhelper内で解放済み）。
+    try { toast('⚠ 共有状態が更新されたため、このタブでの復旧を中断しました。画面を更新してください'); } catch (_e) {}
+    return;
+  }
+  var j = acq.journal;
+  _rpGet(j.opId).then(function(rp){
+    if (!rp) {
+      // R1是正：RP欠損はrecoveryRequiredへ（他のrecoveryRequired経路＝O9と同様、共有lockは
+      // 解放せず他タブの新規破壊操作を止め続ける。journalにも一切触れない）。
+      bulkOps._recoveryRequired = true;
+      try { toast('⚠ 前回の一括操作が完了していません。復元ポイントが見つからないため、初期設定→保存診断をご確認ください'); } catch (_e) {}
+      bulkOps._busy = false;
+      return;
+    }
+    _bulkRepairDispatch(j, rp);
+  }).catch(function(){
+    // R1是正：RP読取自体の失敗もrecoveryRequiredへ（lock保持・journal非接触）。
+    bulkOps._recoveryRequired = true;
+    try { toast('⚠ 前回の一括操作の復元ポイント確認に失敗しました。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    bulkOps._busy = false;
+  });
+}
+// O6/O15是正（BLOCKER）：done journal + RestorePoint欠損／破損を正常状態として扱わない。
+function _bulkRestoreLastOpFromDoneJournal(j){
+  _rpGet(j.opId).then(function(rp){
+    if (rp) {
+      // 正常：done＋RP present → persistent Undoを再構成する（読取専用・mutation無し）。
+      bulkOps._lastOp = { opId: j.opId, kind: j.kind, cardIds: j.cardIds, setIds: j.setIds, manifest: rp.manifest, at: rp.createdAt || Date.now() };
+      bulkOps._busy = false;
+      try { _bulkRenderPersistentUndo(); } catch (_e) {}
+      return;
+    }
+    bulkOps._lastOp = null;
+    bulkOps._recoveryRequired = true;
+    bulkOps._busy = false;
+    try { _bulkRenderPersistentUndo(); } catch (_eR) {}
+    try { toast('⚠ 直前の一括削除の復元ポイントが失われているため、元に戻せません'); } catch (_e2) {}
+    try { _bulkOfferDoneRpMissingFinalize(j); } catch (_e3) {}
+  }).catch(function(){
+    bulkOps._lastOp = null;
+    bulkOps._recoveryRequired = true;
+    bulkOps._busy = false;
+    try { toast('⚠ 直前の一括削除の復元ポイント確認に失敗しました'); } catch (_e) {}
+    try { _bulkOfferDoneRpMissingFinalize(j); } catch (_e2) {}
+  });
+}
+// O15是正：done journal + RP missing/corrupt を安全に確定させる唯一の明示経路。
+// 新画面は作らず既存aibisConfirmを使う。成立条件：
+//  1. 現在cards/media整合検査（対象cardIdが現存しないこと＝削除自体は実際に完了している）
+//  2. 新規迷子写真が生成されていないこと（対象setIdがmediaに残っていない）
+//  3. journalがdoneであること（呼出し時点で確定済み）
+//  4. RPが本当に不存在／破損（呼出し時点で確定済み）
+//  5. 利用者の明示確認（aibisConfirm YES）
+// 成立時のみdone journalをclearしrecoveryRequiredを解除する。自動clearは行わない。
+function _bulkOfferDoneRpMissingFinalize(j){
+  if (typeof aibisConfirm !== 'function') return;
+  aibisConfirm(
+    '直前の一括削除（' + ((j.cardIds || []).length) + '件）の復元ポイントが失われているため、<b>元に戻す操作はできません</b>。<br>' +
+    '<span style="font-size:12px;color:#718096">現在のカード・写真の整合を確認したうえで、この削除状態を確定しますか？</span>',
+    function(){ _bulkFinalizeDoneRpMissing(j); },
+    'この状態で確定する', 'あとで'
+  );
+}
+// C5是正（BLOCKER Q4＝古いexplicit-finalize modalが新しいjournalを消せる）：modal表示時の
+// jを信用しない。旧実装はUndo／retireフロー経由（lock保持中）以外＝起動時repair経由で本関数
+// が呼ばれる場合、lockを一切取得せずに現在journalへ直接書き込んでいた。modal表示中（lock
+// 非保持）に別タブが新しいoperationを完了させ、journalをop-new/doneへ書き換えた場合、旧実装
+// はそのop-new journalをそのままclearしてしまい得た（ChatGPT probe再現：Q4 FAIL）。
+// 本是正：①既に自タブがlockを保持中（Undo／retireフロー経由）ならそのまま使う。②保持して
+// いなければ（boot経由）ここで新規にlock取得する。③lock確保後、現在journalを再読取し、
+// phase==='done'かつopId===expected.opIdであることを再確認する。不一致はstale confirmation
+// として拒否し、現在journal/RPには一切触れず、自分が新規取得したlockのみ解放する。
+function _bulkFinalizeDoneRpMissing(j){
+  var expectedOpId = j && j.opId;
+  var freshlyAcquired = false;
+  if (!_bulkLockStillOwned()) {
+    if (!_bulkLockAcquire()) {
+      try { toast('⚠ 他のタブで処理中のため確定できませんでした。しばらくしてからお試しください'); } catch (_e) {}
+      return;
+    }
+    freshlyAcquired = true;
+  }
+  var rr = _bulkJournalRead();
+  var stale = !rr.ok || !rr.exists || rr.value.phase !== 'done' || rr.value.opId !== expectedOpId;
+  if (stale) {
+    if (freshlyAcquired) _bulkLockRelease();
+    try { toast('⚠ 状態が変わったため、この確認は無効になりました'); } catch (_e) {}
+    return;
+  }
+  var jCur = rr.value; // 以降の整合検査は再読取した最新journalを正として使う
+  // S1/S3是正（Correction7）：jCur.cardIds/jCur.setIdsが配列でない（欠損・null・非配列）
+  // 場合、対象範囲が確認不能な状態でfinalizeを進めない。journalには一切触れず（clear
+  // しない）、recoveryRequiredはクリアしない（fail-closedのまま維持）。lockは新規取得分
+  // のみ解放し、既存保持分（Undo／retireフロー経由）はそのまま保持する。
+  if (!Array.isArray(jCur.cardIds) || !Array.isArray(jCur.setIds)) {
+    bulkOps._recoveryRequired = true;
+    if (freshlyAcquired) _bulkLockRelease();
+    try { toast('⚠ 直前の一括操作の記録が壊れているため確定できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    return;
+  }
+  var cardsOk = !jCur.cardIds.some(function(id){ return cards.some(function(c){ return c && c.id === id; }); });
+  if (!cardsOk) {
+    if (freshlyAcquired) _bulkLockRelease();
+    try { toast('⚠ 現在の状態と一致しないため確定できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    return;
+  }
+  var finalize = function(mediaOk){
+    if (!mediaOk) {
+      if (freshlyAcquired) _bulkLockRelease();
+      try { toast('⚠ 写真の整合を確認できなかったため確定できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+      return;
+    }
+    var cl = _bulkJournalClear();
+    if (!cl.ok) {
+      // clear失敗はfail-closed：lockは保持したままrecoveryRequiredへ（journal/RP保持）。
+      bulkOps._recoveryRequired = true;
+      try { toast('⚠ 操作記録の消去に失敗したため確定できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+      return;
+    }
+    bulkOps._recoveryRequired = false;
+    // 新規取得・既存保持いずれの場合も、確定成功時は必ずlockを解放する。
+    _bulkLockRelease();
+    try { toast('✅ 削除状態を確定しました'); } catch (_e2) {}
+  };
+  // S1是正（Correction7）：mAll()が呼べない＝写真set側の真偽が確認不能。旧実装は
+  // finalize(true)（未確認＝成功扱い）としていた（DAN244 Correction6報告§8の
+  // 「_bulkVerifyRemovalはfail-closed」という記述の裏付けとして誤って踏襲した箇所＝
+  // 本Correctionで訂正）。mAll()呼び出し自体の同期throwも、Promiseのrejectと同じく
+  // finalize(false)へ倒す（try/catchでmAll()呼び出しそのものを保護する）。
+  if (typeof mAll !== 'function') { finalize(false); return; }
+  try {
+    mAll().then(function(all){
+      var setIds = jCur.setIds;
+      var stillThere = (all || []).some(function(s){ return s && setIds.indexOf(s.id) >= 0; });
+      finalize(!stillThere);
+    }).catch(function(){ finalize(false); });
+  } catch (_eSync) {
+    finalize(false);
+  }
+}
+window._bulkOfferDoneRpMissingFinalize = _bulkOfferDoneRpMissingFinalize;
+window._bulkFinalizeDoneRpMissing = _bulkFinalizeDoneRpMissing;
+
+function _bulkRepairDispatch(j, rp){
+  var phase = j.phase || '';
+  if (phase === 'prepared' || phase === 'cards-saved' || phase === 'media-deleting') {
+    _bulkRepairForwardPath(j, rp);
+  } else if (phase === 'rolling-back') {
+    _bulkRepairRollbackPath(j, rp);
+  } else if (phase.indexOf('undo') === 0) {
+    _bulkRepairUndoPath(j, rp);
+  } else if (phase.indexOf('assign') === 0) {
+    // O4/O14是正：担当変更のどのphaseで中断していても、repairは常に旧担当状態への
+    // 復元のみを行う（担当変更に前進完了パスは無い＝§14）。
+    _bulkRepairAssignRollbackPath(j, rp);
+  } else {
+    // 未知phase：推測で前進・後退どちらもせず安全診断状態へ。
+    bulkOps._recoveryRequired = true;
+    try { toast('⚠ 前回の一括操作の状態を確認できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    bulkOps._busy = false;
+  }
+}
+// C4是正（BLOCKER P3）：repair側のmedia-deleting再開処理の最終readback。既存
+// _bulkVerifyRemovalと同じ真値検証をrepair側にも適用する（silent no-op mDel検出）。
+function _bulkRepairVerifySetsGone(setIds){
+  if (!setIds || !setIds.length) return Promise.resolve(true);
+  if (typeof mAll !== 'function') return Promise.resolve(false);
+  return mAll().then(function(all){
+    return !(all || []).some(function(s){ return s && setIds.indexOf(s.id) >= 0; });
+  }).catch(function(){ return false; });
+}
+// prepared/cards-saved/media-deletingの3phaseは、ラベルではなく実状態（対象カードIDが
+// cardsに残っているか）で実際の到達段階を判定してから前進のみ行う（推測でmediaを消さない）。
+function _bulkRepairForwardPath(j, rp){
+  // S4是正（Correction7）：j.cardIdsが配列でない・空、またはj.setIdsが配列でない場合、
+  // 対象範囲が確認不能な状態で前進処理（mDel実行・RP削除・journal phase進行）を一切
+  // 行わない。fail-closedでrecoveryRequiredへ委譲し、cards/RP/journalには一切触れない
+  // （mDel等の破壊操作ゼロ）。
+  if (!Array.isArray(j.cardIds) || !j.cardIds.length || !Array.isArray(j.setIds)) {
+    bulkOps._recoveryRequired = true;
+    try { toast('⚠ 前回の一括操作の記録が壊れているため、処理を再開できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    bulkOps._busy = false;
+    return;
+  }
+  var targetIds = j.cardIds;
+  var stillPresent = targetIds.filter(function(id){ return cards.some(function(c){ return c && c.id === id; }); });
+  if (stillPresent.length === targetIds.length && targetIds.length > 0) {
+    // 対象カードが全て現存＝cards除去はまだ実行されていない。破壊は何も始まっていないため、
+    // journalだけを安全に破棄し、lockも解放する。
+    // C4是正（§14）：journal clearを検証してから初めて当該operationの未使用RPを削除する
+    // （RPを孤児として残さない）。clear失敗時はRPを先に消さずrecoveryRequiredのままにする。
+    var clr = _bulkJournalClear();
+    if (!clr.ok) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; }
+    _rpDelete(j.opId).catch(function(){});
+    bulkOps._recoveryRequired = false;
+    bulkOps._busy = false; _bulkSetUILock(false);
+    _bulkLockRelease();
+    return;
+  }
+  if (stillPresent.length > 0 && stillPresent.length < targetIds.length) {
+    bulkOps._recoveryRequired = true;
+    try { toast('⚠ 前回の一括操作が中途半端な状態です。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    bulkOps._busy = false;
+    return;
+  }
+  mAll().then(function(all){
+    var setIds = j.setIds;
+    var remaining = (all || []).filter(function(s){ return s && setIds.indexOf(s.id) >= 0; });
+    if (!remaining.length) {
+      var wd = _bulkJournalWrite({ opId: j.opId, kind: j.kind, phase: 'done', cardIds: j.cardIds, setIds: j.setIds });
+      if (!wd.ok) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; }
+      bulkOps._lastOp = { opId: j.opId, kind: j.kind, cardIds: j.cardIds, setIds: j.setIds, manifest: rp.manifest, at: Date.now() };
+      try { toast('前回中断していた一括削除の処理を完了しました'); } catch (_e) {}
+      try { updateInboxBadge(); } catch (_e2) {}
+      try { _bulkRenderPersistentUndo(); } catch (_e3) {}
+      bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+      return;
+    }
+    var wmd = _bulkJournalWrite({ opId: j.opId, kind: j.kind, phase: 'media-deleting', cardIds: j.cardIds, setIds: j.setIds });
+    if (!wmd.ok) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; }
+    var list = remaining.slice(); var allOk = true;
+    (function next(){
+      if (!list.length) {
+        if (!allOk) {
+          bulkOps._recoveryRequired = true;
+          try { toast('⚠ 前回の一括操作の写真削除が一部失敗しました。初期設定→保存診断をご確認ください'); } catch (_e) {}
+          bulkOps._busy = false;
+          return;
+        }
+        // C4是正（BLOCKER P3）：mDel Promiseがresolveしたことだけを成功根拠にせず、必ず
+        // mAll()による最終readback（対象setIdが1件も残っていないこと）を確認してから
+        // 初めてjournal phase='done'へ進める。silent no-op mDel（resolveするが実データを
+        // 消さない）を検出するための必須ステップ。1件でも残ればdone禁止・recoveryRequired。
+        _bulkRepairVerifySetsGone(j.setIds).then(function(verified){
+          if (!verified) {
+            bulkOps._recoveryRequired = true;
+            try { toast('⚠ 前回の一括操作の写真削除結果を確認できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+            bulkOps._busy = false;
+            return;
+          }
+          var wd2 = _bulkJournalWrite({ opId: j.opId, kind: j.kind, phase: 'done', cardIds: j.cardIds, setIds: j.setIds });
+          if (!wd2.ok) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; }
+          bulkOps._lastOp = { opId: j.opId, kind: j.kind, cardIds: j.cardIds, setIds: j.setIds, manifest: rp.manifest, at: Date.now() };
+          try { toast('前回中断していた一括削除の残り写真を削除し、処理を完了しました'); } catch (_e) {}
+          try { updateInboxBadge(); } catch (_e2) {}
+          try { _bulkRenderPersistentUndo(); } catch (_e3) {}
+          bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+        });
+        return;
+      }
+      if (!_bulkLockStillOwned()) { allOk = false; list = []; next(); return; } // O11
+      var s = list.shift();
+      mDel(s.id).then(function(){ next(); }, function(){ allOk = false; next(); });
+    })();
+  }).catch(function(){
+    bulkOps._recoveryRequired = true;
+    bulkOps._busy = false;
+  });
+}
+// rolling-back中断からの再開：必ずrollback方向へのみ進む（media前進削除は禁止）。
+function _bulkRepairRollbackPath(j, rp){
+  if (!_bulkLockStillOwned()) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; } // O11
+  _bulkRestoreCardsFromSnapshot(rp.cards || []);
+  _restorePhotosForUndo240(rp.media || [], function(photoOk, photoConflict){
+    doSaveCards(function(okSave){
+      if (!okSave || !photoOk || photoConflict) {
+        bulkOps._recoveryRequired = true;
+        try { toast('⚠ 前回の削除の取り消しが完了していません。初期設定→保存診断をご確認ください'); } catch (_e) {}
+        bulkOps._busy = false;
+        return;
+      }
+      // C4是正（§13）：rollback完了もsave/photoフラグだけでなく、RP snapshotとの最終
+      // readback（card内容・manifest一致）を確認してからjournal clearへ進む
+      // （_bulkUndoAttemptと同じ検証を再利用。専用の再実装はしない）。
+      if (typeof mAll !== 'function') { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; }
+      mAll().then(function(all){
+        var cardIdsNow = ((rp.manifest && rp.manifest.cardIds) || []).filter(function(id){ return cards.some(function(c){ return c && c.id === id; }); });
+        var setsNow = (all || []).filter(function(s){ return ((rp.manifest && rp.manifest.setIds) || []).indexOf(s.id) >= 0; });
+        var nowManifest = _bulkBuildManifest(cardIdsNow, setsNow);
+        var manifestOk = _bulkManifestsEqual(nowManifest, rp.manifest);
+        var contentOk = _bulkVerifyCardContents(rp.cards || [], cardIdsNow);
+        if (!manifestOk || !contentOk) {
+          bulkOps._recoveryRequired = true;
+          try { toast('⚠ 前回の削除の取り消し結果を確認できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+          bulkOps._busy = false;
+          return;
+        }
+        var cl = _bulkJournalClear();
+        if (!cl.ok) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; }
+        try { renderList(); } catch (_e2) {}
+        try { toast('前回中断していた削除の取り消し（安全復元）を完了しました'); } catch (_e3) {}
+        bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+      }).catch(function(){
+        bulkOps._recoveryRequired = true;
+        bulkOps._busy = false;
+      });
+    });
+  });
+}
+// undo-*中断からの再開：Undoのtransaction本体（_bulkUndoAttempt。O13 conflict preflight込み）
+// を再実行する（_bulkRestoreCardsFromSnapshot／_restorePhotosForUndo240はいずれも既存優先で
+// 冪等）。
+function _bulkRepairUndoPath(j, rp){
+  if (!_bulkLockStillOwned()) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; } // O11
+  var op = { opId: j.opId, kind: j.kind, cardIds: j.cardIds, setIds: j.setIds };
+  _bulkUndoAttempt(op, rp, function(ok){
+    if (ok) {
+      var cl = _bulkJournalClear();
+      if (!cl.ok) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; }
+      _rpDelete(j.opId);
+      bulkOps._lastOp = null;
+      try { renderList(); } catch (_e) {}
+      try { _bulkRenderPersistentUndo(); } catch (_e2) {}
+      try { toast('前回中断していた取り消し（Undo）処理を完了しました'); } catch (_e3) {}
+      bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+    } else {
+      bulkOps._recoveryRequired = true;
+      try { toast('⚠ 前回の取り消し（Undo）処理が完了していません。初期設定→保存診断をご確認ください'); } catch (_e) {}
+      bulkOps._busy = false;
+    }
+  });
+}
+// assign-*中断からの再開：担当変更は前進完了パスを持たず、常に旧担当状態への復元のみ行う。
+function _bulkRepairAssignRollbackPath(j, rp){
+  if (!_bulkLockStillOwned()) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; } // O11
+  _bulkRestoreAssignFieldsFromSnapshot(rp.cards || []);
+  doSaveCards(function(okSave){
+    var checkIds = (j.cardIds || []).filter(function(id){ return cards.some(function(c){ return c && c.id === id; }); });
+    var contentOk = okSave && _bulkVerifyCardContents(rp.cards || [], checkIds);
+    if (contentOk) {
+      var cl = _bulkJournalClear();
+      if (!cl.ok) { bulkOps._recoveryRequired = true; bulkOps._busy = false; return; }
+      _rpDelete(j.opId);
+      try { renderList(); updateStaffFilter(); } catch (_e) {}
+      try { toast('前回中断していた担当変更を取り消し、元の担当に戻しました'); } catch (_e2) {}
+      bulkOps._busy = false; _bulkSetUILock(false); _bulkLockRelease();
+    } else {
+      bulkOps._recoveryRequired = true;
+      try { toast('⚠ 前回の担当変更の復旧が完了していません。初期設定→保存診断をご確認ください'); } catch (_e) {}
+      bulkOps._busy = false;
+    }
+  });
+}
+window.bulkOpsRepairJournalOnBoot = bulkOpsRepairJournalOnBoot;
+
 // ===== 個別カード削除・共通削除経路の安全性（DAN240、是正第3回） =====
 // 契約：保存成功が確定するまで写真破壊を開始しない。写真一覧の退避（mAll）は
 // カード除外・doSaveCards呼出しより前に行う。削除・復元は単調カウンタ(token)による
@@ -23376,8 +25114,15 @@ function showOneDriveSaveGuide(){ showSyncGuide(); }
 
 // ===== グローバル公開 =====
 window.setupChooseSave=setupChooseSave;
+// MAJOR-6是正：旧実装はinput.value=''→renderCards()を直接行い、list_core.js側の
+// _bulkLastConfirmedQuery（検索の唯一の確定状態）を更新しないまま母集団を変えていた。
+// このため「検索確定→clear→選択→新検索→キャンセル」の経路で古い確定値へ戻る不整合が
+// 起き得た（第11節）。_bulkCommitSearch（検索確定の唯一の入口）を経由させることで、
+// clearSearch時も選択ガード（母集団が変わり選択が脱落する場合のみ確認モーダル）を通し、
+// _bulkLastConfirmedQueryを常に同期させる。
 function clearSearch(){
   var el=document.getElementById('searchInput'); if(el){el.value='';el.focus();}
+  if(typeof _bulkCommitSearch==='function'){ _bulkCommitSearch(); return; }
   renderCards();
 }
 window.clearSearch=clearSearch; window.hideSyncNudge=hideSyncNudge; window.doSyncNow=doSyncNow;
@@ -23845,40 +25590,56 @@ window.resetSmartphone=resetSmartphone; window.resetSmartphone2=resetSmartphone2
 window.doClearAnalysisMemo=doClearAnalysisMemo; window.doChooseSave=doChooseSave;
 window.toggleSort=toggleSort;
 window.loadFile=loadFile; window.chooseSave=chooseSave; window.onFileImport=onFileImport;
+// MAJOR-7是正：永続RestorePoint＋persistent Undo仕様と矛盾する「この操作は取り消せません」を
+// 撤去する。ただしRestorePoint作成・検証成功前に「復元できます」と断定的に保証しない
+// （削除が完了した場合にのみUndoが使える、という条件文へ言い換える）。
 function clearAllCards(){
   if(cards.length===0){toast('削除するカードがありません');return;}
-  aibisAlert('全'+cards.length+'件のカードデータを削除するよ⚠<br>この操作は取り消せません！<br><br>'
+  aibisAlert('全'+cards.length+'件のカードデータを削除するよ⚠<br><span style="font-size:12px;color:#718096">カードと紐付く写真も一緒に削除します（未紐付けの写真は対象外）。削除が完了した場合は「↩ 直前の一括削除を取り消す」から復元できます。</span><br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
     +'<button onclick="closeAibisAlert();clearAllCards2()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button>'
     +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 function clearAllCards2(){
-  aibisAlert('最終確認！本当に全データを削除してよい？😢<br><br>'
+  aibisAlert('最終確認！本当に全データ（カード＋紐付き写真）を削除してよい？😢<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
     +'<button onclick="closeAibisAlert();doClearAllCards()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">本当に削除する</button>'
     +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
+// DAN244: cards=[]による危険経路（B-2）を廃止し、bulk_ops.jsの安全核（復元ポイント＋ジャーナル
+// ＋カード先・写真後の順序固定＋失敗時完全rollback）へ委譲する。未紐付け・真の迷子写真は
+// 対象外（bulkOpsWipeAllCards内でcardIdが実カードに紐付くsetのみを対象にする）。
 function doClearAllCards(){
-  cards=[];
-  try{
-    // 第177弾: データセット固有の基準だけを消す（外部に作成した控えファイルの事実は消さない）
-    _clearBackupBaseline();
-    localStorage.removeItem('aibis_backup_nudge_dismissed');
-  }catch(_e){}
-  doSaveCards(function(ok){
-    if(!ok){ toast('⚠ 保存に失敗しました'); return; }
-    toast('✅ 全データを削除しました');
+  bulkOpsWipeAllCards('clearAll', function(result){
+    if(!result || !result.ok){
+      if(result && result.skipped){ return; }
+      toast('⚠ 削除処理を中止しました（保存診断をご確認ください）');
+      return;
+    }
+    try{
+      // 第177弾: データセット固有の基準だけを消す（外部に作成した控えファイルの事実は消さない）。
+      // MAJOR-7: baselineはUndo対象外の補助状態のため、Undo後に「baselineは消えたままカードは
+      // 復元済み」という不整合が起き得る。次回保存時にbaselineは自然に再構築されるため、
+      // Undo成功後の不整合は「baseline未確立」という安全側（過大警告のみ・データ損失なし）に
+      // 留まることを確認済み（full_backup.js／local_storage_backup.jsは非接触・denylist）。
+      _clearBackupBaseline();
+      localStorage.removeItem('aibis_backup_nudge_dismissed');
+    }catch(_e){}
+    toast('✅ 全データを削除しました（紐付き写真も削除済み。↩ 直前の一括削除を取り消すから復元できます）');
     showList();
   });
 }
 function resetSmartphone(){
-  var _go=function(ph,unsent){
-    if(cards.length===0 && ph===0){aibisAlert('もうリセット済みだよ。<br>PCから最新データを読み込んでね📥');return;}
+  var _go=function(all,unsent){
+    var cardIdSet={}; cards.forEach(function(c){ if(c&&c.id) cardIdSet[c.id]=1; });
+    var linkedN=all.filter(function(s){ return s&&s.cardId&&s.cardId!==MEDIA_INBOX&&cardIdSet[s.cardId]; }).length;
+    var unlinkedN=all.length-linkedN;
+    if(cards.length===0 && linkedN===0){aibisAlert('もうリセット済みだよ。<br>PCから最新データを読み込んでね📥');return;}
     var warn = unsent>0 ? ('<div style="background:#fff5f5;border:1px solid #feb2b2;border-radius:6px;padding:8px;margin:8px 0;color:#c53030;font-size:12px;line-height:1.6">⚠ まだPCへ書き出していない写真が <b>'+unsent+'件</b> あります。<br>先に「📧 PCへ」で送ってください。</div>') : '';
     aibisAlert('スマホのデータをリセットするよ⚠<br><br>'
-      +'カード <b>'+cards.length+'件</b>'+(ph?(' ／ 写真 <b>'+ph+'件</b>'):'')+' をすべて消去します。<br>'
+      +'カード <b>'+cards.length+'件</b>（紐付く写真 '+linkedN+'件を含む）を消去します。'+(unlinkedN?('<br><span style="font-size:12px;color:#718096">未紐付けの写真 '+unlinkedN+'件は対象外（インボックスに残ります）。</span>'):'')+'<br>'
       +'翌日まっさらで始めたいときや、PCで削除したカードを反映したいときに使うよ。<br>'+warn
       +'必ず先に「📧 PCへ」でバックアップを取ってね！<br><br>バックアップは取った？<br><br>'
       +'<div style="display:flex;gap:8px;margin-top:8px">'
@@ -23886,8 +25647,8 @@ function resetSmartphone(){
       +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
       +'</div>');
   };
-  if(typeof mAll==='function'){ mAll().then(function(all){ all=all||[]; _go(all.length, all.filter(function(s){return !s.sent;}).length); }).catch(function(){ _go(0,0); }); }
-  else { _go(0,0); }
+  if(typeof mAll==='function'){ mAll().then(function(all){ all=all||[]; _go(all, all.filter(function(s){return !s.sent;}).length); }).catch(function(){ _go([],0); }); }
+  else { _go([],0); }
 }
 function resetSmartphone2(){
   aibisAlert('最終確認！リセット後はPCから最新データを読み込んでね。<br>本当に実行する？<br><br>'
@@ -23896,18 +25657,24 @@ function resetSmartphone2(){
     +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
+// DAN244: cards=[]先行→mClear()というB-2/M-3型の危険経路（mClear失敗黙殺で写真だけ残存・
+// 保存失敗時memory[]残留）を廃止し、bulk_ops.jsの安全核へ委譲する。mClear()（全消去）は
+// 使わない：未紐付け・真の迷子写真を巻き込まないため、紐付くsetだけを個別に削除する。
 function doResetSmartphone(){
-  cards = [];
-  try{
-    // 第177弾: データセット固有の基準だけを消す（外部に作成した控えファイルの事実は消さない）
-    _clearBackupBaseline();
-    localStorage.removeItem('aibis_backup_nudge_dismissed');
-  }catch(_e){}
-  doSaveCards(function(ok){
-    if(!ok){ toast('⚠ 保存に失敗しました'); return; }
+  bulkOpsWipeAllCards('resetPhone', function(result){
+    if(!result || !result.ok){
+      if(result && result.skipped){ toast('✅ リセット完了。PCから最新データを「添付から読込」してください'); return; }
+      toast('⚠ リセット処理を中止しました（保存診断をご確認ください）');
+      return;
+    }
+    try{
+      // 第177弾: データセット固有の基準だけを消す（外部に作成した控えファイルの事実は消さない）
+      _clearBackupBaseline();
+      localStorage.removeItem('aibis_backup_nudge_dismissed');
+    }catch(_e){}
     renderList();
-    var done=function(){ toast('✅ リセット完了。PCから最新データを「添付から読込」してください'); try{ if(typeof updateInboxBadge==='function')updateInboxBadge(); }catch(_e){} try{ if(typeof renderInboxBody==='function')renderInboxBody(); }catch(_e){} };
-    if(typeof mClear==='function'){ mClear().then(done).catch(done); } else { done(); }
+    toast('✅ リセット完了（↩ 直前の一括削除を取り消すから復元できます）。PCから最新データを「添付から読込」してください');
+    try{ if(typeof renderInboxBody==='function')renderInboxBody(); }catch(_e2){}
   });
 }
 window.resetSmartphone=resetSmartphone;
@@ -27814,11 +29581,21 @@ function _unlinkSet(id){ var go=function(){ mGet(id).then(function(s){ if(!s) re
 function _afterPhotoChange(){ try{ renderInboxBody(); }catch(e){} try{ if(typeof curId!=="undefined" && curId) renderCardPhotos(curId); }catch(e){} try{ updateInboxBadge(); }catch(e){} }
 function _detachFromCard(id){ mGet(id).then(function(s){ if(!s) return; s.cardId=MEDIA_INBOX; s.unlinked=true; mPut(s).then(function(){ try{ toast("カードから外しました"); }catch(e){} _afterPhotoChange(); }); }); }
 function _gotoCard(id){ mGet(id).then(function(s){ if(!s||!s.cardId||s.cardId===MEDIA_INBOX){ try{ toast("紐付け先カードがありません"); }catch(e){} return; } var cid=s.cardId; try{ closeInbox(); }catch(e){} try{ if(typeof openCard==="function") openCard(cid); }catch(e){} }); }
+// DAN244: mDel失敗を成功と同一視していた不具合（M-8）を是正。okN/failNを個別に
+// カウントし、削除完了後のtoastへ両方を真値表示する（失敗0件のときは従来通りの文言）。
 function _bulkDelSets(ids){
   var list=(ids||[]).slice(); var n=list.length; if(!n) return;
+  var okN=0, failN=0;
   (function next(){
-    if(!list.length){ try{ ids.forEach(function(x){ delete _inbSel[x]; }); }catch(e){} toast('🗑 '+n+'件を削除したよ'); try{ _afterPhotoChange(); }catch(e){} try{ updateInboxBadge(); }catch(e){} return; }
-    var id=list.shift(); mDel(id).then(next,next);
+    if(!list.length){
+      try{ ids.forEach(function(x){ delete _inbSel[x]; }); }catch(e){}
+      if(failN>0){ toast('🗑 '+okN+'件を削除・'+failN+'件は失敗したよ'); }
+      else { toast('🗑 '+okN+'件を削除したよ'); }
+      try{ _afterPhotoChange(); }catch(e){} try{ updateInboxBadge(); }catch(e){}
+      return;
+    }
+    var id=list.shift();
+    mDel(id).then(function(){ okN++; next(); }, function(){ failN++; next(); });
   })();
 }
 function _delSet(id){ mGet(id).then(function(s){ if(!s) return;
