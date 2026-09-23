@@ -2737,7 +2737,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.37";
+var APP_VERSION = "v11.38";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -13597,6 +13597,34 @@ function _bulkJournalClear(){
   } catch (_e) { return { ok: false, error: (_e && _e.message) || String(_e) }; }
 }
 
+// ---- DAN246：journal raw分類（読取専用・推測補完なし・外部改変の可能性があるため値を信用しない） ----
+//   none : journal不存在
+//   A    : parse可object・opId非空string・phase='done'・許容kind・cardIds/setIdsとも配列（既存A経路）
+//   B    : Aと同条件だがcardIds/setIdsの少なくとも一方が欠損/null/非配列（限定「記録の整理」候補）
+//   C    : parse不能・非object・opId欠損/非string/空・done＋未知kind・未知phase（読取専用診断のみ）
+//   F    : 正規の未完phase（既存fail-closed・今回は案内文言のみ）
+// 分類は案内・入口の振り分けにだけ使い、既存repair/Undo/new-op gateの判定は変更しない。
+var _BULK_DONE_KINDS246 = ['bulkDelete', 'clearAll', 'resetPhone']; // phase='done'を書き得る既存kindのみ
+var _BULK_INCOMPLETE_PHASES246 = ['prepared', 'cards-saved', 'media-deleting', 'rolling-back', 'undo-restoring', 'assign-prepared', 'assign-saving', 'assign-rolling-back'];
+var _BULK_NOFIX_NOTE246 = '現在のデータは変更していません。保存診断はこの記録を修復しません';
+function _bulkJournalRawRead246(){
+  try { return { ok: true, raw: localStorage.getItem(BULK_JOURNAL_KEY) }; } catch (_e) { return { ok: false, raw: null }; }
+}
+function _bulkClassifyJournalRaw246(raw){
+  if (raw === null || raw === undefined) return { cls: 'none' };
+  var j;
+  try { j = JSON.parse(raw); } catch (_eP) { return { cls: 'C', reason: 'parse-error' }; }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return { cls: 'C', reason: 'not-object' };
+  if (typeof j.opId !== 'string' || !j.opId) return { cls: 'C', reason: 'opid-invalid' };
+  if (j.phase === 'done') {
+    if (_BULK_DONE_KINDS246.indexOf(j.kind) < 0) return { cls: 'C', reason: 'kind-unknown' };
+    if (Array.isArray(j.cardIds) && Array.isArray(j.setIds)) return { cls: 'A', j: j };
+    return { cls: 'B', j: j };
+  }
+  if (typeof j.phase === 'string' && _BULK_INCOMPLETE_PHASES246.indexOf(j.phase) >= 0) return { cls: 'F', j: j };
+  return { cls: 'C', reason: 'phase-unknown' };
+}
+
 // ---- 多タブロック（owner token・write→readback確認・fail-closed・heartbeat） ----
 function _bulkGenOwnerToken(){ return 'o_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '_' + Math.random().toString(36).slice(2); }
 var _bulkLockOwner = null;
@@ -13740,9 +13768,11 @@ function _bulkLockAcquireUndo(op){
   }
   return { ok: true };
 }
+// DAN246（M1是正）：「保存診断で復旧できる」誤期待を生まないよう、本件（一括操作記録の異常）に
+// 該当する拒否文言だけを原因別に補正する（一般保存失敗の案内・'locked'等は無変更）。
 function _bulkNewOpDenyMessage(reason){
-  if (reason === 'journal-unreadable') return '⚠ 前回の一括操作の記録を確認できなかったため、新しい一括操作を開始できません。初期設定→保存診断をご確認ください';
-  if (reason === 'journal-incomplete') return '⚠ 前回の一括操作が完了していないため、新しい一括操作を開始できません。初期設定→保存診断をご確認ください';
+  if (reason === 'journal-unreadable') return '⚠ 前回の一括操作の記録を確認できなかったため、新しい一括操作を開始できません。' + _BULK_NOFIX_NOTE246;
+  if (reason === 'journal-incomplete') return '⚠ 前回の一括操作が完了していないため、新しい一括操作を開始できません。' + _BULK_NOFIX_NOTE246;
   if (reason === 'locked') return '他のタブで一括操作が進行中です。しばらくしてからお試しください';
   return '⚠ 新しい一括操作を開始できませんでした';
 }
@@ -13756,6 +13786,12 @@ function _bulkNewOpDenyMessage(reason){
 // YES押下時に「その時点の現在journal」をそのままretireしない。_bulkRetirePendingUndoへ
 // expectedJournalを渡し、lock取得後にexact opId一致を再確認させる（ChatGPT probe再現：Q6 FAIL
 // の是正）。
+// DAN246（M1是正・§3）：「まだ元に戻せます」は、journalが正規配列（A）であり、かつRestorePointが
+// 実在してmanifest.setIdsがjournal.setIdsと一致することを**非同期pre-readで確認できた場合だけ**
+// 表示する。B（done＋配列欠損）／RP欠損／RP読取失敗／形状不一致では表示せず、原因別の案内
+// （_bulkOfferUnverifiedUndo246）へ振り分ける。pre-read中に共有journal rawが別内容へ変化した場合は
+// 中止する（stale）。RP read失敗を「不存在」とは扱わない。Q6是正（expectedJournalのsnapshot＋
+// _bulkRetirePendingUndo側のpost-lock再照合）は無変更。
 function _bulkOfferRetireForNewOp(onRetireComplete){
   var rrSnap = _bulkJournalRead();
   if (!rrSnap.ok || !rrSnap.exists || rrSnap.value.phase !== 'done') {
@@ -13765,10 +13801,54 @@ function _bulkOfferRetireForNewOp(onRetireComplete){
   }
   var expectedJournal = rrSnap.value;
   if (typeof aibisConfirm !== 'function') { onRetireComplete(false); return; }
+  var raw0 = _bulkJournalRawRead246();
+  var cls0 = raw0.ok ? _bulkClassifyJournalRaw246(raw0.raw) : { cls: 'C', reason: 'journal-read-failed' };
+  if (cls0.cls === 'B') { _bulkOfferUnverifiedUndo246('B', expectedJournal, onRetireComplete); return; }
+  if (cls0.cls !== 'A') { _bulkShowJournalDiagnosisC246(cls0.reason); onRetireComplete(false); return; }
+  var p;
+  try { p = _rpGet(expectedJournal.opId); } catch (_eG) { p = Promise.reject(_eG); }
+  var stillSame = function(){ var r = _bulkJournalRawRead246(); return r.ok && r.raw === raw0.raw; };
+  p.then(function(rp){
+    if (!stillSame()) { try { toast('⚠ 状態が変わったため、この操作を中止しました。画面を更新してください'); } catch (_e) {} onRetireComplete(false); return; }
+    if (!rp) { _bulkOfferUnverifiedUndo246('rp-missing', expectedJournal, onRetireComplete); return; }
+    if (!rp.manifest || !Array.isArray(rp.manifest.setIds) || _bulkSortedJoin(rp.manifest.setIds) !== _bulkSortedJoin(expectedJournal.setIds)) {
+      _bulkOfferUnverifiedUndo246('rp-shape', expectedJournal, onRetireComplete); return;
+    }
+    aibisConfirm(
+      '直前の一括削除をまだ元に戻せます。<br>新しい一括操作を開始すると、この取り消し権は終了します。<br>続けますか？',
+      function(){ _bulkRetirePendingUndo(expectedJournal, function(ok){ onRetireComplete(!!ok); }); },
+      '続ける', 'やめる'
+    );
+  }, function(){
+    if (!stillSame()) { try { toast('⚠ 状態が変わったため、この操作を中止しました。画面を更新してください'); } catch (_e) {} onRetireComplete(false); return; }
+    _bulkOfferUnverifiedUndo246('rp-read-failed', expectedJournal, onRetireComplete);
+  });
+}
+// DAN246：Undo可能性（RP実在・形状整合）を確認できない場合の案内。「元に戻せます」とは表示しない。
+// 「詳しく確認する」（YES）後だけ、原因別に既存の安全経路へ進む：
+//   B            → 限定「記録の整理」の読取専用診断（_bulkOfferJournalTidyB）
+//   rp-missing   → 既存A1明示finalize導線（_bulkOfferDoneRpMissingFinalize・文言/判定無変更）
+//   rp-shape     → 既存retireのmanifest-mismatchと同じfail-closed（recoveryRequired）
+//   rp-read-failed → 既存retireのrp-read-failedと同じfail-closed（recoveryRequired）
+// 「閉じる」／overlay外タップは何も実行しない（無変更）。retire（取り消し権の終了）は一切行わない。
+function _bulkOfferUnverifiedUndo246(kind, expectedJournal, onRetireComplete){
   aibisConfirm(
-    '直前の一括削除をまだ元に戻せます。<br>新しい一括操作を開始すると、この取り消し権は終了します。<br>続けますか？',
-    function(){ _bulkRetirePendingUndo(expectedJournal, function(ok){ onRetireComplete(!!ok); }); },
-    '続ける', 'やめる'
+    '⚠ 直前の一括操作の記録または復元ポイントを確認できません。<br>取り消し・終了・新しい一括操作はできません。<br>' +
+    '<span style="font-size:12px;color:#718096">現在のカード・写真は変更していません。保存診断はこの記録を修復しません。</span>',
+    function(){
+      if (kind === 'B') { onRetireComplete(false); _bulkOfferJournalTidyB(); return; }
+      bulkOps._recoveryRequired = true;
+      if (kind === 'rp-missing') {
+        try { toast('⚠ 直前の一括削除の復元ポイントが失われているため、元に戻せません'); } catch (_e) {}
+        try { _bulkOfferDoneRpMissingFinalize(expectedJournal); } catch (_e2) {}
+      } else if (kind === 'rp-shape') {
+        try { toast('⚠ 直前の削除記録が一致しないため、安全に終了できませんでした。' + _BULK_NOFIX_NOTE246); } catch (_e3) {}
+      } else {
+        try { toast('⚠ 直前の一括操作の復元ポイント確認に失敗しました。' + _BULK_NOFIX_NOTE246); } catch (_e4) {}
+      }
+      onRetireComplete(false);
+    },
+    '詳しく確認する', '閉じる'
   );
 }
 // §8/§9是正：pending Undoの明示retire。lockを取得したうえで、①journal再読取②Q6是正：
@@ -13800,7 +13880,7 @@ function _bulkRetirePendingUndo(expectedJournal, onDone){
   // まま新規破壊操作だけを止める（既存O9のrecoveryRequired規約に合わせる）。
   if (!Array.isArray(j.cardIds) || !Array.isArray(j.setIds)) {
     bulkOps._recoveryRequired = true;
-    try { toast('⚠ 直前の一括操作の記録が壊れているため、安全に終了できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    try { toast('⚠ 直前の一括操作の記録が壊れているため、安全に終了できませんでした。' + _BULK_NOFIX_NOTE246); } catch (_e) {}
     onDone(false, 'journal-malformed');
     return;
   }
@@ -14609,7 +14689,7 @@ function bulkOpsRepairJournalOnBoot(){
   if (!rr.ok) {
     // O1是正：journal読取自体が失敗／破損＝fail-closed（「journal無し」と混同しない）。
     bulkOps._recoveryRequired = true;
-    try { toast('⚠ 前回の一括操作の記録を確認できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    try { toast('⚠ 前回の一括操作の記録を確認できませんでした。新しい一括操作を停止しています。' + _BULK_NOFIX_NOTE246); } catch (_e) {}
     bulkOps._busy = false;
     return;
   }
@@ -14636,7 +14716,8 @@ function bulkOpsRepairJournalOnBoot(){
       // R1是正：RP欠損はrecoveryRequiredへ（他のrecoveryRequired経路＝O9と同様、共有lockは
       // 解放せず他タブの新規破壊操作を止め続ける。journalにも一切触れない）。
       bulkOps._recoveryRequired = true;
-      try { toast('⚠ 前回の一括操作が完了していません。復元ポイントが見つからないため、初期設定→保存診断をご確認ください'); } catch (_e) {}
+      // DAN246（n3＝F：正規未完phase＋RP欠損）：既存fail-closed・停止継続のまま、案内文言のみ原因別化。
+      try { toast('⚠ 前回の一括操作が完了していません。復元ポイントが見つからないため、新しい一括操作を停止しています。' + _BULK_NOFIX_NOTE246); } catch (_e) {}
       bulkOps._busy = false;
       return;
     }
@@ -14644,7 +14725,7 @@ function bulkOpsRepairJournalOnBoot(){
   }).catch(function(){
     // R1是正：RP読取自体の失敗もrecoveryRequiredへ（lock保持・journal非接触）。
     bulkOps._recoveryRequired = true;
-    try { toast('⚠ 前回の一括操作の復元ポイント確認に失敗しました。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    try { toast('⚠ 前回の一括操作の復元ポイント確認に失敗しました。新しい一括操作を停止しています。' + _BULK_NOFIX_NOTE246); } catch (_e) {}
     bulkOps._busy = false;
   });
 }
@@ -14682,6 +14763,13 @@ function _bulkRestoreLastOpFromDoneJournal(j){
 // 成立時のみdone journalをclearしrecoveryRequiredを解除する。自動clearは行わない。
 function _bulkOfferDoneRpMissingFinalize(j){
   if (typeof aibisConfirm !== 'function') return;
+  // DAN246（M1/§3）：件数表示・「この削除状態を確定」は非配列Bに適用しない。現在の共有journal
+  // rawを分類し、B（done＋配列欠損）は限定「記録の整理」の読取専用診断へ、C（識別不能）は
+  // 読取専用の原因別案内のみへ振り分ける。A（正規配列）は既存A1の文言・判定を1文字も変えない。
+  var rrC246 = _bulkJournalRawRead246();
+  var clsC246 = rrC246.ok ? _bulkClassifyJournalRaw246(rrC246.raw) : { cls: 'C', reason: 'journal-read-failed' };
+  if (clsC246.cls === 'B') { _bulkOfferJournalTidyB(); return; }
+  if (clsC246.cls === 'C') { _bulkShowJournalDiagnosisC246(clsC246.reason); return; }
   aibisConfirm(
     '直前の一括削除（' + ((j.cardIds || []).length) + '件）の復元ポイントが失われているため、<b>元に戻す操作はできません</b>。<br>' +
     '<span style="font-size:12px;color:#718096">現在のカード・写真の整合を確認したうえで、この削除状態を確定しますか？</span>',
@@ -14723,10 +14811,18 @@ function _bulkFinalizeDoneRpMissing(j){
   if (!Array.isArray(jCur.cardIds) || !Array.isArray(jCur.setIds)) {
     bulkOps._recoveryRequired = true;
     if (freshlyAcquired) _bulkLockRelease();
-    try { toast('⚠ 直前の一括操作の記録が壊れているため確定できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    try { toast('⚠ 直前の一括操作の記録が壊れているため確定できませんでした。' + _BULK_NOFIX_NOTE246); } catch (_e) {}
     return;
   }
   var cardsOk = !jCur.cardIds.some(function(id){ return cards.some(function(c){ return c && c.id === id; }); });
+  // DAN246（C2）：opIdが非空文字列でない／doneを生成し得ない未知kindの記録は識別不能（C）と
+  // して、既存finalizeでもclearしない（読取専用診断のみ。fail-closed方向の強化）。
+  if (typeof jCur.opId !== 'string' || !jCur.opId || _BULK_DONE_KINDS246.indexOf(jCur.kind) < 0) {
+    bulkOps._recoveryRequired = true;
+    if (freshlyAcquired) _bulkLockRelease();
+    try { toast('⚠ 直前の一括操作の記録を識別できないため確定できませんでした。' + _BULK_NOFIX_NOTE246); } catch (_e) {}
+    return;
+  }
   if (!cardsOk) {
     if (freshlyAcquired) _bulkLockRelease();
     try { toast('⚠ 現在の状態と一致しないため確定できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
@@ -14742,7 +14838,7 @@ function _bulkFinalizeDoneRpMissing(j){
     if (!cl.ok) {
       // clear失敗はfail-closed：lockは保持したままrecoveryRequiredへ（journal/RP保持）。
       bulkOps._recoveryRequired = true;
-      try { toast('⚠ 操作記録の消去に失敗したため確定できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+      try { toast('⚠ 操作記録の消去に失敗したため確定できませんでした。' + _BULK_NOFIX_NOTE246); } catch (_e) {}
       return;
     }
     bulkOps._recoveryRequired = false;
@@ -14769,6 +14865,534 @@ function _bulkFinalizeDoneRpMissing(j){
 window._bulkOfferDoneRpMissingFinalize = _bulkOfferDoneRpMissingFinalize;
 window._bulkFinalizeDoneRpMissing = _bulkFinalizeDoneRpMissing;
 
+// =========================================================
+// DAN246：B限定「記録の整理」（破損journal＋RestorePoint欠損時の復旧安全性）
+// 性質：製品データの回復機能ではない。利用者が自分の端末内の壊れた制御記録（一括操作journal
+// 1キー）を、証拠を自分で保存・確認したうえで明示的に整理するだけの機能。自動clear・強制
+// reset・Undoの捏造・lock強制解除・RP削除は行わない。cards/media/RPへのwrite/deleteは0、
+// 新規storage key・DB・store・schemaも0。成功しても「過去の削除完了」「復元」は保証しない。
+// 実行順（W1〜W6）：読取専用preflight→（利用者の明示操作）→排他（自保持再利用／未保持時のみ
+// 取得）→post-lock raw原文一致→再測→証拠ファイル生成（上限2MiB・超過はfail-closed）→利用者の
+// 明示ダウンロード→同じファイルの再選択（size＋SHA256＋byte一致）→再測→二段階同意→最終再照合
+// →_bulkJournalClear()＋readback→recoveryRequired=false・_lastOp=null・Undo非表示→自owner解放。
+// =========================================================
+var BULK_TIDY_EVIDENCE_MAX_BYTES246 = 2 * 1024 * 1024; // 証拠ファイル上限2MiB（切り詰めない）
+var BULK_TIDY_SESSION_TTL_MS246 = 10 * 60 * 1000;      // 無操作10分で時間切れ＝無変更で中止
+var BULK_TIDY_IDB_TIMEOUT_MS246 = 6000;               // RP DB読取の応答待ち上限（blocked等）
+var _bulkTidyPre246 = null;      // 読取専用preflight結果（利用者が「進む」を押すまでlock非取得）
+var _bulkTidySession246 = null;  // 進行中の整理セッション（1タブ1件）
+var _bulkTidySeq246 = 0;
+
+function _bulkTidyReasonText246(reason, m){
+  var n = (m && typeof m.rpKeyCount === 'number') ? m.rpKeyCount : null;
+  var map = {
+    'rp-db-absent': '復元ポイントの保存領域が見つかりません（この画面からは作成しません）',
+    'rp-store-absent': '復元ポイントの保存領域の形式を確認できません',
+    'rp-blocked': '復元ポイントの保存領域が他の画面で使用中です',
+    'rp-timeout-or-blocked': '復元ポイントの保存領域から応答がありません（他の画面で使用中の可能性があります）',
+    'rp-open-error': '復元ポイントの保存領域を開けません（形式またはバージョンが一致しません）',
+    'rp-open-throw': '復元ポイントの保存領域を開けません',
+    'rp-versionchange': '復元ポイントの保存領域が他の画面で更新されました',
+    'rp-tx-error': '復元ポイントを読み取れません', 'rp-tx-abort': '復元ポイントを読み取れません', 'rp-tx-throw': '復元ポイントを読み取れません',
+    'rp-getallkeys-unsupported': '復元ポイントの一覧を読み取れません',
+    'rp-keys-shape': '復元ポイントの一覧の形式を確認できません',
+    'rp-read-failed': '復元ポイントを正常に読み取れません（「無い」とは扱いません）',
+    'rp-not-empty': '復元ポイントが残っています' + (n !== null ? '（' + n + '件）' : '') + '。復元できる可能性を消さないため、記録の整理はできません',
+    'rp-get-not-empty': '対象の復元ポイントが残っています。記録の整理はできません',
+    'sk-read-failed': 'カードの保存データを読み取れません',
+    'sk-missing': 'カードの保存データがありません（未作成の端末では記録の整理を行いません）',
+    'sk-parse-error': 'カードの保存データが壊れています（0件とは扱いません）',
+    'sk-not-array': 'カードの保存データの形式を確認できません',
+    'sk-card-shape': 'カードの保存データにIDを確認できないカードがあります',
+    'mem-cards-invalid': '画面上のカードデータを確認できません',
+    'sk-memory-mismatch': 'カードの保存データと画面上のデータが一致しません',
+    'inbox-id-unavailable': '受信箱の識別子を確認できません',
+    'mall-missing': '写真データを確認できません', 'mall-throw': '写真データを確認できません',
+    'mall-not-promise': '写真データを確認できません', 'mall-rejected': '写真データを読み取れません',
+    'mall-not-array': '写真データの形式を確認できません', 'media-set-shape': '写真データにIDを確認できないものがあります',
+    'media-set-dup': '写真データのIDが重複しています',
+    'orphan-sets': '紐付け先のない写真セットがあります（別の手順が必要なため、記録の整理はできません）',
+    'lock-other': '他のタブで一括操作の排他記録が保持されています',
+    'lock-broken': '一括操作の排他記録が壊れているか読み取れません（自動では解除しません）',
+    'journal-changed': '一括操作の記録が確認中に変わりました',
+    'journal-read-failed': '一括操作の記録を読み取れません',
+    'not-b': '対象の記録（形式が不完全な完了記録）が見つかりません',
+    'state-changed': 'カード・写真・復元ポイントの状態が確認中に変わりました',
+    'owner-lost': '排他記録を維持できませんでした',
+    'busy': '他の処理中です',
+    'session-superseded': '別の確認が開始されました',
+    'encoder-unavailable': 'この端末では証拠ファイルを作成できません',
+    'digest-unavailable': 'この端末では証拠ファイルを照合できません',
+    'evidence-too-large': '証拠ファイルが上限（2MiB）を超えるため作成できません（切り詰めは行いません）',
+    'download-failed': '証拠ファイルの保存を開始できませんでした',
+    'download-not-started': '先に証拠ファイルを保存してください',
+    'file-not-selected': 'ファイルが選択されていません',
+    'file-too-large': '選択されたファイルが上限（2MiB）を超えています',
+    'file-size-mismatch': '選択されたファイルが保存した証拠ファイルと一致しません（サイズ）',
+    'file-read-unsupported': '選択されたファイルを読み取れません',
+    'file-read-failed': '選択されたファイルを読み取れません',
+    'file-mismatch': '選択されたファイルが保存した証拠ファイルと一致しません',
+    'timeout': '時間切れのため中止しました'
+  };
+  return map[reason] || '状態を確認できません';
+}
+// 別タブ・同一タブの他処理（保存・削除・Undo等）との並走を避ける（recoveryRequiredは見ない）。
+function _bulkTidyOtherBusy246(){
+  if (bulkOps._busy) return true;
+  if (typeof doDelCard !== 'undefined' && doDelCard._busy) return true;
+  if (typeof doSaveCards !== 'undefined' && doSaveCards._busy) return true;
+  if (typeof undoCardEdit === 'function' && undoCardEdit._busy) return true;
+  if (typeof _mgrTerm241Busy !== 'undefined' && _mgrTerm241Busy) return true;
+  if (typeof _inbOrphanDelBusy !== 'undefined' && _inbOrphanDelBusy) return true;
+  return false;
+}
+// 排他記録の読取専用診断（lockを取得・変更しない）。
+function _bulkTidyLockInfo246(){
+  var st = _bulkLockReadState();
+  if (st.state === 'read-error' || st.state === 'parse-error') return { ok: false, reason: 'lock-broken', label: '破損または読取不能' };
+  if (st.state === 'no-lock') return { ok: true, label: 'なし' };
+  if (_bulkLockOwner && !_bulkLockFault && st.lock.owner === _bulkLockOwner) return { ok: true, label: 'このタブが保持中' };
+  if (!_bulkLockIsStale(st.lock)) return { ok: false, reason: 'lock-other', label: '他のタブが保持中' };
+  return { ok: true, label: '期限切れ（このタブで引き継ぎ可能）' };
+}
+// W2：RP DBの読取専用probe。DBが無い（upgrade要求）場合はversionchange transactionを中止し、
+// 整理経路からDB/storeを新設しない。blocked／応答なし（timeout）／open失敗（version不整合含む）／
+// store不在／tx失敗はいずれも「空」とみなさず拒否する。同一readonly txでgetAllKeys＋get(opId)。
+function _bulkTidyRpProbe246(opId){
+  return new Promise(function(res){
+    var done = false, db = null, r;
+    var finish = function(v){ if (done) return; done = true; clearTimeout(to); try { if (db) db.close(); } catch (_eC) {} res(v); };
+    var to = setTimeout(function(){ finish({ ok: false, reason: 'rp-timeout-or-blocked' }); }, BULK_TIDY_IDB_TIMEOUT_MS246);
+    try { r = indexedDB.open(BULK_RESTORE_DB, 1); } catch (_eO) { finish({ ok: false, reason: 'rp-open-throw' }); return; }
+    r.onupgradeneeded = function(){
+      try { if (r.transaction) r.transaction.abort(); } catch (_eA) {}
+      finish({ ok: false, reason: 'rp-db-absent' });
+    };
+    r.onblocked = function(){ finish({ ok: false, reason: 'rp-blocked' }); };
+    r.onerror = function(ev){ try { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); } catch (_eE) {} finish({ ok: false, reason: 'rp-open-error' }); };
+    r.onsuccess = function(){
+      db = r.result;
+      if (done) { try { db.close(); } catch (_eD) {} return; }
+      try {
+        db.onversionchange = function(){ finish({ ok: false, reason: 'rp-versionchange' }); };
+        if (!db.objectStoreNames || !db.objectStoreNames.contains(BULK_RESTORE_STORE)) { finish({ ok: false, reason: 'rp-store-absent' }); return; }
+        var t = db.transaction(BULK_RESTORE_STORE, 'readonly'), s = t.objectStore(BULK_RESTORE_STORE);
+        if (typeof s.getAllKeys !== 'function') { finish({ ok: false, reason: 'rp-getallkeys-unsupported' }); return; }
+        var kReq = s.getAllKeys(), gReq = s.get(opId);
+        t.oncomplete = function(){ finish({ ok: true, keys: kReq.result, got: gReq.result }); };
+        t.onerror = function(){ finish({ ok: false, reason: 'rp-tx-error' }); };
+        t.onabort = function(){ finish({ ok: false, reason: 'rp-tx-abort' }); };
+      } catch (_eT) { finish({ ok: false, reason: 'rp-tx-throw' }); }
+    };
+  });
+}
+function _bulkTidyIdSet246(arr){
+  var map = Object.create(null), list = [];
+  for (var i = 0; i < arr.length; i++) {
+    var c = arr[i];
+    if (!c || typeof c !== 'object' || Array.isArray(c) || typeof c.id !== 'string' || !c.id) return null;
+    if (map[c.id]) return null;
+    map[c.id] = true; list.push(c.id);
+  }
+  return { map: map, list: list };
+}
+// W2＋W3の読取専用測定（lock・journal・cards・media・RPのいずれにも書込まない）。
+function _bulkTidyMeasure246(opId){
+  var m = { ok: false, reason: '', rpKeyCount: null, cardsCount: null, mediaSetCount: null, inboxSetCount: null, orphanSetIds: [], cardIdsKey: '', setIdsKey: '' };
+  var fail = function(reason){ m.ok = false; if (!m.reason) m.reason = reason; return m; };
+  return _bulkTidyRpProbe246(opId).then(function(pr){
+    if (!pr.ok) return fail(pr.reason);
+    if (!Array.isArray(pr.keys)) return fail('rp-keys-shape');
+    m.rpKeyCount = pr.keys.length;
+    if (pr.keys.length !== 0) return fail('rp-not-empty');
+    if (pr.got !== undefined && pr.got !== null) return fail('rp-get-not-empty');
+    // n1：既存APIでも「空配列で正常解決」「null/undefinedで正常解決」を必須として再確認する
+    // （probeでDB/store実在を確認済みのため、ここでのopenはDB/storeを新設しない）。
+    var pk, pg;
+    try { pk = _rpAllKeys(); pg = _rpGet(opId); } catch (_eR) { return fail('rp-read-failed'); }
+    return Promise.all([pk, pg]).then(function(r2){
+      if (!Array.isArray(r2[0])) return fail('rp-keys-shape');
+      m.rpKeyCount = r2[0].length;
+      if (r2[0].length !== 0) return fail('rp-not-empty');
+      if (r2[1] !== undefined && r2[1] !== null) return fail('rp-get-not-empty');
+      return _bulkTidyMeasureCardsMedia246(m, fail);
+    }, function(){ return fail('rp-read-failed'); });
+  }, function(){ return fail('rp-read-failed'); });
+}
+function _bulkTidyMeasureCardsMedia246(m, fail){
+  var rawSK;
+  try { rawSK = localStorage.getItem(SK); } catch (_eS) { return fail('sk-read-failed'); }
+  if (rawSK === null || rawSK === undefined) return fail('sk-missing'); // n4：意図的な厳格化（緩めない）
+  var arr;
+  try { arr = JSON.parse(rawSK); } catch (_eP) { return fail('sk-parse-error'); } // 破損を[]扱いしない
+  if (!Array.isArray(arr)) return fail('sk-not-array');
+  var rawIds = _bulkTidyIdSet246(arr);
+  if (!rawIds) return fail('sk-card-shape');
+  if (!Array.isArray(cards)) return fail('mem-cards-invalid');
+  var memIds = _bulkTidyIdSet246(cards);
+  if (!memIds) return fail('mem-cards-invalid');
+  if (rawIds.list.length !== memIds.list.length || rawIds.list.some(function(id){ return !memIds.map[id]; })) return fail('sk-memory-mismatch');
+  m.cardsCount = rawIds.list.length;
+  // m1是正（DAN246 release gate工程）：区切り文字joinは非単射（ID内の区切り混入で衝突し得る）ため、
+  // 境界を保存するJSON符号化へ変更する（再照合用のメモリ内指紋のみ。証拠export・保存形式は不変）。
+  m.cardIdsKey = JSON.stringify(rawIds.list.slice().sort());
+  m.skRaw = rawSK; // 再照合用（メモリ内のみ・証拠ファイルへは出さない）：内容だけの更新も「変化」として拒否する
+  if (typeof MEDIA_INBOX !== 'string' || !MEDIA_INBOX) return fail('inbox-id-unavailable');
+  if (typeof mAll !== 'function') return fail('mall-missing');
+  var p;
+  try { p = mAll(); } catch (_eM) { return fail('mall-throw'); }
+  if (!p || typeof p.then !== 'function') return fail('mall-not-promise');
+  return p.then(function(all){
+    if (!Array.isArray(all)) return fail('mall-not-array');
+    var seen = Object.create(null), setIds = [], links = [], inboxN = 0, orphans = [];
+    for (var i = 0; i < all.length; i++) {
+      var s = all[i];
+      if (!s || typeof s !== 'object' || Array.isArray(s) || typeof s.id !== 'string' || !s.id) return fail('media-set-shape');
+      if (seen[s.id]) return fail('media-set-dup');
+      seen[s.id] = true; setIds.push(s.id);
+      var cid = s.cardId;
+      links.push(JSON.stringify([s.id, String(cid)]));
+      if (cid === undefined || cid === null || cid === '' || cid === MEDIA_INBOX) { inboxN++; continue; }
+      if (typeof cid !== 'string') return fail('media-set-shape');
+      if (!rawIds.map[cid]) orphans.push(s.id);
+    }
+    m.mediaSetCount = setIds.length; m.inboxSetCount = inboxN; m.orphanSetIds = orphans;
+    m.setIdsKey = JSON.stringify(links.slice().sort()); // set ID＋紐付け先（linkage）を境界保存型で再照合する
+    if (orphans.length) return fail('orphan-sets');
+    m.ok = true; m.reason = '';
+    return m;
+  }, function(){ return fail('mall-rejected'); });
+}
+function _bulkTidySnapEqual246(a, b){
+  return !!a && !!b && a.skRaw === b.skRaw && a.cardsCount === b.cardsCount && a.cardIdsKey === b.cardIdsKey && a.mediaSetCount === b.mediaSetCount &&
+    a.setIdsKey === b.setIdsKey && a.inboxSetCount === b.inboxSetCount && a.rpKeyCount === 0 && b.rpKeyCount === 0;
+}
+function _bulkTidyEsc246(s){ return (typeof e === 'function') ? e(String(s)) : String(s).replace(/[&<>"']/g, function(ch){ return '&#' + ch.charCodeAt(0) + ';'; }); }
+// 利用者向けダイアログ（aibisAlert）。ボタンはid付きで描画し、描画直後にaddEventListenerで束縛する
+// （新規window APIを増やさない）。「閉じる」＝何も実行しない。
+function _bulkTidyDialog246(html, buttons){
+  var btnHtml = (buttons || []).map(function(b){
+    return '<button type="button" id="' + b.id + '" class="zfa-ok" style="' + (b.style || '') + '"' + (b.plainClose ? ' onclick="closeAibisAlert()"' : '') + '>' + _bulkTidyEsc246(b.label) + '</button>';
+  }).join('');
+  try { aibisAlert(html + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px">' + btnHtml + '</div>'); } catch (_eA) { return; }
+  (buttons || []).forEach(function(b){
+    if (b.plainClose || typeof b.fn !== 'function') return;
+    try { var el = document.getElementById(b.id); if (el && typeof el.addEventListener === 'function') el.addEventListener('click', b.fn); } catch (_eB) {}
+  });
+}
+function _bulkTidyCloseDialog246(){ try { if (typeof closeAibisAlert === 'function') closeAibisAlert(); } catch (_e) {} }
+
+// C（識別不能）・読取不能：読取専用の原因別案内のみ。clear導線は出さない。
+function _bulkShowJournalDiagnosisC246(reason){
+  var why = { 'parse-error': '記録の形式が壊れていて読み取れません', 'not-object': '記録の形式を確認できません', 'opid-invalid': '記録の識別子を確認できません',
+    'kind-unknown': '記録の操作種別を確認できません', 'phase-unknown': '記録の処理段階を確認できません', 'journal-read-failed': '記録を読み取れません' }[reason] || '記録を確認できません';
+  try {
+    aibisAlert('⚠ 一括操作の記録に異常があります（' + _bulkTidyEsc246(why) + '）。<br>処理の段階や対象を確認できないため、この端末では新しい一括操作を停止しています。<br>' +
+      '<span style="font-size:12px;color:#718096">現在のカード・写真は変更していません。この記録は自動では直せず、保存診断でも修復されません。状況は外部へ送らず、管理者へご相談ください。</span>');
+  } catch (_e) {}
+}
+
+// B入口：読取専用preflight（lockを取得しない・何も書き込まない）→診断を表示。
+function _bulkOfferJournalTidyB(){
+  if (_bulkTidySession246) _bulkTidyAbort246(_bulkTidySession246.token, null); // 古いセッションは無変更で終了
+  var rr = _bulkJournalRawRead246();
+  if (!rr.ok) { _bulkShowJournalDiagnosisC246('journal-read-failed'); return Promise.resolve({ ok: false, reason: 'journal-read-failed' }); }
+  var cls = _bulkClassifyJournalRaw246(rr.raw);
+  if (cls.cls === 'C') { _bulkShowJournalDiagnosisC246(cls.reason); return Promise.resolve({ ok: false, reason: 'not-b' }); }
+  if (cls.cls !== 'B') { try { toast('⚠ ' + _bulkTidyReasonText246('not-b')); } catch (_e) {} return Promise.resolve({ ok: false, reason: 'not-b' }); }
+  var raw0 = rr.raw, opId = cls.j.opId;
+  return _bulkTidyMeasure246(opId).then(function(m){
+    var rr2 = _bulkJournalRawRead246();
+    if (!rr2.ok || rr2.raw !== raw0) {
+      try { toast('⚠ ' + _bulkTidyReasonText246('journal-changed') + '。画面を更新してください'); } catch (_e) {}
+      return { ok: false, reason: 'journal-changed' };
+    }
+    var li = _bulkTidyLockInfo246();
+    var reason = !m.ok ? m.reason : (!li.ok ? li.reason : '');
+    var eligible = !reason;
+    var pre = eligible ? { token: ++_bulkTidySeq246, raw0: raw0, opId: opId, snap: m } : null;
+    _bulkTidyPre246 = pre;
+    var orphanTxt = m.orphanSetIds.length ? '（' + m.orphanSetIds.slice(0, 10).map(_bulkTidyEsc246).join('、') + (m.orphanSetIds.length > 10 ? ' 他' : '') + '）' : '';
+    var fmt = function(v){ return (typeof v === 'number') ? String(v) : '確認不可'; };
+    var html = '<b>一括操作記録の診断（読取専用）</b><br>' +
+      '<div style="text-align:left;font-size:13px;line-height:1.7;margin:6px 0">' +
+      '記録：完了記録ですが、対象の一覧が欠けています（件数不明）<br>' +
+      '復元ポイント：' + (m.rpKeyCount === 0 ? '0件（元に戻せません）' : (typeof m.rpKeyCount === 'number' ? m.rpKeyCount + '件' : '確認不可')) + '<br>' +
+      'カード：' + fmt(m.cardsCount) + '件 ／ 写真セット：' + fmt(m.mediaSetCount) + '件（受信箱 ' + fmt(m.inboxSetCount) + '件）<br>' +
+      '紐付け先のない写真セット：' + m.orphanSetIds.length + '件' + orphanTxt + '<br>' +
+      '排他記録：' + _bulkTidyEsc246(li.label) + '</div>' +
+      '<div style="font-size:13px;margin:6px 0">' + (eligible
+        ? '判定：この記録は「記録の整理」の対象です（整理するのは記録1件のみ。カード・写真は変更しません）。'
+        : '判定：記録の整理はできません。理由：' + _bulkTidyEsc246(_bulkTidyReasonText246(reason, m))) + '</div>' +
+      '<span style="font-size:12px;color:#718096">このままでは新しい一括操作は停止したままです。保存診断・端末初期化・バックアップの再取込では、この記録は修復されません。</span>';
+    var btns = [];
+    if (eligible) btns.push({ id: 'bulkTidyProceedBtn', label: '記録の整理へ進む', style: 'background:#2c5282', fn: function(){ _bulkTidyBegin246(pre.token); } });
+    btns.push({ id: 'bulkTidyDiagCloseBtn', label: '閉じる', style: 'background:#e2e8f0;color:#2d3748', plainClose: true });
+    _bulkTidyDialog246(html, btns);
+    return { ok: eligible, reason: reason, measure: m, preToken: pre ? pre.token : null };
+  });
+}
+
+function _bulkTidyCurrent246(token){ var s = _bulkTidySession246; return (s && s.token === token) ? s : null; }
+function _bulkTidyTouch246(sess){
+  try { clearTimeout(sess.timer); } catch (_e) {}
+  sess.timer = setTimeout(function(){
+    if (_bulkTidySession246 !== sess) return;
+    try { if (document.getElementById('bulkTidyEvCancelBtn') || document.getElementById('bulkTidyC1No') || document.getElementById('bulkTidyC2No')) _bulkTidyCloseDialog246(); } catch (_eC) {}
+    _bulkTidyAbort246(sess.token, '⚠ 記録の整理は' + _bulkTidyReasonText246('timeout') + '（変更はありません）');
+  }, BULK_TIDY_SESSION_TTL_MS246);
+}
+// 中止＝journal/cards/media/RPには一切触れない。今回新規取得したlockだけを解放し、既に保持して
+// いたlock（retire失敗後など）は解放しない（n2）。他ownerのlockには触れない（_bulkLockReleaseは
+// owner一致時のみremove）。
+function _bulkTidyAbort246(token, msg){
+  var sess = _bulkTidyCurrent246(token);
+  if (!sess) return false;
+  _bulkTidySession246 = null;
+  try { clearTimeout(sess.timer); } catch (_e) {}
+  if (sess.lockFresh) _bulkLockRelease();
+  if (msg) { try { toast(msg); } catch (_e2) {} }
+  return true;
+}
+// 各非同期境界での再照合：owner・journal raw原文一致・RP空・SK/media条件とpreflightからの不変。
+function _bulkTidyRecheck246(sess){
+  var alive = function(){ return _bulkTidySession246 === sess; };
+  if (!alive()) return Promise.resolve({ ok: false, reason: 'session-superseded' });
+  if (!_bulkLockStillOwned()) return Promise.resolve({ ok: false, reason: 'owner-lost' });
+  var r0 = _bulkJournalRawRead246();
+  if (!r0.ok || r0.raw !== sess.raw0) return Promise.resolve({ ok: false, reason: 'journal-changed' });
+  return _bulkTidyMeasure246(sess.opId).then(function(m){
+    if (!alive()) return { ok: false, reason: 'session-superseded' };
+    if (!m.ok) return { ok: false, reason: m.reason, measure: m };
+    if (!_bulkTidySnapEqual246(m, sess.snap)) return { ok: false, reason: 'state-changed', measure: m };
+    if (!_bulkLockStillOwned()) return { ok: false, reason: 'owner-lost' };
+    var r1 = _bulkJournalRawRead246();
+    if (!r1.ok || r1.raw !== sess.raw0) return { ok: false, reason: 'journal-changed' };
+    return { ok: true, measure: m };
+  });
+}
+function _bulkTidyFail246(sess, reason){
+  _bulkTidyCloseDialog246();
+  _bulkTidyAbort246(sess.token, '⚠ 記録の整理を中止しました：' + _bulkTidyReasonText246(reason, sess.snap) + '（変更はありません）');
+  return { ok: false, reason: reason };
+}
+function _bulkTidySanitizeName246(opId){
+  var s = String(opId).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 48);
+  if (!/[A-Za-z0-9]/.test(s)) s = 'unknown';
+  return s;
+}
+function _bulkTidyUtcStamp246(d){ return d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z'); }
+function _bulkTidyHex246(buf){
+  var b = new Uint8Array(buf), s = '';
+  for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+  return s;
+}
+function _bulkTidyDigest246(bytes){
+  var c = (typeof crypto !== 'undefined') ? crypto : null;
+  if (!c || !c.subtle || typeof c.subtle.digest !== 'function') return Promise.reject(new Error('digest-unavailable'));
+  try { return Promise.resolve(c.subtle.digest('SHA-256', bytes)).then(_bulkTidyHex246); } catch (_e) { return Promise.reject(_e); }
+}
+// W5：証拠ファイルの内容はraw journal・取得時刻・lock状態・RP空一覧・件数・孤児IDのみ。
+// カード本文・氏名・画像Blob・認証値（およびそのhash）は含めない。
+function _bulkTidyBuildEvidence246(sess){
+  var now = new Date();
+  var st = _bulkLockReadState();
+  var obj = {
+    format: 'zenis-aibis-bulk-journal-evidence', formatVersion: 1, createdForDan: 246,
+    capturedAtUtc: now.toISOString(),
+    warning: 'この記録には端末内の一括操作記録の原文が含まれ、個人情報が含まれている可能性があります。第三者へ送らないでください。',
+    nonRestorable: '記録の整理は元に戻せません。過去の削除の完了や復元を保証しません。整理対象は一括操作記録1件のみで、カードと写真は変更しません。',
+    journalKey: BULK_JOURNAL_KEY,
+    journalRaw: sess.raw0,
+    lock: { state: st.state, ownedByThisTab: _bulkLockStillOwned(), acquisition: sess.lockFresh ? 'fresh' : 'reused' },
+    restorePoint: { allKeys: [], getOpIdResult: 'none' },
+    cardsCount: sess.snap.cardsCount, mediaSetCount: sess.snap.mediaSetCount, inboxSetCount: sess.snap.inboxSetCount,
+    orphanSetIds: sess.snap.orphanSetIds.slice()
+  };
+  var text = JSON.stringify(obj, null, 2);
+  if (typeof TextEncoder !== 'function') return Promise.resolve({ ok: false, reason: 'encoder-unavailable' });
+  var bytes;
+  try { bytes = new TextEncoder().encode(text); } catch (_eE) { return Promise.resolve({ ok: false, reason: 'encoder-unavailable' }); }
+  if (bytes.length > BULK_TIDY_EVIDENCE_MAX_BYTES246) return Promise.resolve({ ok: false, reason: 'evidence-too-large', size: bytes.length });
+  var name = 'DAN246_bulk_journal_' + _bulkTidySanitizeName246(sess.opId) + '_' + _bulkTidyUtcStamp246(now) + '.json';
+  return _bulkTidyDigest246(bytes).then(function(hex){ return { ok: true, bytes: bytes, sha256: hex, name: name, size: bytes.length }; },
+    function(){ return { ok: false, reason: 'digest-unavailable' }; });
+}
+// 利用者が「記録の整理へ進む」を押した後の開始点（ここで初めて排他を扱う）。
+function _bulkTidyBegin246(preToken){
+  var pre = _bulkTidyPre246;
+  if (!pre || pre.token !== preToken) return Promise.resolve({ ok: false, reason: 'session-superseded' });
+  _bulkTidyPre246 = null;
+  _bulkTidyCloseDialog246();
+  if (_bulkTidySession246) _bulkTidyAbort246(_bulkTidySession246.token, null);
+  var toastFail = function(reason){ try { toast('⚠ 記録の整理を開始できません：' + _bulkTidyReasonText246(reason) + '（変更はありません）'); } catch (_e) {} return { ok: false, reason: reason }; };
+  if (_bulkTidyOtherBusy246()) return Promise.resolve(toastFail('busy'));
+  var r0 = _bulkJournalRawRead246();
+  if (!r0.ok || r0.raw !== pre.raw0) return Promise.resolve(toastFail('journal-changed'));
+  // n2：自タブが既にlockを保持中なら再利用（Acquireしない）。未保持時だけ取得を試みる。
+  var fresh = false;
+  if (!_bulkLockStillOwned()) {
+    var li = _bulkTidyLockInfo246();
+    if (!li.ok) return Promise.resolve(toastFail(li.reason));
+    if (!_bulkLockAcquire()) return Promise.resolve(toastFail('lock-other'));
+    fresh = true;
+  }
+  var sess = { token: ++_bulkTidySeq246, stage: 'lock', opId: pre.opId, raw0: pre.raw0, snap: pre.snap, lockFresh: fresh, timer: null,
+    evidence: null, downloadStarted: false, verified: false };
+  _bulkTidySession246 = sess;
+  _bulkTidyTouch246(sess);
+  // W4：post-lock rawを原文byte一致で再照合（読み直し）。
+  var r1 = _bulkJournalRawRead246();
+  if (!r1.ok || r1.raw !== pre.raw0) return Promise.resolve(_bulkTidyFail246(sess, 'journal-changed'));
+  return _bulkTidyRecheck246(sess).then(function(rc){
+    if (!rc.ok) return (_bulkTidySession246 === sess) ? _bulkTidyFail246(sess, rc.reason) : rc;
+    return _bulkTidyBuildEvidence246(sess).then(function(ev){
+      if (_bulkTidySession246 !== sess) return { ok: false, reason: 'session-superseded' };
+      if (!ev.ok) return _bulkTidyFail246(sess, ev.reason);
+      sess.evidence = ev; sess.stage = 'evidence';
+      _bulkTidyShowEvidenceDialog246(sess);
+      return { ok: true, token: sess.token, lockFresh: fresh };
+    });
+  });
+}
+function _bulkTidyShowEvidenceDialog246(sess){
+  var ev = sess.evidence, tok = sess.token;
+  var html = '<b>記録の整理：証拠ファイルの保存と確認</b><br>' +
+    '<div style="text-align:left;font-size:13px;line-height:1.7;margin:6px 0">' +
+    '① 下のボタンで、記録ファイルを端末へ保存してください。<br>' +
+    '<span style="font-size:12px">ファイル名：' + _bulkTidyEsc246(ev.name) + '（' + ev.size + ' bytes）</span><br>' +
+    '<span style="font-size:12px;color:#c53030">このファイルには一括操作記録の原文が含まれ、個人情報が含まれている可能性があります。第三者へ送らず、端末内で保管してください。</span><br>' +
+    '<button type="button" id="bulkTidyDlBtn" class="zfa-ok" style="background:#2c5282;margin:6px 0">📥 記録ファイルを保存</button><br>' +
+    '② 保存したファイルを選び直してください（保存した内容と一致した場合だけ次へ進めます）。<br>' +
+    '<input type="file" id="bulkTidyFileInp" accept=".json,application/json" disabled style="margin:6px 0;max-width:100%"><br>' +
+    '<span id="bulkTidyStatus" style="font-size:12px;color:#4a5568"></span></div>';
+  _bulkTidyDialog246(html, [{ id: 'bulkTidyEvCancelBtn', label: 'やめる', style: 'background:#e2e8f0;color:#2d3748', fn: function(){ _bulkTidyCancel246(tok); } }]);
+  try {
+    var dl = document.getElementById('bulkTidyDlBtn');
+    if (dl && typeof dl.addEventListener === 'function') dl.addEventListener('click', function(){ _bulkTidyDownload246(tok); });
+    var inp = document.getElementById('bulkTidyFileInp');
+    if (inp && typeof inp.addEventListener === 'function') inp.addEventListener('change', function(){ _bulkTidyVerifyFile246(tok, inp.files && inp.files[0]); });
+  } catch (_e) {}
+}
+function _bulkTidyStatus246(msg){ try { var el = document.getElementById('bulkTidyStatus'); if (el) el.textContent = msg; } catch (_e) {} }
+function _bulkTidyCancel246(token){
+  _bulkTidyCloseDialog246();
+  return _bulkTidyAbort246(token, '記録の整理を中止しました（変更はありません）');
+}
+// 利用者の明示クリックでのみダウンロードを開始する。ダウンロード開始自体は保全成功の根拠に
+// しない（再選択ファイルの照合だけが根拠）。
+function _bulkTidyDownload246(token){
+  var sess = _bulkTidyCurrent246(token);
+  if (!sess || sess.stage !== 'evidence') return false;
+  _bulkTidyTouch246(sess);
+  var ev = sess.evidence;
+  try {
+    var blob = new Blob([ev.bytes], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = ev.name; a.rel = 'noopener'; a.style.display = 'none';
+    document.body.appendChild(a); a.click();
+    try { document.body.removeChild(a); } catch (_eR) {}
+    setTimeout(function(){ try { URL.revokeObjectURL(url); } catch (_eV) {} }, 60000);
+  } catch (_eD) {
+    _bulkTidyStatus246('⚠ ' + _bulkTidyReasonText246('download-failed'));
+    return false;
+  }
+  sess.downloadStarted = true;
+  try { var inp = document.getElementById('bulkTidyFileInp'); if (inp) inp.disabled = false; } catch (_eI) {}
+  _bulkTidyStatus246('保存を開始しました。保存したファイルを②で選び直してください。');
+  return true;
+}
+// W5：再選択ファイルの照合（size・File.arrayBuffer()の長さ・SHA256・byte一致）。不一致・読取失敗・
+// 未選択は保全失敗（clear不可・セッションは継続し、利用者操作での選び直しのみ可能）。
+function _bulkTidyVerifyFile246(token, file){
+  var sess = _bulkTidyCurrent246(token);
+  if (!sess || sess.stage !== 'evidence') return Promise.resolve({ ok: false, reason: 'session-superseded' });
+  _bulkTidyTouch246(sess);
+  var ev = sess.evidence;
+  var bad = function(reason){ _bulkTidyStatus246('⚠ ' + _bulkTidyReasonText246(reason)); return { ok: false, reason: reason }; };
+  if (!sess.downloadStarted) return Promise.resolve(bad('download-not-started'));
+  if (!file) return Promise.resolve(bad('file-not-selected'));
+  if (typeof file.size !== 'number' || file.size > BULK_TIDY_EVIDENCE_MAX_BYTES246) return Promise.resolve(bad('file-too-large'));
+  if (file.size !== ev.size) return Promise.resolve(bad('file-size-mismatch'));
+  if (typeof file.arrayBuffer !== 'function') return Promise.resolve(bad('file-read-unsupported'));
+  var pr;
+  try { pr = Promise.resolve(file.arrayBuffer()); } catch (_eA) { return Promise.resolve(bad('file-read-failed')); }
+  return pr.then(function(buf){
+    if (_bulkTidySession246 !== sess || sess.stage !== 'evidence') return { ok: false, reason: 'session-superseded' };
+    if (!buf || buf.byteLength !== ev.size) return bad('file-mismatch');
+    var got = new Uint8Array(buf);
+    for (var i = 0; i < got.length; i++) { if (got[i] !== ev.bytes[i]) return bad('file-mismatch'); }
+    return _bulkTidyDigest246(got).then(function(hex){
+      if (_bulkTidySession246 !== sess || sess.stage !== 'evidence') return { ok: false, reason: 'session-superseded' };
+      if (hex !== ev.sha256) return bad('file-mismatch');
+      sess.verified = true; sess.stage = 'revalidate';
+      return _bulkTidyRecheck246(sess).then(function(rc){
+        if (!rc.ok) return (_bulkTidySession246 === sess) ? _bulkTidyFail246(sess, rc.reason) : rc;
+        sess.stage = 'consent1';
+        _bulkTidyShowConsent1246(sess);
+        return { ok: true };
+      });
+    }, function(){ return bad('digest-unavailable'); });
+  }, function(){ return bad('file-read-failed'); });
+}
+// W6：独立した二段階の明示同意（「やめる」＝無変更で中止・overlay外タップ／時間切れも無変更）。
+function _bulkTidyShowConsent1246(sess){
+  var tok = sess.token;
+  _bulkTidyDialog246('<b>記録の整理の確認（1/2）</b><br><div style="text-align:left;font-size:13px;line-height:1.7;margin:6px 0">' +
+    '・復元ポイントは確認できず、<b>元に戻せません</b>。<br>' +
+    '・過去の削除が完了したことは<b>証明しません</b>。<br>' +
+    '・今回行うのは一括操作記録<b>1件の整理のみ</b>です。カードと写真は変更しません。<br>' +
+    '・記録を整理すると、新しい一括操作が可能になる場合があります。</div>',
+    [{ id: 'bulkTidyC1No', label: 'やめる', style: 'background:#e2e8f0;color:#2d3748', fn: function(){ _bulkTidyCancel246(tok); } },
+     { id: 'bulkTidyC1Yes', label: '理解して次へ', style: 'background:#2c5282', fn: function(){ _bulkTidyConsent1Yes246(tok); } }]);
+}
+function _bulkTidyConsent1Yes246(token){
+  var sess = _bulkTidyCurrent246(token);
+  if (!sess || sess.stage !== 'consent1') return false;
+  _bulkTidyTouch246(sess);
+  sess.stage = 'consent2';
+  var tok = sess.token;
+  _bulkTidyDialog246('<b>最終確認（2/2）</b><br>一括操作記録1件を整理します。<b>元に戻せません</b>。<br>カードと写真は変更しません。実行しますか？',
+    [{ id: 'bulkTidyC2No', label: 'やめる', style: 'background:#e2e8f0;color:#2d3748', fn: function(){ _bulkTidyCancel246(tok); } },
+     { id: 'bulkTidyC2Yes', label: '記録を整理する', style: 'background:#e53e3e', fn: function(){ _bulkTidyFinal246(tok); } }]);
+  return true;
+}
+// 最終：二段階同意後にさらにowner/raw/RP空/SK・media条件を再照合してから、journal 1キーだけclear。
+function _bulkTidyFinal246(token){
+  var sess = _bulkTidyCurrent246(token);
+  if (!sess || sess.stage !== 'consent2') return Promise.resolve({ ok: false, reason: 'session-superseded' });
+  sess.stage = 'final';
+  _bulkTidyCloseDialog246();
+  if (_bulkTidyOtherBusy246()) return Promise.resolve(_bulkTidyFail246(sess, 'busy'));
+  return _bulkTidyRecheck246(sess).then(function(rc){
+    if (!rc.ok) return (_bulkTidySession246 === sess) ? _bulkTidyFail246(sess, rc.reason) : rc;
+    // clear直前の同期再照合（非同期境界を挟まない）。
+    if (_bulkTidySession246 !== sess) return { ok: false, reason: 'session-superseded' };
+    if (!_bulkLockStillOwned()) return _bulkTidyFail246(sess, 'owner-lost');
+    var r2 = _bulkJournalRawRead246();
+    if (!r2.ok || r2.raw !== sess.raw0) return _bulkTidyFail246(sess, 'journal-changed');
+    var cl = _bulkJournalClear();
+    var rb = _bulkJournalRawRead246();
+    _bulkTidySession246 = null;
+    try { clearTimeout(sess.timer); } catch (_eT) {}
+    if (!cl.ok || !rb.ok || rb.raw !== null) {
+      // fail-closed：readback失敗を成功扱いしない。recoveryRequiredは維持し、lockも解放しない。
+      bulkOps._recoveryRequired = true;
+      var remain = !rb.ok ? '記録の状態を確認できません' : (rb.raw === sess.raw0 ? '記録は残っています' : (rb.raw === null ? '記録の消去を確認できません' : '記録が別の内容に変わっています'));
+      try { toast('⚠ 記録の整理に失敗しました（' + remain + '）。' + _BULK_NOFIX_NOTE246); } catch (_eF) {}
+      return { ok: false, reason: 'clear-failed', remain: remain };
+    }
+    bulkOps._recoveryRequired = false;
+    bulkOps._lastOp = null;
+    try { _bulkHideUndoBar(); } catch (_eH) {}
+    try { _bulkRenderPersistentUndo(); } catch (_eP) {}
+    _bulkLockRelease(); // 正常clear後のみ自ownerを解放（owner一致時のみremove）
+    try { toast('記録の整理のみ完了。過去の削除や復元は保証しません'); } catch (_eS) {}
+    return { ok: true };
+  });
+}
+
 function _bulkRepairDispatch(j, rp){
   var phase = j.phase || '';
   if (phase === 'prepared' || phase === 'cards-saved' || phase === 'media-deleting') {
@@ -14784,7 +15408,7 @@ function _bulkRepairDispatch(j, rp){
   } else {
     // 未知phase：推測で前進・後退どちらもせず安全診断状態へ。
     bulkOps._recoveryRequired = true;
-    try { toast('⚠ 前回の一括操作の状態を確認できませんでした。初期設定→保存診断をご確認ください'); } catch (_e) {}
+    try { toast('⚠ 前回の一括操作の状態を確認できませんでした。新しい一括操作を停止しています。' + _BULK_NOFIX_NOTE246); } catch (_e) {}
     bulkOps._busy = false;
   }
 }
