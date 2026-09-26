@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="zenis-landing" content="1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Zenis Aibis を入手</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 48px;background:#f4f5f7;color:#1c2430;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;line-height:1.7}
+main{max-width:560px;margin:0 auto}
+h1{font-size:22px;margin:8px 0 2px}
+.lead{color:#4a5468;margin:0 0 20px;font-size:14px}
+.btn{display:block;width:100%;text-align:center;text-decoration:none;padding:14px 18px;border-radius:10px;font-size:16px;font-weight:700;min-height:48px;border:none;font-family:inherit;cursor:pointer}
+.btn-primary{background:#1a63d6;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.btn-primary[aria-disabled="true"]{background:#8aa8d9;pointer-events:none}
+.btn-secondary{margin-top:10px;background:#fff;color:#1a63d6;border:2px solid #1a63d6;box-sizing:border-box}
+.btn-secondary:disabled,.btn-secondary[aria-disabled="true"]{color:#9aa6b8;border-color:#c9cfda;cursor:not-allowed}
+#zl-status{min-height:1.4em;margin:12px 2px;font-size:14px;color:#33507a}
+#zl-status[data-kind="error"]{color:#a4291f}
+#zl-save{display:block;text-align:center;margin:6px 2px 0;font-size:14px;color:#1a63d6}
+#zl-save[hidden]{display:none}
+.notes{margin-top:32px;padding-top:16px;border-top:1px solid #d7dbe3}
+.notes h2{font-size:14px;color:#4a5468;margin:0 0 8px}
+.notes ul{margin:0;padding-left:18px;font-size:13px;color:#565f70}
+.notes li{margin:0 0 8px}
+noscript p{font-size:13px;color:#565f70}
+</style>
+</head>
+<body>
+<main>
+<h1>Zenis Aibis</h1>
+<p class="lead">相続・土地活用の営業支援アプリ</p>
+
+<a id="zl-open" data-zl="cta" class="btn btn-primary" href="./ZenisAibis.html">アプリを開く（オンライン版）</a>
+
+<button id="zl-get" type="button" data-zl="save" class="btn btn-secondary" disabled aria-disabled="true">HTMLを保存（保管用・単体では起動できません）</button>
+
+<noscript>
+<p>「HTMLを保存」の利用にはJavaScriptが必要です。JavaScriptが無効な環境では、上の「アプリを開く（オンライン版）」から通常どおりご利用いただけます。</p>
+</noscript>
+
+<div id="zl-status" role="status" aria-live="polite"></div>
+<a id="zl-save" download="ZenisAibis.html" hidden>保存されない場合はここをタップ</a>
+
+<section class="notes">
+<h2>ご利用にあたって</h2>
+<ul>
+<li>通常のご利用は「アプリを開く（オンライン版）」から。ホーム画面への追加も、開いた後にアプリ内の「⚙」から行えます。</li>
+<li>「HTMLを保存」は保管用の控えです。保存したファイルは単体（file://等での直接起動）では動作しません。</li>
+<li>保存ファイルには、お客様のカード情報や写真JSONは含まれません。</li>
+<li>保存したHTMLは自動更新されません。最新版が必要な場合は、その都度このページから取得し直してください。</li>
+<li>オンライン版と保存ファイルは別々のデータ領域を使うため、データが自動的に引き継がれるとは限りません。</li>
+<li>このページのURLや保存したHTMLを第三者と共有した場合、現状の仕組みでは利用を制限できません。取り扱いにはご注意ください。</li>
+<li>カメラ（AibisCam）の入手はこのページでは扱っていません。</li>
+</ul>
+</section>
+</main>
+<script>
+(function(){
+'use strict';
+
+/* ===== 純粋ロジック（DOM/fetch非依存・単体テスト対象） ===== */
+
+function zlResolveExpected(hrefRel, baseHref){
+  var u = new URL(hrefRel, baseHref);
+  return { href: u.href, origin: u.origin, pathname: u.pathname };
+}
+
+function zlValidateMain(meta, bodyText){
+  if (!meta || !meta.ok) return { ok:false, reason:'http-error' };
+  var u;
+  try { u = new URL(meta.url); } catch (e) { return { ok:false, reason:'bad-url' }; }
+  if (u.origin !== meta.expectedOrigin) return { ok:false, reason:'cross-origin-redirect' };
+  if (u.pathname !== meta.expectedPathname) return { ok:false, reason:'path-mismatch' };
+  var ct = String(meta.contentType || '').toLowerCase();
+  if (ct.indexOf('text/html') !== 0) return { ok:false, reason:'bad-content-type' };
+  if (!bodyText || bodyText.length < 200000) return { ok:false, reason:'too-short' };
+  var m = /APP_VERSION\s*=\s*"([^"]+)"/.exec(bodyText);
+  if (!m) return { ok:false, reason:'no-version-marker' };
+  if (/^cam-/.test(m[1])) return { ok:false, reason:'camera-build' };
+  return { ok:true, version:m[1] };
+}
+
+function zlValidateVersionJson(meta, bodyText, mainVersion){
+  if (!meta) return { state:'unverifiable' };
+  if (meta.networkError) return { state:'unverifiable' };
+  if (meta.status === 404) return { state:'unverifiable' };
+  if (meta.status !== 200) return { state:'inconsistent' };
+  var u;
+  try { u = new URL(meta.url); } catch (e) { return { state:'inconsistent' }; }
+  if (u.origin !== meta.expectedOrigin) return { state:'inconsistent' };
+  if (u.pathname !== meta.expectedPathname) return { state:'inconsistent' };
+  var j;
+  try { j = JSON.parse(bodyText); } catch (e) { return { state:'inconsistent' }; }
+  if (!j || !j.main || typeof j.main.appVersion !== 'string') return { state:'inconsistent' };
+  if (j.main.appVersion !== mainVersion) return { state:'mismatch', versionJsonAppVersion:j.main.appVersion };
+  return { state:'match' };
+}
+
+function zlMessageForMainReason(reason){
+  if (reason === 'http-error') return '取得に失敗しました。しばらくしてから再度お試しください。';
+  if (reason === 'too-short' || reason === 'bad-content-type' || reason === 'no-version-marker' || reason === 'camera-build') {
+    return '取得した内容を確認できませんでした。しばらくしてから再度お試しください。';
+  }
+  if (reason === 'cross-origin-redirect' || reason === 'path-mismatch' || reason === 'bad-url') {
+    return '想定外の転送先が返されたため、取得を中止しました。';
+  }
+  if (reason === 'aborted') return '通信がタイムアウトしました。しばらくしてから再度お試しください。';
+  if (reason === 'network') return '通信できませんでした。ネットワーク状況をご確認のうえ、再度お試しください。';
+  return '取得できませんでした。しばらくしてから再度お試しください。';
+}
+
+/* ===== ここからDOM/fetch連携（ブラウザ専用・E2E対象） ===== */
+
+var getBtn = document.getElementById('zl-get');
+var saveLink = document.getElementById('zl-save');
+var statusEl = document.getElementById('zl-status');
+var busy = false;
+var savedBlobUrl = null;
+
+/* JavaScriptが実行されている場合のみ、保管用「HTMLを保存」を有効化する。
+   無効なままのbuttonはユーザー操作を受け付けないため、no-JS環境では
+   safeGet()に到達し得ない（noscriptの案内どおりオンライン版のみ利用可）。 */
+getBtn.disabled = false;
+getBtn.setAttribute('aria-disabled', 'false');
+
+function setStatus(text, kind){
+  statusEl.textContent = text || '';
+  if (kind) { statusEl.setAttribute('data-kind', kind); }
+  else { statusEl.removeAttribute('data-kind'); }
+}
+
+function releasePreviousBlob(){
+  if (savedBlobUrl) {
+    try { URL.revokeObjectURL(savedBlobUrl); } catch (e) {}
+    savedBlobUrl = null;
+  }
+  saveLink.hidden = true;
+  saveLink.removeAttribute('href');
+}
+
+function setBusy(v){
+  busy = v;
+  getBtn.disabled = v;
+  getBtn.setAttribute('aria-disabled', v ? 'true' : 'false');
+}
+
+function fetchMeta(expected, signal){
+  return fetch(expected.href + '?_=' + Date.now(), { cache:'no-store', redirect:'follow', signal: signal })
+    .then(function (resp) {
+      return resp.text().then(function (body) {
+        return {
+          meta: {
+            ok: resp.ok, status: resp.status, url: resp.url,
+            contentType: resp.headers ? resp.headers.get('content-type') : null,
+            expectedOrigin: expected.origin, expectedPathname: expected.pathname
+          },
+          body: body
+        };
+      });
+    })
+    .catch(function (err) {
+      return {
+        meta: {
+          ok:false, status:0, url:expected.href, contentType:null,
+          expectedOrigin: expected.origin, expectedPathname: expected.pathname,
+          networkError:true, aborted: !!(err && err.name === 'AbortError')
+        },
+        body:null
+      };
+    });
+}
+
+function safeGet(){
+  if (busy) return;
+  setBusy(true);
+  setStatus('取得中…');
+  releasePreviousBlob();
+
+  var mainExpected = zlResolveExpected('./ZenisAibis.html', location.href);
+  var verExpected = zlResolveExpected('./version.json', location.href);
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 60000);
+
+  Promise.allSettled([
+    fetchMeta(mainExpected, controller.signal),
+    fetchMeta(verExpected, controller.signal)
+  ]).then(function (results) {
+    var mainR = results[0].status === 'fulfilled' ? results[0].value : { meta:{ ok:false, networkError:true }, body:null };
+    var verR = results[1].status === 'fulfilled' ? results[1].value : { meta:{ networkError:true }, body:null };
+
+    var mainCheck = zlValidateMain(mainR.meta, mainR.body);
+    if (!mainCheck.ok) {
+      var reason = mainCheck.reason;
+      if (mainR.meta && mainR.meta.aborted) reason = 'aborted';
+      else if (mainR.meta && mainR.meta.networkError) reason = 'network';
+      setStatus(zlMessageForMainReason(reason), 'error');
+      return;
+    }
+
+    var verCheck = zlValidateVersionJson(verR.meta, verR.body, mainCheck.version);
+    if (verCheck.state === 'mismatch' || verCheck.state === 'inconsistent') {
+      setStatus('配信更新中の可能性があります。数分後に再度お試しください。', 'error');
+      return;
+    }
+
+    var blob = new Blob([mainR.body], { type:'text/html;charset=utf-8' });
+    savedBlobUrl = URL.createObjectURL(blob);
+    saveLink.href = savedBlobUrl;
+    saveLink.hidden = false;
+    try { saveLink.click(); } catch (e) {}
+
+    var msg = '保存を開始しました：取得した版 ' + mainCheck.version + '。保存されない場合は下のリンクをタップしてください。';
+    if (verCheck.state === 'unverifiable') {
+      msg += '（配信版との照合はできませんでした）';
+    }
+    setStatus(msg, 'ok');
+  }).finally(function () {
+    clearTimeout(timer);
+    setBusy(false);
+  });
+}
+
+getBtn.addEventListener('click', function () {
+  if (busy) return;
+  safeGet();
+});
+
+window.addEventListener('pagehide', releasePreviousBlob);
+})();
+</script>
+</body>
+</html>
