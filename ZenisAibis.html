@@ -2841,7 +2841,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.41";
+var APP_VERSION = "v11.42";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -27914,8 +27914,8 @@ try{ Object.defineProperty(window,'uName',{configurable:true,get:function(){retu
 
 // ===== 起動 =====
 document.addEventListener('DOMContentLoaded', function(){ init(); });
-// ===== 第252弾: タイトル画面（軽い版） =====
-// 1日1回（端末ごと・その日の最初の起動）だけ、全画面のタイトル画面を出す。「はじめる」でDOMから外す。
+// ===== 第253弾: タイトル画面（毎起動） =====
+// タブ（ブラウザのセッション）ごとに最初の1回だけ、全画面のタイトル画面を出す。「はじめる」でDOMから外す。
 // 軽い版：ロゴは文字、背景はCSSの装飾、キャラは既存のassets/jobsのドット絵だけ（新しい画像・配布ファイル0件）。
 // 見本：work-claude/design/title_v2（title.html・themes.css・title_data.js）。
 //
@@ -27926,14 +27926,16 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
 //   ホストロック（shared/hostlock.js）より後に読み込まれるため、許可外ホストでは動かない。
 // ・履歴には積まない（全画面ビューの履歴統合の例外。起動時のスプラッシュ扱い）。
 // ・読むだけ：prospect_job9_snap_v1[利用者名]の最新月の.jobを読む。j9Snapshot・promo_notifiedには触らない。
-// ・書くのは表示した日付（aibis_title_last_v1）だけ。
-// ・出す条件（すべて）：navigator.webdriverが真でない／初期設定済み（UNK・MEK・BRK・SCK）／
-//   URLにcard・inboxが無い（inbox.jsが約300ms後に消すため読み込み時に控える）／aibis_qa_returnが無い／
-//   その日にまだ出していない。
+// ・localStorageへの書き込みは0件（第252弾のaibis_title_last_v1書き込みはDAN253で撤去。古い値が
+//   残っていた場合の片付けだけ行う）。印は同じタブの間だけ有効なsessionStorage（aibis_title_shown_v1）。
+// ・出す条件（すべて、この順で判定）：navigator.webdriverが真でない／初期設定済み（UNK・MEK・BRK・SCK）／
+//   このタブでまだ出していない（sessionStorage）／URLにcard・inboxが無い
+//   （inbox.jsが約300ms後に消すため読み込み時に控える）／aibis_qa_returnが無い。
 (function () {
   'use strict';
 
-  var TITLE_LAST_KEY = 'aibis_title_last_v1';
+  var TITLE_LAST_KEY = 'aibis_title_last_v1'; // 旧キー（第252弾）。片付け専用に残す（新規書き込みはしない）
+  var TITLE_SESSION_KEY = 'aibis_title_shown_v1';
   var TITLE_ID = 'aibisTitle';
 
   // 読み込み時に控える（URLの?card／?inboxはinbox.jsが後で消す。aibis_qa_returnはquick_add.jsがload時に消す）
@@ -27959,17 +27961,26 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
   var AT_LEAD = '見込みのお客様を、一件ずつ育てる営業の相棒です。';
 
   function atPick(a) { return a[Math.floor(Math.random() * a.length)]; }
-  function atToday() {
-    var d = new Date();
-    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
-  }
+  // 判定の順番（この順で1つでも不成立なら出さない。3のsessionStorageより前で終わった場合は
+  // このタブの機会をまだ使っていない扱いのまま＝あとで条件が整えば同じタブでも出せる）。
   function atShouldShow() {
-    if (atBootSkip) return false;
+    // 1) 自動操作（E2E等）では出さない
     try { if (navigator.webdriver) return false; } catch (exWd) { return false; }
+    // 2) 初期設定が済んでいなければ出さない（このセッションの機会は使わない）
     try {
       if (!localStorage.getItem(UNK) || !localStorage.getItem(MEK) || !localStorage.getItem(BRK) || !localStorage.getItem(SCK)) return false;
-      if (localStorage.getItem(TITLE_LAST_KEY) === atToday()) return false;
     } catch (exLs) { return false; }
+    // 3) このタブでまだ出していないことを確認し、ここで印を付ける（sessionStorageのみ）
+    try {
+      if (sessionStorage.getItem(TITLE_SESSION_KEY) === '1') return false;
+      sessionStorage.setItem(TITLE_SESSION_KEY, '1');
+      if (sessionStorage.getItem(TITLE_SESSION_KEY) !== '1') return false;
+    } catch (exSs) { return false; }
+    // 4) 旧キー（第252弾のaibis_title_last_v1）の片付け（新規書き込みはしない）
+    try { localStorage.removeItem(TITLE_LAST_KEY); } catch (exRm) {}
+    // 5) URLのcard・inbox、aibis_qa_returnがあれば出さない（印は付いたまま＝このタブの機会は使い切る）
+    if (atBootSkip) return false;
+    // 6) DOMの状態確認
     if (!document.body || document.getElementById(TITLE_ID)) return false;
     return true;
   }
@@ -28216,7 +28227,6 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       var bg = getComputedStyle(built.root).getPropertyValue('--bg').trim();
       if (tc && bg) tc.setAttribute('content', bg);
     } catch (exTc) {}
-    try { localStorage.setItem(TITLE_LAST_KEY, atToday()); } catch (exSet) {}
     try { built.start.focus(); } catch (exFocus) {}
   }
 
