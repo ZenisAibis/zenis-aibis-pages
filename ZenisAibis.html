@@ -1563,6 +1563,7 @@ body.is-mob .mob-menu{display:inline-block}
           <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
           <button onclick="closePcMenu();showSetup()">⚙ 初期設定</button>
           <button onclick="closePcMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル</button>
+          <button data-zsd-open="1" onclick="closePcMenu()">🩺 困ったとき（自己診断）</button>
           <button onclick="closePcMenu();openBook()">📕 みんなへ</button>
           <div id="pcMenuClearSection" style="display:none">
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
@@ -1596,6 +1597,7 @@ body.is-mob .mob-menu{display:inline-block}
             <button onclick="closeMobMenu();restoreBackup()">⏪ 1つ前に戻す</button>
             <button onclick="closeMobMenu();showSetup()">⚙ 初期設定</button>
             <button onclick="closeMobMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル</button>
+            <button data-zsd-open="1" onclick="closeMobMenu()">🩺 困ったとき（自己診断）</button>
             <button onclick="closeMobMenu();openBook()">📕 みんなへ</button>
             <div id="mobMgrPrint" style="display:none">
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
@@ -1886,15 +1888,15 @@ body.is-mob .mob-menu{display:inline-block}
         ① ChromeでURLを開く（必ずChrome）<br>
         ② ⚙初期設定 → 名前・メールアドレス・役職・所属課を全て入力<br>
         　※ 名前はスペースなし・支店名は「支店」不要で入力<br>
-        ③「💾 自動保存先を設定」→ OKを押す → OneDriveのフォルダを選んで保存<br>
-        ④「📋 コピー保存先を指定」→ OneDrive以外の場所（ローカル・USBなど）を選ぶ<br>
-        ⑤「💾 保存して開始」で完了 → 以降は自動的に2か所へ保存<br><br>
+        ③ OneDrive の「ドキュメント」の中に「アイビス」フォルダを作る →「💾 いつもの保存先を設定」→ OKを押す → そのフォルダを選んで保存（前に使っていたファイルがある人は「📂 前のファイルを使う」から選ぶ）<br>
+        ④ C ドライブの「ドキュメント」の中に「アイビス」フォルダを作る →「📋 予備の保存先を指定」→ そのフォルダを選んで保存<br>
+        ⑤「💾 保存して開始」で完了 → 以降は保存のたびにいつもの保存先へ書き込み、一覧の「💾 保存」では予備の保存先へも書き込み<br><br>
         <b style="color:#276749">【スマホ版】</b><br>
         ① AndroidのChromeでURLを開く<br>
         ② ⚙初期設定 → 名前・メールアドレスなどを全て入力 →「💾 保存して開始」<br>
         ③ Chromeメニュー →「ホーム画面に追加」でアイコン登録<br><br>
         <b style="color:#c53030">【保存先ファイルについて】</b><br>
-        PC版の自動保存先ファイル（z-aibis_氏名.json）は全カードデータです。<br>
+        PC版のいつもの保存先のファイル（z-aibis_氏名.json）は全カードデータです。<br>
         <b>絶対に削除しないでください。</b>
       </div>
     </div>
@@ -1905,7 +1907,7 @@ body.is-mob .mob-menu{display:inline-block}
         <b style="color:#2c5282">【PC版・一覧画面】</b><br>
         ＋新規 … 新しいカードを作成<br>
         📥読込 … ファイルを読み込む（起動時に自動読込）<br>
-        💾保存 … OneDriveへ上書き保存（2か所同時）<br>
+        💾保存 … いつもの保存先（OneDrive）と予備の保存先へ上書き保存（2か所同時）<br>
         ⋮その他 → 📅本日の予定表・📋リスト印刷・🗂個別カード印刷・⏪1つ前に戻す・⚙初期設定・🗑全クリア<br>
         　🖨印刷 … チェックを入れたカードの見込みカードを一括印刷<br>
         　⏪1つ前に戻す … 直前の保存状態に復元（誤削除・誤上書きのときに）<br><br>
@@ -2091,11 +2093,11 @@ body.is-mob .mob-menu{display:inline-block}
       <div class="mbdy" style="display:none">
         <b style="color:#2c5282">PC → スマホ（現場に持ち出す）</b><br>
         ① PC一覧でカードを選択 →「📧 スマホへ」→ メーラーで自分宛に送信<br>
-        ② スマホのメールで添付をダウンロード保存<br>
+        ② スマホのメールで添付（送る用ファイル）をダウンロード保存<br>
         ③ スマホで「📥 読込」→ ダウンロードフォルダから選択<br><br>
         <b style="color:#276749">スマホ → PC（訪問データをPCに戻す）</b><br>
         ① スマホ一覧でカードを選択 →「📧 PCへ」→ メーラーで自分宛に送信<br>
-        ② PCのメールで添付をダウンロード<br>
+        ② PCのメールで添付（送る用ファイル）をダウンロード<br>
         ③ PC版で「📥 読込」→ マージを選択<br>
         ④「💾 保存」でOneDriveに統合保存<br><br>
         <b style="color:#553c9a">読込時の選択肢</b><br>
@@ -2126,9 +2128,9 @@ body.is-mob .mob-menu{display:inline-block}
       <div class="mbdy" style="display:none">
         <button type="button" data-zsd-open="1" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#2c5282;color:#fff;border:none;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 保存トラブル自己診断を開く</button>
         <b style="color:#2c5282">PC保存の基本構造</b><br>
-        PC版は「① ブラウザ内（この端末）」と「② OneDriveなど自動保存先の実ファイル」の
-        <b>2か所</b>に保存します。💾保存を押すと、まずブラウザ内へ保存し、続けて自動保存先ファイルへの
-        書き込みを行います。<b>この2つは別経路です。</b>ブラウザ内保存だけ成功し、自動保存先ファイルへの
+        PC版は「① ブラウザ内（この端末）」と「② OneDriveなどいつもの保存先のファイル」の
+        <b>2か所</b>に保存します。💾保存を押すと、まずブラウザ内へ保存し、続けていつもの保存先のファイルへの
+        書き込みを行います。<b>この2つは別経路です。</b>ブラウザ内保存だけ成功し、いつもの保存先のファイルへの
         書き込みだけ失敗する、ということが起こり得ます。<br><br>
         <b style="color:#2c5282">起動時に2か所の内容が違う場合</b><br>
         PC版の起動時に「端末内データ」と「PC保存先」の内容が違う場合は、<b>端末内データを安全側として先に表示し、PC保存先を自動では採用しません。</b>
@@ -2146,20 +2148,20 @@ body.is-mob .mob-menu{display:inline-block}
         検知し、注意として表示します（wizardを開いている間は自動的に最新状態へ更新されます）。<br>
         <span style="font-size:11px;color:#718096">※ この検知には範囲があります。<b>別のChromeプロファイル・別のブラウザ・別の端末で開いている場合は検知できません。</b>
         「他に開いていない」という表示も含め、検知結果は確定ではなく参考情報です。</span><br><br>
-        <b style="color:#c53030">① まず「端末内に緊急保存」→ ② その場で「フルバックアップ」</b><br>
+        <b style="color:#c53030">① まず「端末内に緊急保存」→ ② その場で「まるごと引っ越しファイル」</b><br>
         保存トラブル自己診断の「🛟 現在の内容を端末内に緊急保存」は、今ブラウザが持っている
-        内容をこの端末内だけに退避する機能です（自動保存先ファイルへは書き込みません）。
-        <b>緊急保存に成功したら、その場で続けて「📦 フルバックアップを作成」</b>を行い、写真込みの
+        内容をこの端末内だけに退避する機能です（いつもの保存先のファイルへは書き込みません）。
+        <b>緊急保存に成功したら、その場で続けて「📦 まるごと引っ越しファイルを作成」</b>を行い、写真込みの
         独立したファイルとして控えを確保してください。端末内保存はブラウザのデータが消えると
-        一緒に失われるため、フルバックアップだけが独立したファイルとして残ります。<br><br>
+        一緒に失われるため、まるごと引っ越しファイルだけが独立したファイルとして残ります。<br><br>
         <b style="color:#c53030">⚠ ブラウザの再起動・再読込は、①②のあとで</b><br>
         現在版は起動時に端末内とPC保存先の内容が違えば自動採用を止めますが、保存トラブル中は
-        どちらが最新かを時刻だけで断定できません。①端末内緊急保存・②フルバックアップを先に済ませてから、
+        どちらが最新かを時刻だけで断定できません。①端末内緊急保存・②まるごと引っ越しファイルを先に済ませてから、
         再起動・再読込は<b>必要な場合だけ</b>行ってください。再起動後に差異確認が出た場合も、内容を確認するまで
-        PC保存先を選ばず、端末内データを安全側として維持できます。バックアップさえ確保できていれば、
+        PC保存先を選ばず、端末内データを安全側として維持できます。控えさえ確保できていれば、
         あとから内容を確認しながら復旧を判断できます。<br><br>
         <b style="color:#2c5282">③ 保存先の再設定（必要な場合のみ、①②のあとで）</b><br>
-        診断からそのまま「💾 自動保存先を再設定する」「📋 コピー保存先を再設定」を実行できます。
+        診断からそのまま「💾 いつもの保存先を設定し直す」「📋 予備の保存先を設定し直す」を実行できます。
         <b>まず①②でデータを守ってから</b>行ってください。迷ったときはまず診断を開いてください。<br><br>
         <b style="color:#553c9a">診断情報のコピー</b><br>
         診断画面の「📋 診断情報をコピー」で、保存処理の状態・エラー種別・複数session検知結果
@@ -2168,10 +2170,106 @@ body.is-mob .mob-menu{display:inline-block}
         開発者へ問い合わせる際は、このサマリーだけを共有してください。カードのスクリーンショット
         や本文の共有は不要です。<br><br>
         <span style="font-size:11px;color:#718096">保存トラブルの原因は状況によって異なり、「ダウンロードが原因」「OneDriveが原因」と一律には
-        断定できません。診断はあくまで参考情報であり、まずは①端末内緊急保存・②フルバックアップで
+        断定できません。診断はあくまで参考情報であり、まずは①端末内緊急保存・②まるごと引っ越しファイルで
         データを守ることを優先してください。「⏪1つ前に戻す」等の復元操作は万能ではなく、必ず
-        正しい状態へ戻せるとは限りません。復旧を急いで上書きせず、①②のバックアップを手元に
+        正しい状態へ戻せるとは限りません。復旧を急いで上書きせず、①②の控えを手元に
         残したまま、内容を確認しながら判断してください。</span>
+      </div>
+    </div>
+
+    <div class="msec">
+      <div class="mttl" onclick="mtoggle(this)">🆘 困ったとき <span class="marr">▶</span></div>
+      <div class="mbdy" style="display:none">
+        よくある困りごとと、その直し方です。当てはまる見出しを開いてください。保存がうまくいかないときは、上の「🩺 保存できないとき／自己診断」も見てください。
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#c53030">保存先を間違えた <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            初期設定の「■ データ保存先の設定」から、もう一度設定し直せます。<br>
+            <b style="color:#c53030">前に使っていたファイルを「設定」ボタンで選ぶと、そのファイルの中身が消えます。</b>
+            前のファイルを使いたいときは、「📂 前のファイルを使う」から選んでください（中身を確かめてから、この端末に読み込みます）。
+          </div>
+        </div>
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#c53030">ファイルが空になった <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            初期設定の保存先の設定で、前に使っていたファイルを選ぶと、<b>選んだ瞬間にそのファイルの中身が空になります</b>（Chromeの仕様です）。
+            前のファイルを使いたいときは、初期設定の「📂 前のファイルを使う」から選んでください。<br>
+            ⋮その他 →「🗑 全データをクリア」をしたときも、いつもの保存先のファイルは空になります。消した直後なら「↩ 直前の一括削除を取り消す」で戻せます。<br><br>
+            <b style="color:#2c5282">空になってしまったら</b><br>
+            ・予備の保存先のファイルを一覧の「📥 読込」で読み込む（予備の保存先には、最後に一覧の「💾 保存」を押したときの内容が入っています）<br>
+            ・まるごと引っ越しファイルから戻す（戻す操作は管理者だけができます）
+          </div>
+        </div>
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#c05621">削除できない・ファイルが動かない <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            保存先のファイルを消したり動かしたりできないときは、次を確かめてください。<br>
+            ・Aibisを複数の画面（タブ・ウィンドウ）で開いていないか<br>
+            ・ダウンロード中のものが残っていないか<br>
+            Aibisの画面をすべて閉じてから、もう一度やってみてください。
+          </div>
+        </div>
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#0e4a45">写真が届かない・紐付かない <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            スマホで撮った写真は、スマホの「📧 PCへ」で送ったファイルを、PCの「📥 読込」で読み込むと届きます。<br>
+            写真だけ先に届いて、そのカードがまだPCに無いときは、インボックス（🗃）の「🔍 迷子写真」に入ります。あとでそのカードを読み込むと、自動でカードに紐付きます。<br>
+            元のカードがもう無い迷子写真は、☑で選んで「🗑 選択削除」でまとめて消せます（消した写真は戻せません）。
+          </div>
+        </div>
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#2c5282">機種変更 <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            <b>PCを替えるとき</b><br>
+            ① 前のPCで、初期設定の「📦 まるごと引っ越しファイルを作成」を押してファイルを作る<br>
+            ② 新しいPCで初期設定をする（保存先は下の「置き場所の案内」のとおり）<br>
+            ③ カードは、初期設定の「📂 前のファイルを使う」で、前のいつもの保存先のファイルを選ぶ<br>
+            ④ 写真・営業の記録は、まるごと引っ越しファイルから戻す（戻す操作は管理者だけができます）<br><br>
+            <b>スマホを替えるとき</b><br>
+            ① 古いスマホで「全選択」してから「📧 PCへ」で送る<br>
+            ② 新しいスマホで初期設定をする<br>
+            ③ PCから「📧 スマホへ」で送ってもらったファイルを「📥 読込」で読み込む
+          </div>
+        </div>
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#c53030">ブラウザのデータを消した <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            Chromeの「閲覧履歴データの削除」などで「Cookie と他のサイトデータ」にあたる項目を選んで消すと、この端末のアイビスの中身（カード・写真・営業の記録・初期設定）が消えます。
+            「キャッシュされた画像とファイル」にあたる項目だけなら消えません（Chromeの版によって項目名が違うことがあります）。<br>
+            カードは保存先のファイル（スマホは「📧 PCへ」で送ったファイル）から戻せますが、写真と営業の記録はまるごと引っ越しファイルからしか戻せません。
+          </div>
+        </div>
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#c05621">画面が2つ開いている <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            Aibisを複数のタブ・ウィンドウで開いたまま使うと、片方の保存で、もう片方の入力が消えることがあります。1つだけ残して、ほかは閉じてください。<br>
+            <span style="font-size:11px;color:#718096">※ 別のChromeプロファイル・別のブラウザ・別の端末で開いているものは、アイビスからは分かりません。</span>
+          </div>
+        </div>
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#276749">置き場所の案内（PC） <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            先にエクスプローラーでフォルダを作ってから、初期設定で保存先を選んでください。<br>
+            ・OneDrive の「ドキュメント」の中に「アイビス」フォルダを作る → <b>いつもの保存先</b>はそこ<br>
+            ・C ドライブの「ドキュメント」の中に「アイビス」フォルダを作る → <b>予備の保存先</b>はそこ<br>
+            ・OneDrive の「ドキュメント」＞「アイビス」の中に「引っ越しファイル」フォルダを作る → <b>まるごと引っ越しファイル</b>はそこ。新しい2つを残し、古いものは消す。メールで送ったり共有フォルダに置いたりしない
+          </div>
+        </div>
+        <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#553c9a">まるごと引っ越しファイル（旧名：フルバックアップ） <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            アイビスの中身を1つのファイルにまとめたものです。初期設定の「📦 まるごと引っ越しファイルを作成」で作ります。<br><br>
+            <b>入るもの</b><br>
+            ・カード（ショットガンの設定を含む）<br>
+            ・写真（インボックスと迷子写真を含む全部）<br>
+            ・営業の記録（戦略協議で貼り付けたAIの回答、ステージなどの変化の記録、現状ナレッジで付けた確認の印。現状ナレッジ・顧客ストーリーは、カードとこの記録から作られます）<br><br>
+            <b>入らないもの</b><br>
+            ・初期設定（名前・メールアドレス・保存先）、ジョブの到達記録、予定表 など<br><br>
+            <b>作る目安</b><br>
+            初期設定の「📦 まるごと引っ越しファイルを作成」の下に「⚠ …日経過」と出たら、新しく作ってください。作ったファイルは「置き場所の案内」のとおりに置いてください。<br>
+            戻す操作は、今のカード・写真をすべて置き換えます（混ぜ合わせではありません）。戻す操作は管理者だけができます。
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2182,15 +2280,15 @@ body.is-mob .mob-menu{display:inline-block}
         ・再訪・追撃のJudgmentは必ず課長と協議の上で選択してください<br>
         ・PCは必ずChromeで開いてください（EdgeやIEでは動作しません）<br>
         ・スマホはホーム画面のアイコンから起動してください<br>
-        ・スマホのChromeデータをクリアするとカードが消えます。定期的に「📧 PCへ」でバックアップを取ってください<br>
-        ・<b style="color:#c53030">PC版の自動保存先ファイル（z-aibis_氏名.json）は絶対に削除しないでください</b><br>
-        ・PC版は初期設定でコピー保存先も設定してください<br>
+        ・スマホのChromeデータをクリアするとカードが消えます。定期的に「📧 PCへ」で控えを送ってください<br>
+        ・<b style="color:#c53030">PC版のいつもの保存先のファイル（z-aibis_氏名.json）は絶対に削除しないでください</b><br>
+        ・PC版は初期設定で予備の保存先も設定してください<br>
         ・戦略協議では会社から提供されているCopilotのみ使用してください
       </div>
     </div>
 
     <div style="text-align:center;padding:16px;font-size:12px;color:#a0aec0">
-      z.Aibis <span class="aibisVer"></span> ― 営業支援ツール ―<br>不明な点は Aibis Master まで
+      z.Aibis <span class="aibisVer"></span> ― 営業支援ツール ―<br>困ったときは、マニュアルの「🆘 困ったとき」を見てください
     </div>
 
     <div class="msec">
@@ -2294,7 +2392,7 @@ body.is-mob .mob-menu{display:inline-block}
       <!-- ▼▼ 開発者モード解錠（自分のメールアドレスには依存しない・管理職モードと同様の独立解錠） ▼▼ -->
       <div id="devUnlockPrompt" style="display:none;margin-top:14px;padding:10px;border:1px dashed #c53030;border-radius:8px;background:#fff5f5">
         <div style="font-size:11px;font-weight:700;color:#c53030;margin-bottom:6px">🔐 開発者モード解錠</div>
-        <p class="ht">フルバックアップ等、実データに触れる機能を使うには、開発者用パスワードの入力が必要です。</p>
+        <p class="ht">まるごと引っ越しファイルからの復元など、実データに触れる機能を使うには、開発者用パスワードの入力が必要です。</p>
         <div style="display:flex;gap:6px"><input type="password" id="devUnlockInput" placeholder="開発者用パスワード" autocomplete="off" style="flex:1;margin-bottom:0"><button type="button" onclick="tryDevUnlock()" style="background:#c53030;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">解錠</button></div>
       </div>
       <div id="devUnlockedStatus" style="display:none;margin-top:14px;padding:10px;border:1px solid #38a169;border-radius:8px;background:#f0fff4;align-items:center;justify-content:space-between;gap:8px">
@@ -2331,54 +2429,60 @@ body.is-mob .mob-menu{display:inline-block}
       <div id="setupSavePC" style="display:none">
       <div class="stitle">■ データ保存先の設定</div>
       <div style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:13px;line-height:1.7;margin-bottom:10px">
-        <strong style="color:#2c5282">💡 自動保存先とコピー保存先の2か所を設定してください</strong><br>
-        <b>自動保存先</b>：保存するたびに自動で書き込まれる主ファイル（OneDrive推奨）<br>
-        <b>コピー保存先</b>：定期的にバックアップを作成する場所（別フォルダ・USBなど）
+        <strong style="color:#2c5282">💡 いつもの保存先と予備の保存先の2か所を設定してください</strong><br>
+        <b>いつもの保存先</b>：保存するたびに自動で書き込まれるファイル（OneDrive の「ドキュメント」がおすすめ）<br>
+        <b>予備の保存先</b>：一覧の「💾 保存」を押したときに、同じ内容を書き込む控えのファイル（C ドライブの「ドキュメント」など）
       </div>
       <div id="setupFileDisp" style="font-size:13px;padding:10px;border-radius:6px;margin-bottom:10px;border:1px solid #e2e8f0;background:#f7fafc">読み込み中...</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="bp" onclick="setupChooseSave()" style="font-size:13px;padding:10px 16px">💾 自動保存先を設定</button>
-        <button class="bc" onclick="setupChooseCopy()" style="font-size:13px;padding:10px 16px">📋 コピー保存先を指定</button>
+        <button class="bp" onclick="setupChooseSave()" style="font-size:13px;padding:10px 16px">💾 いつもの保存先を設定</button>
+        <button class="bc" onclick="setupUsePrevFile()" style="font-size:13px;padding:10px 16px">📂 前のファイルを使う</button>
+        <button class="bc" onclick="setupChooseCopy()" style="font-size:13px;padding:10px 16px">📋 予備の保存先を指定</button>
       </div>
-      <button type="button" id="setupSaveDiagOpenBtn" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:none;border:1px dashed #a0aec0;color:#4a5568;border-radius:6px;padding:9px 12px;font-size:12px;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 保存できないとき／自己診断</button>
+      <div style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8;margin-bottom:10px">
+        <strong style="color:#c53030">⚠ 前に使っていたファイルを「設定」で選ぶと、中身が消えます</strong><br>
+        前のファイルは「📂 前のファイルを使う」から選んでください。
+      </div>
+      <button type="button" id="setupSaveDiagOpenBtn" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#2c5282;border:1px solid #2c5282;color:#fff;border-radius:6px;padding:9px 12px;font-size:12px;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 困ったとき（保存・データの自己診断）</button>
       <div style="padding:10px;background:#fff8e1;border-left:3px solid #ffd54f;border-radius:4px;font-size:12px;line-height:1.8;margin-bottom:8px">
-        <strong style="color:#e65100">初めての方へ：</strong><br>
-        【自動保存先】① ボタンを押すと案内が表示されます<br>
-        　② OKを押すとファイル選択画面が開きます<br>
-        　③ 左側の「OneDrive」を選んでフォルダに移動<br>
+        <strong style="color:#e65100">初めての方へ（先にフォルダを作ります）：</strong><br>
+        【いつもの保存先】① エクスプローラーで、OneDrive の「ドキュメント」の中に「アイビス」フォルダを作る<br>
+        　② 上のボタンを押すと案内が表示されます → OKでファイル選択画面が開きます<br>
+        　③ OneDrive の「ドキュメント」＞「アイビス」を開く<br>
         　④ ファイル名は自動で入ります →「保存」で完了<br>
-        【コピー保存先】① ボタンを押すとエクスプローラーが開きます<br>
-        　OneDrive以外の場所（ローカルフォルダ・USBなど）を選んでください
+        【予備の保存先】① C ドライブの「ドキュメント」の中に「アイビス」フォルダを作る<br>
+        　② 上のボタンを押して、そのフォルダを開いて「保存」で完了<br>
+        【まるごと引っ越しファイル】OneDrive の「ドキュメント」＞「アイビス」の中に「引っ越しファイル」フォルダを作り、作ったファイル（ふつうはダウンロードフォルダに入ります）をそこへ移します。新しい2つを残し、古いものは消してください
       </div>
       <div style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8">
         <strong style="color:#c53030">⚠ 大切なデータです</strong><br>
-        自動保存先のファイルにあなたの全カードデータが入っています。<br>
+        いつもの保存先のファイルにあなたの全カードデータが入っています。<br>
         <strong>絶対に削除しないでください。</strong><br>
-        コピー保存先を設定して定期的にバックアップを取ることを強くお勧めします。
+        予備の保存先も設定し、写真まで守るために下の「📦 まるごと引っ越しファイル」もときどき作ることを強くお勧めします。
       </div>
       </div><!-- /setupSavePC -->
       <div id="setupSaveMob" style="display:none"></div>
     </div>
     <div class="sec" id="fullBackupSection">
-      <div class="stitle">■ フルバックアップ／復元（写真込み・第151弾）</div>
+      <div class="stitle">■ まるごと引っ越しファイル（旧名：フルバックアップ）</div>
       <div style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:10px">
-        <strong style="color:#2c5282">💡 カードデータと写真をまとめて1ファイルに保存できます</strong><br>
-        通常の「読込」機能（カードのみ）とは別の機能です。<strong>復元は管理者のみが実行できます。</strong>
+        <strong style="color:#2c5282">💡 カード・写真・営業の記録をまとめて1つのファイルにします（PCを替えるときなどに使います）</strong><br>
+        一覧の「📥 読込」（カードのみ）とは別の機能です。<strong>ファイルからの復元は管理者のみが実行できます。</strong>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-        <button class="bp" onclick="fullBackupCreate()" style="font-size:13px;padding:10px 16px">📦 フルバックアップを作成</button>
+        <button class="bp" onclick="fullBackupCreate()" style="font-size:13px;padding:10px 16px">📦 まるごと引っ越しファイルを作成</button>
       </div>
-      <div id="fullBackupLastDisp" style="font-size:11px;color:#718096;margin-bottom:6px">まだフルバックアップを作成していません</div>
-      <div id="fullBackupNudge" style="display:none;font-size:11px;color:#b7791f;margin-bottom:10px">⚠ 最終バックアップから◯日経過</div>
+      <div id="fullBackupLastDisp" style="font-size:11px;color:#718096;margin-bottom:6px">まだまるごと引っ越しファイルを作っていません</div>
+      <div id="fullBackupNudge" style="display:none;font-size:11px;color:#b7791f;margin-bottom:10px">⚠ 最後に作ってから◯日経過</div>
       <div id="fullBackupRestoreArea" style="display:none">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-          <button class="bc" onclick="openFullBackupRestorePicker()" style="font-size:13px;padding:10px 16px">📂 フルバックアップから復元</button>
+          <button class="bc" onclick="openFullBackupRestorePicker()" style="font-size:13px;padding:10px 16px">📂 まるごと引っ越しファイルから復元</button>
           <input type="file" id="fullBackupRestoreInput" accept="application/json,.json" style="display:none" onchange="onFullBackupFileSelected(event)">
         </div>
         <div style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8">
           <strong style="color:#c53030">⚠ 復元前に必ずお読みください</strong><br>
-          復元を実行すると、今の本体のカード・写真データはすべてバックアップファイルの内容に置き換わります。<br>
-          復元前に、現在のデータも一度フルバックアップまたは既存のJSON書き出しで保存しておくことを強くお勧めします。
+          復元を実行すると、今の本体のカード・写真データはすべてまるごと引っ越しファイルの内容に置き換わります。<br>
+          復元前に、今のデータもまるごと引っ越しファイルを作って残しておくことを強くお勧めします。
         </div>
       </div>
     </div>
@@ -2737,7 +2841,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.40";
+var APP_VERSION = "v11.41";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -6793,15 +6897,15 @@ function showList() {
     // PC版は保存先両方必須
     if(hasFSA){
       if(!fHandle && !copyHandle){
-        aibisAlert('PC版は自動保存先とコピー保存先の両方を設定してからね！<br><br>下の「💾 自動保存先を設定」と「📋 コピー保存先を指定」を押して設定しよう😊');
+        aibisAlert('PC版はいつもの保存先と予備の保存先の両方を設定してからね！<br><br>下の「💾 いつもの保存先を設定」と「📋 予備の保存先を指定」を押して設定しよう😊');
         return;
       }
       if(!fHandle){
-        aibisAlert('自動保存先がまだ設定されていないよ！<br>「💾 自動保存先を設定」ボタンから設定してね😊');
+        aibisAlert('いつもの保存先がまだ設定されていないよ！<br>「💾 いつもの保存先を設定」ボタンから設定してね😊');
         return;
       }
       if(!copyHandle){
-        aibisAlert('コピー保存先がまだ設定されていないよ！<br>「📋 コピー保存先を指定」ボタンから設定してね😊');
+        aibisAlert('予備の保存先がまだ設定されていないよ！<br>「📋 予備の保存先を指定」ボタンから設定してね😊');
         return;
       }
     }
@@ -6833,7 +6937,7 @@ window.fmtMoney=fmtMoney;
 
 // ===== アイビスFAQチャット =====
 var AIBIS_FAQ=[
-  {q:'🚀 まずこれだけ！（3分で読める）',a:'<b>アイビスで毎日やること5つ</b><br><br>①朝：<b>🎯 作戦盤</b>で今日行くお客様を確認（PCなら📅で予定表まで作れるよ）<br>②新しい見込みは、スマホの<b>z.Aibisタイトルをタップ</b>して<b>⚡光速入力モード</b>で登録<br>③訪問したら：<b>ステージ</b>と<b>会話内容</b>を更新——書くのは「投げかけ→相手の反応」！次回の予定・やることも入れる<br>④再訪3回したら<b>追客判定</b>（S〜X）を必ず付ける<br>⑤週1回：<b>JSON書き出し</b>でバックアップ<br><br><b>補足：</b>光速入力モードは最初のカードを素早く作るための入口。詳しい情報はあとから通常カードで追記できます。<br>迷ったらカードの<b>戦略協議</b>でAIに相談してね😊'},
+  {q:'🚀 まずこれだけ！（3分で読める）',a:'<b>アイビスで毎日やること5つ</b><br><br>①朝：<b>🎯 作戦盤</b>で今日行くお客様を確認（PCなら📅で予定表まで作れるよ）<br>②新しい見込みは、スマホの<b>z.Aibisタイトルをタップ</b>して<b>⚡光速入力モード</b>で登録<br>③訪問したら：<b>ステージ</b>と<b>会話内容</b>を更新——書くのは「投げかけ→相手の反応」！次回の予定・やることも入れる<br>④再訪3回したら<b>追客判定</b>（S〜X）を必ず付ける<br>⑤ときどき：初期設定の<b>📦 まるごと引っ越しファイル</b>を作る（スマホは「📧 PCへ」で送る）<br><br><b>補足：</b>光速入力モードは最初のカードを素早く作るための入口。詳しい情報はあとから通常カードで追記できます。<br>迷ったらカードの<b>戦略協議</b>でAIに相談してね😊'},
   {q:'音声入力のコツは?',a:'話し始めたら最後まで一気に話し切ってね！🎤<br><br>途中でどもったり間が空いてしまうと、そこで認識が切れてしまうよ。「しゃべれるところまで一気に」がポイント。<br><br>空白や句読点もちゃんと認識してくれるから、ゆっくりでも一息で話せる分だけ話してね。何度かに分けて入力すればOK😊<br><br>骨さえつかめば簡単だよ！'},
   {q:'どんなのが候補?',a:'見込み候補は2タイプだよ！<br><br>🏠 <b>問題感知型</b><br>会話や土地・建物を見たときに、担当者が「あ、ここ問題あるな」とイメージが浮かぶ人。お客様自身はまだ気づいていなくてもOK！<br>例：「この建物そろそろ限界だな」「相続大丈夫かな」「この土地もったいないな」「子供たちに財産残せるかな」など、担当者がピンとくる人が狙い目！<br><br>💰 <b>資産家型</b><br>いかにもお金持ちさん。広い土地・古い建物・複数の不動産を持っていそうな方。車・家・庭・服装・言葉遣いから感じ取れるよ。ニーズは潜在的でもアプローチ価値は大きい！<br><br>どちらも「担当者がピンときた直感」を大切にしてね🎯'},
   {q:'聞くべき事は?',a:'初回訪問で必ず確認したい3点！これは暗記してね🧚<br><br>👨‍👩‍👧‍👦 <b>① 家族構成</b><br>同居・別居・人数・年齢層。相続人が何人いるか、誰がキーパーソンかを把握する。<br><br>🗾 <b>② 土地の量</b><br>何筆持っているか、広さはどのくらいか。路線価エリアかどうかも重要。<br><br>📋 <b>③ 土地の持ち方</b><br>自己所有か共有名義か。共有なら誰と持っているか。抵当権・借地・底地はないか。<br><br>この3点が分かれば提案の方向性が見えてくるよ！最初の会話でさりげなく聞いてみてね。'},
@@ -6857,28 +6961,28 @@ var AIBIS_FAQ=[
   {q:'高松建設',a:function(){return AIBIS_COMP_MAP.takamatsu;}},
   {q:'レオパレス',a:function(){return AIBIS_COMP_MAP.leopalace;}},
   {q:'読込ってどうやるの？',a:function(){return isMob?'📥読込を押してダウンロードフォルダから選んでね。読込しても保存先は変わらないから安心してね！':'📥読込を押してファイルを選択するだけ！読込しても保存先（OneDrive）は変わらないから安心してね😊';}},
-  {q:'保存ってどうやるの？',a:function(){return isMob?'💾保存を押すだけ！スマホ内（ブラウザ）に保存されるよ。Chromeのデータをクリアすると消えるから定期的に「📧 PCへ」でバックアップしてね！':'💾保存を押すだけ！OneDrive（自動保存先）とコピー保存先に同時に書き込まれるよ。初期設定で両方設定してね！';}},
+  {q:'保存ってどうやるの？',a:function(){return isMob?'💾保存を押すだけ！スマホ内（ブラウザ）に保存されるよ。Chromeのデータをクリアすると消えるから定期的に「📧 PCへ」で控えを送ってね！':'💾保存を押すだけ！いつもの保存先（OneDrive）と予備の保存先に同時に書き込まれるよ。初期設定で両方設定してね！';}},
   {q:'新規カードってどうやって作るの？',a:function(){return isMob?'画面上の「＋ 新規」を押すだけ！お客様の名前を入れてスタートしてね😊':'一覧画面左上の「＋ 新規」を押すだけ！カードが開いたら氏名から入力してね。';}},
   {q:'印刷ってどう使うの？',a:'場面で使い分けるよ！<br><br>📅 <b>本日の予定表</b>（朝）<br>何もチェックせず「📅本日の予定表」を押すと<b>🎯作戦盤</b>が開き、優先3客（⭐入替可）＋再訪候補9客から選んで予定表を作れるよ。優先3客は予定表トップの金枠に飾られる。従来どおり一覧でチェック→📅でもOK。時刻を整えて印刷/PDFで課長へ提出。日付が変わると前日分は振り返り表示のあと自動リセット。<br><br>📋 <b>リスト印刷</b>（朝礼・課長同行前）<br>複数チェック→⋮その他→📋リスト印刷。<br><br>🗂 <b>個別カード印刷</b>（訪問前後）<br>複数チェック→⋮その他→🗂個別カード印刷。初訪＋再訪（裏面）＋追撃を一括印刷。<br><br>📄 <b>カード単体印刷</b><br>カードを開いて⋮その他→🖨印刷で、カード・家族構成・戦略協議を選べるよ。'},
   {q:'課長関与レベル（単独/相談/同行）って？',a:'氏名の右のボタンをタップするたびに 🟢単独→🟡相談→🔴同行 と切り替わるよ。<br>🟢単独＝自分だけで対応／🟡相談＝課長に相談した／🔴同行＝課長が同行。<br>課長は「課分析ダッシュボード」で担当別の同行率を確認できて、🟡相談→🟢単独へステップアップする育成の目安になるよ。'},
   {q:'PCにデータを送るには？',a:function(){return isMob?'チェックを入れて「📧 PCへ」を押してメーラーで送信！PCで「📥 読込」→マージを選べば統合されるよ😊':'スマホから「📧 PCへ」で送ってもらって、PC版で📥読込→マージを選択してね。';}},
   {q:'課長へ送るには？',a:function(){return isMob?'チェックを入れて「📧 課長へ」を押してメーラーで送信するだけ！':'部下が「📧 課長へ」で送ってくるよ。PC版で📥読込→マージまたは上書きを選んでね。';}},
   {q:'初期設定を変えたい',a:function(){return isMob?'⋮その他→⚙初期設定から変更できるよ！名前・メールアドレス・役職・課名を確認してね。':'ヘッダーの⚙ボタンまたは⋮その他→⚙初期設定から変更できるよ！異動時はここで支店・課名を変更してね。';}},
-  {q:'全データを消したい',a:function(){return isMob?'⋮その他→🗑全データをクリアで消せるよ。消す前にバックアップを取っておいてね！':'⋮その他→🗑全データをクリアで消せるよ。ファイル（OneDrive）には残るから読込で戻せるよ。';}},
-  {q:'自動保存先って何？',a:'PC版でOneDriveに設定する主ファイルのことだよ！保存するたびに自動で書き込まれるよ。<br><br>初期設定の「💾 自動保存先を設定」から設定できるよ。ファイル名はz-aibis_氏名.jsonで自動入力されるから変更不要！<br><br>⚠ このファイルを削除すると全データが消えるから絶対に削除しないでね！'},
+  {q:'全データを消したい',a:function(){return isMob?'⋮その他→🗑全データをクリアで消せるよ。消す前に「📧 PCへ」で控えを送っておいてね！':'⋮その他→🗑全データをクリアで消せるよ。<br><br>⚠ 消すと<b>いつもの保存先のファイル（OneDrive）も空になる</b>から、そのファイルを読込しても戻せないよ。消した直後なら「↩ 直前の一括削除を取り消す」で戻せるよ。<br>消す前に、初期設定の「📦 まるごと引っ越しファイルを作成」で控えを作っておいてね！';}},
+  {q:'いつもの保存先って何？',a:'PC版でOneDriveに置く、いつも使うファイルのことだよ！保存するたびに自動で書き込まれるよ。<br><br>初期設定の「💾 いつもの保存先を設定」から設定できるよ。OneDrive の「ドキュメント」の中に「アイビス」フォルダを作って、そこを選んでね。ファイル名はz-aibis_氏名.jsonで自動入力されるから変更不要！<br><br>⚠ このファイルを削除すると全データが消えるから絶対に削除しないでね！'},
   {q:'保存できないときは？',a:function(){
     return isMob
-      ? 'スマホ・タブレットではPCの自動保存先設定は対象外だよ。データは端末内（ブラウザ）に保存されるから、定期的に「📧 PCへ」でPCに控えを取っておいてね😊'
-      : '自動保存先への書き込みがうまくいかないときは、下のボタンから自己診断できるよ！原因の可能性を確認して、再設定などの復旧操作にそのまま進めるよ🩺<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 自己診断を開く</button>';
+      ? 'スマホ・タブレットではPCの保存先の設定は対象外だよ。データは端末内（ブラウザ）に保存されるから、定期的に「📧 PCへ」でPCに控えを取っておいてね😊'
+      : 'いつもの保存先への書き込みがうまくいかないときは、下のボタンから自己診断できるよ！原因の可能性を確認して、再設定などの復旧操作にそのまま進めるよ🩺<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 自己診断を開く</button>';
   }},
-  {q:'データが消えた！',a:'落ち着いて！まず確認してみてね😊<br><br>【まず試す】⋮その他→⏪1つ前に戻す　で直前の保存状態に復元できるよ！<br><br>【PC版】OneDriveのz-aibis_氏名.jsonが残っていないか確認。コピー保存先も確認してみて。<br>【スマホ版】PCにバックアップ（📧 PCへ）が残っていないか確認。<br><br>これからはPC版でコピー保存先も設定しておくと二重に守れるよ！'},
-  {q:'1つ前に戻すって何？',a:'⏪1つ前に戻すは、直前の保存状態に復元する機能だよ！<br><br>保存するたびに、その直前のデータが自動でバックアップされてるよ。<br><br>誤ってカードを消した・上書きしてしまった・読み込みミスをした、そんなときに⋮その他→⏪1つ前に戻すで復活できるよ😊<br><br>※もう一度押すと、戻す前の状態に戻せるよ（行ったり来たり）。ただし2つ前より前には戻れないから注意してね！'},
+  {q:'データが消えた！',a:'落ち着いて！まず確認してみてね😊<br><br>【まず試す】⋮その他→⏪1つ前に戻す　で直前の保存状態に復元できるよ！<br><br>【PC版】OneDriveのz-aibis_氏名.jsonが残っていないか確認。予備の保存先も確認してみて。<br>【スマホ版】PCに送った控え（📧 PCへ）が残っていないか確認。<br><br>これからはPC版で予備の保存先も設定しておくと二重に守れるよ！'},
+  {q:'1つ前に戻すって何？',a:'⏪1つ前に戻すは、直前の保存状態に復元する機能だよ！<br><br>保存するたびに、その直前のデータの控えが自動で取られてるよ。<br><br>誤ってカードを消した・上書きしてしまった・読み込みミスをした、そんなときに⋮その他→⏪1つ前に戻すで復活できるよ😊<br><br>※もう一度押すと、戻す前の状態に戻せるよ（行ったり来たり）。ただし2つ前より前には戻れないから注意してね！'},
   {q:'検索ってどう使うの？',a:'名前や住所を入れるだけ！スペース区切りで複数キーワードも使えるよ🔍<br>並び替えは最新・再訪・ジャッジ・住所・スコア・心理・会話・ランク・遅れ・初訪・土地・顧客から選べるよ！'},
   {q:'バージョンアップするには？',a:function(){ return isMgrUnlocked()?'Claudeに修正を頼んで、GitHubに上書きするだけ！みんな次回アクセスで自動的に最新版になるよ👏':'アップデートは課長が管理しているよ😊 アプリを開き直すだけで、いつでも自動的に最新版が使えるから安心してね！'; }},
   {q:'マニュアルはどこ？',a:function(){return isMob?'⋮その他→📖マニュアルから見れるよ！タイトルをタップすると詳細が開くよ。':'⋮その他→📖マニュアルから見れるよ！各セクションをクリックすると詳細が開くよ。';}},
   {q:'戦略協議ってどう使うの？',a:'戦略協議は、お客様の情報をAI（会社のCopilot）に分析してもらう機能だよ！<br><br>①「💭 戦略協議」タブを開く<br>②分析テーマを選ぶ（8種）<br>③「🤖 分析用に抽出」でコピー、または「📎 ファイルで抽出」でtxt保存（Copilotに添付→「添付の指示に従って分析して」とだけ送ればOK）<br>④「🤖 AI分析」でCopilotが開く<br>⑤貼り付けて送信→回答を貼り付け欄にペースト<br><br>総合分析では追客ランク（S〜E）が自動で検出されるよ🧚'},
   {q:'外部連携で情報はどこに行く？',a:'アイビスの基本データは<b>この端末の中だけ</b>に保存されるよ（サーバ送信なし）。<br><br>ただし次の機能を<b>自分で使ったとき</b>は、入力内容の一部が外部サービスへ渡るよ：<br>・🤖 AI分析（Copilot等への貼り付け／ファイル添付）<br>・🗺 地図・ストリートビュー表示<br>・📧 メール送信／同期<br><br>顧客情報を扱うときは「簡易匿名化」と貼り付け前の内容確認を習慣に。会社で認められた環境で使ってね！'},
-  {q:'アイビスは開発が止まっても使える？',a:'使えるよ！設計から「永久に動く」ことを最優先にしてるんだ💪<br><br>・<b>単一HTMLファイルで完結</b>：サーバ・ログイン・通信は一切不要。このファイルがあればブラウザで開くだけで全機能が動く<br>・<b>データは端末内</b>（localStorage）＋JSON書き出しでバックアップ自由<br>・<b>戦略協議のプロンプトは汎用テキスト</b>：CopilotでもChatGPTでも将来のAIでも使える<br>・課長機能が無くても担当ひとりで「カード作成→作戦盤→予定表→AI壁打ち→判定→印刷」が全部回る<br><br><b>保管の心得</b>：最新版のHTMLファイルを ①PC ②スマホ ③クラウドかUSB の3箇所に保存しておこう。それだけで何年先も使い続けられるよ。'},
+  {q:'アイビスは開発が止まっても使える？',a:'公開ページが残っている限り使えるよ！設計から「長く使い続けられる」ことを大事にしてるんだ💪<br><br>・<b>サーバ・ログインは不要</b>：決められたアドレス（URL）のページをChromeで開くだけで全機能が動く。データをサーバへ送ることもない<br>・<b>データは端末内</b>（localStorage）＋保存先のファイルやまるごと引っ越しファイルで控えを取れる<br>・<b>戦略協議のプロンプトは汎用テキスト</b>：CopilotでもChatGPTでも将来のAIでも使える<br>・課長機能が無くても担当ひとりで「カード作成→作戦盤→予定表→AI壁打ち→判定→印刷」が全部回る<br><br><b>保管の心得</b>：アイビスのHTMLファイルを別の場所にコピーしても、決められたアドレス以外では開けないよ（勝手に使われないための仕組み）。守るべきなのは<b>データの控え</b>。保存先のファイルと、写真・営業の記録まで入る「📦 まるごと引っ越しファイル」をこまめに残しておこう。'},
   {q:'追客ランクって何？',a:'S〜EとXの7段階でお客様への訪問頻度・状況を表すよ！<br><br>'
     +'<b>S：積極提案</b>　お客様が主体的に動いている・クロージング射程内（2日に1回〜毎日）<br>'
     +'<b>A：積極追客</b>　動機醸成が見えてきた・本物の提案依頼が取れそう（週1回・7日以内）<br>'
@@ -6950,11 +7054,20 @@ var AIBIS_FAQ=[
   {q:'ふるさと納税',a:'ふるさと納税の上限目安は「住民税額×20%」が簡易計算式だよ！<br><br>より正確には：(住民税所得割額×20%)÷(90%－所得税率×1.021)<br><br>📊 年収別の目安：<br>年収500万：約6万円 / 年収700万：約11万円<br>年収1,000万：約17万円 / 年収1,500万：約37万円<br><br>賃貸収入がある地主さんは確定申告必須だよ。控除額も大きくなる場合があるよ！'},
   {q:'デベロッパー',a:'デベロッパーは土地を取得して建物を開発・販売・賃貸する不動産開発会社のことだよ！<br><br>🏙 <b>主な会社</b>：三井不動産・三菱地所・住友不動産・東急不動産・野村不動産など<br><br>マンション・オフィスビル・商業施設・ホテルなど大規模開発が中心。自社では施工しないことが多く、ゼネコンに発注する側だよ！'},
   {q:'ゼネコン',a:'ゼネコン（総合建設会社）は建物の設計・施工・管理を請け負う会社のことだよ！<br><br>🏗 <b>スーパーゼネコン5社</b>：鹿島・大成・清水・大林・竹中<br><br>各社の特色：<br>鹿島…原子力・ダム・地下工事<br>大成…超高層・空港・複合施設<br>清水…病院・文化施設・免震技術<br>大林…橋梁・鉄道・関西圏が強い<br>竹中…商業施設・美術館・非上場が珍しい<br><br>大東建託は賃貸住宅専門のゼネコン的な位置付けで、施工から管理まで一体提供してるよ！'},
+  {q:'困ったとき',a:function(){
+    var s='困ったときは、マニュアルの「🆘 困ったとき」を見てね📖<br>⋮その他→📖マニュアル→「🆘 困ったとき」を開くと、<br>・保存先を間違えた／ファイルが空になった<br>・写真が届かない・紐付かない<br>・機種変更／ブラウザのデータを消した<br>・画面が2つ開いている<br>などの直し方が載っているよ😊';
+    return isMob
+      ? s
+      : s+'<br><br>保存がうまくいかないときは、下のボタンから自己診断もできるよ🩺<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 自己診断を開く</button>';
+  }},
+  {q:'予備の保存先って何？',a:'PC版で、いつもの保存先とは別に控えを書き込むファイルだよ📋<br><br>一覧の「💾 保存」を押したときに、いつもの保存先と同じ内容が書き込まれるよ（カードを開いて押す保存では書き込まれないよ）。<br><br>置き場所は C ドライブの「ドキュメント」＞「アイビス」フォルダがおすすめ。初期設定の「📋 予備の保存先を指定」から設定してね！'},
+  {q:'まるごと引っ越しファイルって何？',a:'カード・写真・営業の記録を1つにまとめたファイルだよ📦<br><br>初期設定の「📦 まるごと引っ越しファイルを作成」で作れるよ。PCを替えるときや、ブラウザのデータが消えたときに、写真と営業の記録まで戻せるのはこのファイルだけ。<br><br>入らないもの：初期設定（名前・メールアドレス・保存先）、ジョブの到達記録、予定表など。<br><br>作ったファイルは OneDrive の「ドキュメント」＞「アイビス」＞「引っ越しファイル」フォルダに置いて、新しい2つを残してね。メールで送ったり共有フォルダに置いたりしないでね！'},
+  {q:'フルバックアップ',a:'フルバックアップは、今は「📦 まるごと引っ越しファイル」という名前になったよ。カード・写真・営業の記録を1つにまとめたファイルで、初期設定の「📦 まるごと引っ越しファイルを作成」で作れるよ😊'},
 ];
 function getAibisQuick(){
   return isMob
-    ?['どんなのが候補?','聞くべき事は?','自己分析ダッシュボードって何？','生産緑地について','購買心理とは?','会話状況とは?','戦略協議ってどう使うの？','保存ってどうやるの？','印刷ってどう使うの？','PCにデータを送るには？','音声入力のコツは?']
-    :['どんなのが候補?','聞くべき事は?','自己分析ダッシュボードって何？','生産緑地について','購買心理とは?','会話状況とは?','戦略協議ってどう使うの？','保存ってどうやるの？','印刷ってどう使うの？','利回り','音声入力のコツは?'];
+    ?['どんなのが候補?','聞くべき事は?','自己分析ダッシュボードって何？','生産緑地について','購買心理とは?','会話状況とは?','戦略協議ってどう使うの？','保存ってどうやるの？','印刷ってどう使うの？','PCにデータを送るには？','音声入力のコツは?','困ったとき']
+    :['どんなのが候補?','聞くべき事は?','自己分析ダッシュボードって何？','生産緑地について','購買心理とは?','会話状況とは?','戦略協議ってどう使うの？','保存ってどうやるの？','印刷ってどう使うの？','利回り','音声入力のコツは?','困ったとき'];
 }
 var aibisChatLog=[];
 
@@ -7075,7 +7188,7 @@ function sendAibisMsg(){
     var fq=AIBIS_FAQ[i].q.toLowerCase();
     if(qLow===fq||qLow.indexOf(fq)>=0||fq.indexOf(qLow)>=0){ matched=AIBIS_FAQ[i]; break; }
   }
-  var fb=['うーん、それはまだ私の知識にないかも😊 マニュアルか課長に聞いてみてね！','その用語はまだ勉強中だよ😓 課長に聞いてみて！','Aibis Masterに聞いてみてね😊'];
+  var fb=['うーん、それはまだ私の知識にないかも😊 マニュアルの「🆘 困ったとき」を見てみてね！','その用語はまだ勉強中だよ😓 マニュアルの「🆘 困ったとき」を見てみてね！','マニュアルの「🆘 困ったとき」を見てみてね😊'];
   setTimeout(function(){ addAibisMsg('🧚',matched?getAibisAnswer(matched.a):fb[Math.floor(Math.random()*fb.length)]); },400);
 }
 window.openAibisChat=openAibisChat;
@@ -7702,7 +7815,7 @@ function generateAibisComment(key){
       'ソーシャルスタイル、ちゃんと読んだ？読んだふりしてない？😒 NGワードだけでもメモしといてよ',
       'このスタイルの人ってね、焦らせると逆効果なんだよね。わかってる？わかってるよね？🧐',
       'ちゃんとスタイル分析できてるじゃん！これだけわかってれば信頼関係作るの早いよ😊',
-      'お客様のこと深く理解しようとしてるの、えらいじゃん！アナログ協議欄にも残しといてよ👍'
+      'お客様のこと深く理解しようとしてるの、えらいじゃん！フォーアイズ作戦ボード欄にも残しといてよ👍'
     ],
     objection:[
       'この切り返し、声に出して練習した？頭の中でわかってても口から出てこないんだよなあ〜😅 やってみてよ',
@@ -10748,15 +10861,15 @@ function saveSetup() {
   // PC版で保存先未設定チェック
   if (hasFSA && !isMob) {
     if (!fHandle && !copyHandle) {
-      aibisAlert('自動保存先とコピー保存先の両方を設定してからね！<br><br>上の「💾 自動保存先を設定」と「📋 コピー保存先を指定」を押して設定しよう😊');
+      aibisAlert('いつもの保存先と予備の保存先の両方を設定してからね！<br><br>上の「💾 いつもの保存先を設定」と「📋 予備の保存先を指定」を押して設定しよう😊');
       return;
     }
     if (!fHandle) {
-      aibisAlert('自動保存先がまだ設定されていないよ！<br>上の「💾 自動保存先を設定」ボタンから設定してね😊');
+      aibisAlert('いつもの保存先がまだ設定されていないよ！<br>上の「💾 いつもの保存先を設定」ボタンから設定してね😊');
       return;
     }
     if (!copyHandle) {
-      aibisAlert('コピー保存先がまだ設定されていないよ！<br>上の「📋 コピー保存先を指定」ボタンから設定してね😊');
+      aibisAlert('予備の保存先がまだ設定されていないよ！<br>上の「📋 予備の保存先を指定」ボタンから設定してね😊');
       return;
     }
   }
@@ -18633,7 +18746,7 @@ function askMergeMode(imp){
     aibisAlert(msg);
   });
 }
-async function doMerge(imp){
+async function doMerge(imp, onDone){
   var mode=await askMergeMode(imp);
   if(mode==='overwrite'){
     // 読み込むデータの担当者名を収集
@@ -18671,6 +18784,7 @@ async function doMerge(imp){
       renderList();
       try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} // 写真先行・カード後行のpending解決（第146弾）
       toast('✅ 上書き完了：'+names.map(function(x){return nmSan(x);}).join('・')+' '+imp.length+'件');
+      if(typeof onDone==='function') onDone();
     });
     return;
   }
@@ -18682,6 +18796,7 @@ async function doMerge(imp){
       if(!ok){ toast('⚠ 保存に失敗しました'); return; }
       _writeBackupBaseline('json-empty-import', cards.length); // 第177弾: 空端末への全件読込＝データセット確立
       renderList(); try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){} toast('✅ '+imp.length+'件を読み込みました');
+      if(typeof onDone==='function') onDone();
     });
     return;
   }
@@ -18702,6 +18817,7 @@ async function doMerge(imp){
     renderList();
     try{ if(typeof _resolvePendingPhotoLinks==="function") _resolvePendingPhotoLinks(); }catch(_e){}
     toast('✅ 新規'+newCount+'件追加 / 更新'+updCount+'件 / 計'+cards.length+'件');
+    if(typeof onDone==='function') onDone();
   });
 }
 window.doMerge=doMerge;
@@ -21333,11 +21449,11 @@ function updateSetupFileDisp(){
   var el = document.getElementById('setupFileDisp'); if(!el) return;
   if(!hasFSA){ el.style.display='none'; return; }
   var mainTxt = fHandle
-    ? '💾 <span style="color:#38a169;font-weight:600">自動保存先：'+e(fHandle.name)+'</span>　→　保存のたびに自動書き込み'
-    : '⚠️ <span style="color:#c53030;font-weight:600">自動保存先が未設定です</span>　← 下のボタンで設定してください';
+    ? '💾 <span style="color:#38a169;font-weight:600">いつもの保存先：'+e(fHandle.name)+'</span>　→　保存のたびに自動書き込み'
+    : '⚠️ <span style="color:#c53030;font-weight:600">いつもの保存先が未設定です</span>　← 下のボタンで設定してください';
   var copyTxt = copyHandle
-    ? '<br>📋 <span style="color:#2c5282;font-weight:600">コピー保存先：'+e(copyHandle.name)+'</span>　→　保存のたびにコピーを作成'
-    : '<br>📋 <span style="color:#718096">コピー保存先：未設定</span>　（任意）';
+    ? '<br>📋 <span style="color:#2c5282;font-weight:600">予備の保存先：'+e(copyHandle.name)+'</span>　→　一覧の「💾 保存」を押したときに書き込み'
+    : '<br>📋 <span style="color:#718096">予備の保存先：未設定</span>　（任意）';
   el.style.cssText='font-size:13px;padding:10px;background:'+(fHandle?'#f0fff4':'#fff5f5')+';border:1px solid '+(fHandle?'#38a169':'#fc8181')+';border-radius:6px;margin-bottom:10px';
   el.innerHTML = mainTxt + copyTxt;
 }
@@ -21355,12 +21471,21 @@ function checkSetupInputs(){
   }
   return true;
 }
+// DAN251 C3: この端末のカードが空か（空のまま前のファイルを「設定」で選ぶと、そのファイルが空で上書きされる）
+function _setupMemEmpty(){ return (typeof cards==='undefined' || !Array.isArray(cards) || cards.length===0); }
 function setupChooseSave(){
   if(!hasFSA) return;
   if(!checkSetupInputs()) return;
   var name = (document.getElementById('sName')?.value||'担当者').trim();
   var suggestedName = 'z-aibis_' + name + '.json';
-  aibisAlert('【自動保存先の設定】<br><br>① OKを押すとOneDriveが開きます<br>② 保存したいフォルダを選んでください<br>③ ファイル名は自動で入ります（変更不要）<br>④「保存」で完了 → 以降は自動書き込み<br><br><button onclick="closeAibisAlert();_doSetupSave()" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">OK・設定する</button>');
+  var memEmpty = _setupMemEmpty();
+  var prevNote = memEmpty
+    ? '<div style="padding:8px 10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:8px"><b style="color:#c53030">⚠ 前に使っていたファイルがある人へ</b><br>ここで同じファイルを選ぶと、中身が消えます。前のファイルは「📂 前のファイルを使う」から選んでください。</div>'
+    : '';
+  var prevBtn = memEmpty
+    ? '<button onclick="closeAibisAlert();setupUsePrevFile()" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px;margin-left:6px">📂 前のファイルを使う</button>'
+    : '';
+  aibisAlert('【いつもの保存先の設定】<br><br>'+prevNote+'① OKを押すとファイル選択画面が開きます<br>② OneDrive の「ドキュメント」＞「アイビス」フォルダを選んでください<br>③ ファイル名は自動で入ります（変更不要）<br>④「保存」で完了 → 以降は自動書き込み<br><br><button onclick="closeAibisAlert();_doSetupSave()" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">OK・設定する</button>'+prevBtn);
   window._doSetupSave=function(){
     window.showSaveFilePicker({
       suggestedName: suggestedName,
@@ -21370,7 +21495,7 @@ function setupChooseSave(){
       writeFile(handle, function(ok){
         if(ok){
           fHandle=handle; saveHandle(handle);
-          updateSetupFileDisp(); updateFileDisp(); toast('✅ 自動保存先設定完了: '+handle.name);
+          updateSetupFileDisp(); updateFileDisp(); toast('✅ いつもの保存先設定完了: '+handle.name);
         } else {
           aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
         }
@@ -21383,17 +21508,20 @@ function setupChooseCopy(){
   if(!checkSetupInputs()) return;
   var name = (document.getElementById('sName')?.value||'担当者').trim();
   var suggestedName = 'z-aibis_' + name + '_backup.json';
-  aibisAlert('【コピー保存先の指定】<br><br>① OKを押すとエクスプローラーが開きます<br>② OneDrive以外の場所を選んでください<br>　（ローカルフォルダ・USBなど）<br>③ ファイル名は自動で入ります（変更不要）<br>④「保存」で完了 → 保存のたびに自動コピー<br><br><button onclick="closeAibisAlert();_doSetupCopy()" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">OK・指定する</button>');
+  var copyNote = _setupMemEmpty()
+    ? '<div style="padding:8px 10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:8px"><b style="color:#c53030">⚠ 今この端末にカードがありません</b><br>前に使っていたファイルがある人は、先にいつもの保存先を「📂 前のファイルを使う」で設定してから、予備の保存先を設定してください（ここで前の予備のファイルを選ぶと、中身が消えます）。</div>'
+    : '';
+  aibisAlert('【予備の保存先の指定】<br><br>'+copyNote+'① OKを押すとエクスプローラーが開きます<br>② C ドライブの「ドキュメント」＞「アイビス」フォルダを選んでください<br>③ ファイル名は自動で入ります（変更不要）<br>④「保存」で完了 → 以降は一覧の「💾 保存」を押したときに書き込み<br><br><button onclick="closeAibisAlert();_doSetupCopy()" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">OK・指定する</button>');
   window._doSetupCopy=function(){
     window.showSaveFilePicker({
       suggestedName: suggestedName,
       startIn: 'documents',
-      types:[{description:'z.Aibis コピーファイル',accept:{'application/json':['.json']}}]
+      types:[{description:'z.Aibis 予備ファイル',accept:{'application/json':['.json']}}]
     }).then(function(handle){
       writeFile(handle, function(ok){
         if(ok){
           copyHandle=handle; saveCopyHandle(handle);
-          updateSetupFileDisp(); toast('✅ コピー保存先設定完了: '+handle.name);
+          updateSetupFileDisp(); toast('✅ 予備の保存先設定完了: '+handle.name);
         } else {
           aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
         }
@@ -21401,7 +21529,79 @@ function setupChooseCopy(){
     }).catch(function(ex){ if(ex.name!=='AbortError') toast('ファイル選択エラー'); });
   };
 }
-window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
+// DAN251 C3: 前に使っていたファイルをいつもの保存先にする。showSaveFilePickerで既存ファイルを選ぶと
+// 選んだ時点で中身が空になる（Chromeの仕様）ため、空にしないshowOpenFilePickerで選び、中身を確かめてから
+// 確認ボタンのクリックの中で書き込み許可を求める。取り込みは空の端末への読込と同じdoMerge経路を使う。
+function setupUsePrevFile(){
+  if(!hasFSA) return;
+  if(!checkSetupInputs()) return;
+  var _prevFHandle251 = fHandle;
+  if(typeof window.showOpenFilePicker!=='function'){
+    aibisAlert('このブラウザでは「前のファイルを使う」が使えません。<br>新しい名前で作ってから、一覧の「📥 読込」で前のファイルを読み込んでください。');
+    return;
+  }
+  window.showOpenFilePicker({
+    multiple: false,
+    startIn: 'documents',
+    types:[{description:'z.Aibis データファイル',accept:{'application/json':['.json']}}]
+  }).then(function(handles){
+    var handle = handles && handles[0]; if(!handle) return;
+    handle.getFile().then(function(file){ return file.text(); }).then(function(txt){
+      var data; try{ data=JSON.parse(txt); }catch(_e){ data=undefined; }
+      if(data && typeof data==='object' && !Array.isArray(data) && typeof data.backupFormatVersion!=='undefined'){
+        aibisAlert('「'+e(handle.name)+'」は<b>まるごと引っ越しファイル</b>なので、保存先には使えません。<br><br>前のいつもの保存先のファイル（z-aibis_氏名.json）を選んでください。<br>データは変更していません。');
+        return;
+      }
+      if(!Array.isArray(data)){
+        aibisAlert('「'+e(handle.name)+'」はアイビスのカードのファイルとして読み取れなかったため、保存先には使えません。<br><br>前のいつもの保存先のファイル（z-aibis_氏名.json）を選んでください。<br>データは変更していません。');
+        return;
+      }
+      var denied = function(){ aibisAlert('このファイルへの書き込みが許可されなかったため、保存先にしませんでした。<br>データは変更していません。'); };
+      window._doSetupUsePrev=function(){
+        var req; try{ req=handle.requestPermission({mode:'readwrite'}); }catch(_e2){ req=null; }
+        if(!req || typeof req.then!=='function'){ denied(); return; }
+        req.then(function(p){
+          if(p!=='granted'){ denied(); return; }
+          doMerge(normalizeImportedCards(data), function(){
+            fHandle=handle; saveHandle(handle);
+            updateSetupFileDisp(); updateFileDisp();
+            // DAN251 C3是正2: 取り込み前の保存先(_prevFHandle251)と選んだファイルが同じ実体なら、
+            // doSaveCards側の書き込みと二重書きにならないようwriteFileを省く。
+            var _doWrite251=function(){
+              writeFile(handle, function(ok){
+                if(ok){
+                  toast('✅ いつもの保存先に前のファイルを使います: '+handle.name);
+                } else {
+                  aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
+                }
+              });
+            };
+            var _sameCmp251;
+            try{
+              _sameCmp251 = (_prevFHandle251 && typeof _prevFHandle251.isSameEntry==='function') ? _prevFHandle251.isSameEntry(handle) : null;
+            }catch(_eSame251){ _sameCmp251 = null; }
+            if(_sameCmp251 && typeof _sameCmp251.then==='function'){
+              _sameCmp251.then(function(isSame){
+                if(isSame){ toast('✅ いつもの保存先に前のファイルを使います: '+handle.name); }
+                else { _doWrite251(); }
+              }).catch(_doWrite251);
+            } else {
+              _doWrite251();
+            }
+          });
+        }).catch(denied);
+      };
+      aibisAlert('「'+e(handle.name)+'」を<b>いつもの保存先</b>にします。<br><br>'
+        +(data.length ? 'このファイルのカード '+data.length+'件を、この端末に読み込みます。' : '⚠ このファイルにはカードが入っていません（0件）。')
+        +'<br>このあと出る画面で、このファイルへの書き込みを「許可」してください。<br><br>'
+        +'<div style="display:flex;gap:8px;margin-top:4px">'
+        +'<button onclick="window._doSetupUsePrev();closeAibisAlert()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このファイルを使う</button>'
+        +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+        +'</div>');
+    }).catch(function(){ aibisAlert('ファイルを読み込めませんでした。<br>データは変更していません。'); });
+  }).catch(function(ex){ if(ex && ex.name!=='AbortError') toast('ファイル選択エラー'); });
+}
+window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy; window.setupUsePrevFile=setupUsePrevFile;
 
 // ===== 第201弾: 保存できないとき／自己診断ウィザード =====
 // 方針：open経路はread-only（許可APIのみ）。復旧操作は全てユーザーclick起点・自動retry 0。
@@ -21433,8 +21633,8 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
   var BOX_OK    = 'padding:10px;background:#f0fff4;border-left:3px solid #38a169;border-radius:4px;font-size:12px;line-height:1.7';
 
   var ZSD_TEXT = {
-    S1: 'このスマホ・タブレットでは、PCの自動保存先設定は対象外です。データは端末内（ブラウザ）に保存されます。定期的に「📧 PCへ」でPCに控えを取っておくと安心です。',
-    S2: '自動保存先が現在有効になっていません。',
+    S1: 'このスマホ・タブレットでは、PCのいつもの保存先の設定は対象外です。データは端末内（ブラウザ）に保存されます。定期的に「📧 PCへ」でPCに控えを取っておくと安心です。',
+    S2: 'いつもの保存先が現在有効になっていません。',
     S3: 'この端末に保存先の記憶が残っていません。',
     S4: 'アクセス許可の再確認が必要です。',
     S5: 'アクセスがブロックされています。',
@@ -21531,7 +21731,7 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
 
   // ---- 描画 ----
   function zsdCopyInfoNode(r){
-    var t = '📋 コピー保存先：' + (r.copyLive ? '有効' : '未設定') + '／この端末の記憶：' + (r.copyIdb ? 'あり' : 'なし');
+    var t = '📋 予備の保存先：' + (r.copyLive ? '有効' : '未設定') + '／この端末の記憶：' + (r.copyIdb ? 'あり' : 'なし');
     return zel('div', { text: t, style: 'margin-top:10px;padding:8px 10px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#4a5568' });
   }
   // Fable 5.1 CODE AUDIT是正（MAJOR-B2）：保存トラブル時はまずデータを守ることを優先する。
@@ -21540,10 +21740,10 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
   function zsdActionsNode(noteHost){
     var wrap = zel('div', { style: 'margin-top:2px' });
     wrap.appendChild(zel('div', { text: 'まずデータを守る', style: 'font-size:11px;font-weight:800;color:#c05621;margin-top:6px' }));
-    wrap.appendChild(zel('button', { text: '📦 フルバックアップを作成', type: 'button', style: BTN_PRIMARY, onclick: zsdGoFullBackup }));
-    wrap.appendChild(zel('div', { text: 'バックアップを確保したあとで（必要な場合のみ）', style: 'font-size:11px;font-weight:800;color:#4a5568;margin-top:10px' }));
-    wrap.appendChild(zel('button', { text: '💾 自動保存先を再設定する', type: 'button', style: BTN_SECOND, onclick: zsdResetupMain }));
-    wrap.appendChild(zel('button', { text: '📋 コピー保存先を再設定', type: 'button', style: BTN_SECOND, onclick: zsdResetupCopy }));
+    wrap.appendChild(zel('button', { text: '📦 まるごと引っ越しファイルを作成', type: 'button', style: BTN_PRIMARY, onclick: zsdGoFullBackup }));
+    wrap.appendChild(zel('div', { text: 'まるごと引っ越しファイルを作ったあとで（必要な場合のみ）', style: 'font-size:11px;font-weight:800;color:#4a5568;margin-top:10px' }));
+    wrap.appendChild(zel('button', { text: '💾 いつもの保存先を設定し直す', type: 'button', style: BTN_SECOND, onclick: zsdResetupMain }));
+    wrap.appendChild(zel('button', { text: '📋 予備の保存先を設定し直す', type: 'button', style: BTN_SECOND, onclick: zsdResetupCopy }));
     return wrap;
   }
 
@@ -21699,6 +21899,7 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
           else if (d.type === 'heartbeat') { zsdPeers[d.sid] = Date.now(); }
           else if (d.type === 'bye') { delete zsdPeers[d.sid]; }
           zsdRefreshPeerDisplay(); // MAJOR-A2: wizard表示中ならこの1行だけ即時反映
+          zsdMultiBarUpdate(); // DAN251 C4: 多重起動の知らせ（相手の増減をそのまま反映）
         } catch (exMsg) {}
       };
       zsdBcStatus = 'ready';
@@ -21709,11 +21910,19 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
             zsdAnnounce('heartbeat');
             zsdPruneStalePeers();
             zsdRefreshPeerDisplay(); // MAJOR-A2: 既存heartbeat intervalを流用した定期refresh（新規timer追加なし）
+            zsdMultiBarUpdate(); // DAN251 C4: stale pruneで相手が0になったら知らせを消す（既存intervalの流用）
           } catch (exHb) {}
         }, ZSD_HEARTBEAT_MS);
       }
       if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('pagehide', function(){ try { zsdAnnounce('bye'); } catch (exBye) {} });
+      }
+      // DAN251 C4: 画面に戻ってきたときにhelloを1回だけ送る（背景タブのtimer間引きで遅れた相手の再発見。
+      // 新規timer・channel再生成なし）。
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', function(){
+          try { if (document.visibilityState === 'visible') zsdAnnounce('hello'); zsdMultiBarUpdate(); } catch (exVis) {}
+        });
       }
     } catch (exInit) {
       // fail-soft: 構築自体が例外を投げる環境でも診断を壊さない。ただし「検知なし」という
@@ -21731,6 +21940,48 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
   function zsdAnnounceOnOpen(){
     if (zsdBcStatus !== 'ready') return;
     zsdAnnounce('hello');
+  }
+
+  // ---- DAN251 C4: 多重起動の知らせ（画面上部中央の細い帯） ----
+  // 既存のzsdPeers・zsdPeerCount()・BroadcastChannel・heartbeatだけを使い回す（新規channel・新規timer・
+  // window公開・innerHTML・localStorage書込みは増やさない）。出す条件はzsdBcStatus==='ready'かつ相手1以上。
+  // ×で閉じた時点の相手はメモリだけで覚え、新しい相手が来たら再表示する。相手が0になったら消す。
+  var zsdMultiBarEl = null;
+  var zsdMultiBarDismissed = null; // ×を押した時点の相手sidの集合（メモリのみ・永続化しない）
+  function zsdMultiBarBuild(){
+    if (typeof document === 'undefined' || !document.body || typeof document.createElement !== 'function') return null;
+    var bar = zel('div', { id: 'zsdMultiBar', style: 'position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:99000;width:max-content;max-width:calc(100vw - 16px);box-sizing:border-box;padding:6px 34px 6px 12px;background:#fff8e1;border:1px solid #ffd54f;border-top:none;border-radius:0 0 8px 8px;color:#c05621;font-size:12px;line-height:1.5;box-shadow:0 2px 6px rgba(0,0,0,0.15);pointer-events:none;display:none' });
+    bar.setAttribute('role', 'status');
+    bar.appendChild(zel('div', { text: 'Aibisがほかの画面（タブ・ウィンドウ）でも開いているようです。1つだけ残して、ほかは閉じてください。', style: 'font-weight:700' }));
+    bar.appendChild(zel('div', { text: '2つ同時に使うと、片方の保存で、もう片方の入力が消えることがあります。閉じた直後は1分ほど表示が残ることがあります。', style: 'font-size:11px;color:#4a5568;margin-top:2px' }));
+    bar.appendChild(zel('button', { id: 'zsdMultiBarClose', text: '×', type: 'button', aria: '閉じる', style: 'position:absolute;top:2px;right:4px;pointer-events:auto;background:none;border:none;color:#c05621;font-size:16px;line-height:1;padding:4px 8px;cursor:pointer;font-family:inherit', onclick: zsdMultiBarDismiss }));
+    // 印刷時は隠す（この帯のidだけに効くstyle要素。textContentで作る）
+    var printStyle = document.createElement('style');
+    printStyle.textContent = '@media print{#zsdMultiBar{display:none!important}}';
+    bar.appendChild(printStyle);
+    document.body.appendChild(bar);
+    return bar;
+  }
+  function zsdMultiBarHide(){ if (zsdMultiBarEl) zsdMultiBarEl.style.display = 'none'; }
+  function zsdMultiBarDismiss(){
+    var d = {};
+    Object.keys(zsdPeers).forEach(function(sid){ d[sid] = 1; });
+    zsdMultiBarDismissed = d;
+    zsdMultiBarHide();
+  }
+  function zsdMultiBarUpdate(){
+    try {
+      if (zsdBcStatus !== 'ready') { zsdMultiBarHide(); return; }
+      if (zsdPeerCount() <= 0) { zsdMultiBarDismissed = null; zsdMultiBarHide(); return; }
+      if (zsdMultiBarDismissed) {
+        var dismissed = zsdMultiBarDismissed;
+        var hasNew = Object.keys(zsdPeers).some(function(sid){ return !dismissed[sid]; });
+        if (!hasNew) { zsdMultiBarHide(); return; }
+        zsdMultiBarDismissed = null;
+      }
+      if (!zsdMultiBarEl) zsdMultiBarEl = zsdMultiBarBuild();
+      if (zsdMultiBarEl) zsdMultiBarEl.style.display = 'block';
+    } catch (exBar) {}
   }
   function zsdPeerInfo(){
     try {
@@ -21788,13 +22039,13 @@ window.setupChooseSave=setupChooseSave; window.setupChooseCopy=setupChooseCopy;
       var ok = false;
       try { ok = (typeof saveLS === 'function') ? saveLS({ skipBackup: true }) : false; } catch (exEmg) { ok = false; }
       if (ok) {
-        host.appendChild(zel('div', { text: '✅ 現在のAibisデータを端末内へ退避しました。PC自動JSONは更新されていない可能性があります。', style: 'margin-top:8px;color:#276749;font-size:12px;font-weight:700' }));
+        host.appendChild(zel('div', { text: '✅ 現在のAibisデータを端末内へ退避しました。いつもの保存先のファイルは更新されていない可能性があります。', style: 'margin-top:8px;color:#276749;font-size:12px;font-weight:700' }));
         // Fable 5.1 CODE AUDIT是正（MAJOR-B1）：再起動・再読込前にバックアップを確保する
         // 安全な順序を明示する（過剰な断定はしない。startup読込順序自体はDAN229では変更しない）。
-        host.appendChild(zel('div', { text: '⚠ この状態では、まだブラウザの再起動・再読込をしないでください。PC自動保存先が古いままだと、起動時に古い内容が読み込まれ、今の変更が失われる可能性があります。先に「📦 フルバックアップを作成」で控えを確保してください。', style: 'margin-top:6px;color:#c05621;font-size:12px;font-weight:700' }));
-        host.appendChild(zel('button', { text: '📦 フルバックアップを作成', type: 'button', style: BTN_SECOND, onclick: zsdGoFullBackup }));
+        host.appendChild(zel('div', { text: '⚠ この状態では、まだブラウザの再起動・再読込をしないでください。いつもの保存先のファイルが古いままだと、起動時に古い内容が読み込まれ、今の変更が失われる可能性があります。先に「📦 まるごと引っ越しファイルを作成」で控えを確保してください。', style: 'margin-top:6px;color:#c05621;font-size:12px;font-weight:700' }));
+        host.appendChild(zel('button', { text: '📦 まるごと引っ越しファイルを作成', type: 'button', style: BTN_SECOND, onclick: zsdGoFullBackup }));
       } else {
-        host.appendChild(zel('div', { text: '端末内への緊急保存に失敗しました。フルバックアップの作成をお試しください。', style: 'margin-top:8px;color:#c53030;font-size:12px' }));
+        host.appendChild(zel('div', { text: '端末内への緊急保存に失敗しました。まるごと引っ越しファイルの作成をお試しください。', style: 'margin-top:8px;color:#c53030;font-size:12px' }));
       }
     };
   }
@@ -26265,9 +26516,9 @@ function resetSmartphone(){
     aibisAlert('スマホのデータをリセットするよ⚠<br><br>'
       +'カード <b>'+cards.length+'件</b>（紐付く写真 '+linkedN+'件を含む）を消去します。'+(unlinkedN?('<br><span style="font-size:12px;color:#718096">未紐付けの写真 '+unlinkedN+'件は対象外（インボックスに残ります）。</span>'):'')+'<br>'
       +'翌日まっさらで始めたいときや、PCで削除したカードを反映したいときに使うよ。<br>'+warn
-      +'必ず先に「📧 PCへ」でバックアップを取ってね！<br><br>バックアップは取った？<br><br>'
+      +'必ず先に「📧 PCへ」で控えを送ってね！<br><br>控えは送った？<br><br>'
       +'<div style="display:flex;gap:8px;margin-top:8px">'
-      +'<button onclick="closeAibisAlert();resetSmartphone2()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">バックアップ済み・リセット</button>'
+      +'<button onclick="closeAibisAlert();resetSmartphone2()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">送った・リセット</button>'
       +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
       +'</div>');
   };
@@ -26523,12 +26774,12 @@ function _klogPreviewLine(data, kv){
     return "旧形式には営業知識ログが含まれず、端末内の営業知識ログは変更しません。";
   }
   if(!kv.valid){
-    var why = (kv.reason==='digest_mismatch') ? "整合性チェックに失敗（digest不一致）" : "形式が不正";
+    var why = (kv.reason==='digest_mismatch') ? "整合性チェックに失敗（中身が作成時と一致しません）" : "形式が不正";
     return "⚠ 営業知識ログは"+why+"のため復元されません（カード・写真の復元には影響しません）。";
   }
   var line = "営業知識ログ：顧客"+kv.customerCount+"件・記録"+kv.entryCount+"件を復元します。";
   if(data && data.manifest && data.manifest.knowledgeLogComplete===false){
-    line += "<br><span style=\"color:#b7791f\">⚠ 作成元の端末で一部の営業知識ログを収録できていません（バックアップ作成時点でpartial）。</span>";
+    line += "<br><span style=\"color:#b7791f\">⚠ 作成元の端末で一部の営業知識ログを収録できていません（まるごと引っ越しファイルを作った時点）。</span>";
   }
   return line;
 }
@@ -26541,10 +26792,10 @@ function _klogPreviewLine(data, kv){
  */
 function _klogRestoreState(kv, klogResult){
   if(!kv || !kv.isV2){
-    return { headline:"✅ カード・写真の復元が完了しました", detail:"営業知識ログは変更していません（旧形式のバックアップ）。", fullCompleteToast:false };
+    return { headline:"✅ カード・写真の復元が完了しました", detail:"営業知識ログは変更していません（旧形式のまるごと引っ越しファイル）。", fullCompleteToast:false };
   }
   if(!kv.valid){
-    var why = (kv.reason==='digest_mismatch') ? "digest不一致" : "形式不備";
+    var why = (kv.reason==='digest_mismatch') ? "中身が作成時と一致しません" : "形式不備";
     return { headline:"⚠ カード・写真は復元しましたが、営業知識ログは未復元です", detail:"理由："+why+"。端末内の営業知識ログは変更していません。", fullCompleteToast:false };
   }
   if(klogResult && klogResult.ok){
@@ -26554,7 +26805,7 @@ function _klogRestoreState(kv, klogResult){
     return { headline:"⚠ カード・写真は復元しました。営業知識ログは未復元です", detail:"置換に失敗したため、営業知識ログは元の状態へ復旧済みです。", fullCompleteToast:false };
   }
   if(klogResult && klogResult.rollbackFailed){
-    return { headline:"✅ カード・写真の復元は成功しました", detail:"❗ 営業知識ログの復旧に失敗しました（重大）。端末内データをご確認のうえ、必要ならフルバックアップから再度復元してください。", fullCompleteToast:false };
+    return { headline:"✅ カード・写真の復元は成功しました", detail:"❗ 営業知識ログの復旧に失敗しました（重大）。端末内データをご確認のうえ、必要ならまるごと引っ越しファイルから再度復元してください。", fullCompleteToast:false };
   }
   return { headline:"⚠ カード・写真は復元しましたが、営業知識ログは未復元です", detail:"端末内の営業知識ログは変更していません。", fullCompleteToast:false };
 }
@@ -26584,7 +26835,7 @@ function _collectMediaForBackup(){
 
 /* ---- フルバックアップ作成 ---- */
 function fullBackupCreate(){
-  try{ toast("📦 フルバックアップを作成中…"); }catch(e){}
+  try{ toast("📦 まるごと引っ越しファイルを作成中…"); }catch(e){}
   _collectMediaForBackup().then(function(media){
     var cardIds=(cards||[]).map(function(c){ return c&&c.id?c.id:""; }).filter(Boolean).sort();
     var mediaIds=media.map(function(m){ return m&&m.id?m.id:""; }).filter(Boolean).sort();
@@ -26646,12 +26897,12 @@ function fullBackupCreate(){
       try{ localStorage.setItem('aibis_last_backup', _nowIso177); }catch(e){}
       updateFullBackupLastDisp();
       var klogMsg = "・知識ログ"+manifest.knowledgeCustomerCount+"顧客";
-      toast("✅ フルバックアップを作成しました（カード"+manifest.cardCount+"件・写真"+manifest.mediaCount+"枚"+klogMsg+"）");
+      toast("✅ まるごと引っ越しファイルを作成しました（カード"+manifest.cardCount+"件・写真"+manifest.mediaCount+"枚"+klogMsg+"）");
       if(!klogComplete){
         toast("⚠ 一部の営業知識ログを収録できませんでした（"+manifest.knowledgeLogSkippedCount+"件skip）");
       }
-    }).catch(function(){ aibisAlert("⚠ フルバックアップの作成中にエラーが発生しました。もう一度お試しください。"); });
-  }).catch(function(){ aibisAlert("⚠ 写真データの読み込みに失敗したため、フルバックアップを作成できませんでした。"); });
+    }).catch(function(){ aibisAlert("⚠ まるごと引っ越しファイルの作成中にエラーが発生しました。もう一度お試しください。"); });
+  }).catch(function(){ aibisAlert("⚠ 写真データの読み込みに失敗したため、まるごと引っ越しファイルを作成できませんでした。"); });
 }
 
 /* ---- フルバックアップ復元：ファイル選択 → 検証 → プレビュー ---- */
@@ -26673,24 +26924,24 @@ function _handleFullBackupFileText(text){
   catch(e){ aibisAlert("⚠ このファイルは正しいJSONとして読み込めませんでした。<br>データは変更していません。"); return; }
 
   if(isLegacyCardArrayFormat(data)){
-    aibisAlert("ℹ️ これは通常のカードJSON（カードのみ）です。<br>フルバックアップ（カード＋写真）ではありません。<br><br>このファイルは、通常の「読込」ボタンからお使いください。<br>データは変更していません。");
+    aibisAlert("ℹ️ これは通常のカードJSON（カードのみ）です。<br>保存先のファイルや送る用ファイルは、カードだけが入ったこの形式です。<br>まるごと引っ越しファイル（カード＋写真）ではありません。<br><br>このファイルは、通常の「読込」ボタンからお使いください。<br>データは変更していません。");
     return;
   }
   if(!isFullBackupEnvelope(data)){
-    aibisAlert("⚠ このファイルはフルバックアップ形式として認識できませんでした。<br>データは変更していません。");
+    aibisAlert("⚠ このファイルはまるごと引っ越しファイルとして認識できませんでした。<br>データは変更していません。");
     return;
   }
   var bfv=data.backupFormatVersion;
   if(typeof bfv!=="number" || !isFinite(bfv) || bfv<MIN_BACKUP_FORMAT_VERSION){
-    aibisAlert("⚠ バックアップファイルの形式番号(backupFormatVersion)が不正です。<br>データは変更していません。");
+    aibisAlert("⚠ まるごと引っ越しファイルの形式番号が不正です。<br>データは変更していません。");
     return;
   }
   if(isFutureBackupFormatVersion(bfv)){
-    aibisAlert("⚠ このバックアップファイルは、今のアプリより新しい形式（backupFormatVersion="+bfv+"）です。<br>アプリを更新してから復元してください。<br><br>データは変更していません。");
+    aibisAlert("⚠ このまるごと引っ越しファイルは、今のアプリより新しい形式です。<br>アプリを更新してから復元してください。<br><br>データは変更していません。");
     return;
   }
   if(!Array.isArray(data.cards) || !Array.isArray(data.media)){
-    aibisAlert("⚠ バックアップファイルの内容が不正です（cards/mediaの形式）。<br>データは変更していません。");
+    aibisAlert("⚠ まるごと引っ越しファイルの内容が不正です（カード・写真の形式）。<br>データは変更していません。");
     return;
   }
 
@@ -26718,7 +26969,7 @@ function _handleFullBackupFileText(text){
     var haveStoredDigest = !!(storedManifest.payloadDigest);
     var digestOk = !haveStoredDigest || (storedManifest.payloadDigest===digests[2]);
     if(haveStoredDigest && !digestOk){
-      aibisAlert("⚠ バックアップファイルの整合性チェックに失敗しました。<br>データが壊れているか、改ざんされている可能性があります。<br><br>復元を中止しました。データは変更していません。");
+      aibisAlert("⚠ まるごと引っ越しファイルの整合性チェックに失敗しました。<br>ファイルが壊れているか、作成後に書き換えられた可能性があります。<br><br>復元を中止しました。データは変更していません。");
       return;
     }
 
@@ -26754,14 +27005,13 @@ function _showFullRestorePreview(data, manifest, futureCards, digestOk, haveStor
   var msg="🔎 復元前プレビュー<br><br>"
     +"カード："+manifest.cardCount+"件<br>"
     +"写真：計"+manifest.mediaCount+"枚（紐付け済み"+manifest.linkedMediaCount+"・未紐付け"+manifest.unlinkedMediaCount+"）<br>"
-    +"世代分布："+_fmtDist(manifest.schemaVersionDistribution)+"<br>"
     +(manifest.orphanMediaCount>0 ? "<span style=\"color:#c53030\">⚠ 参照先カード不明の写真："+manifest.orphanMediaCount+"件</span><br>" : "")
-    +(futureCards>0 ? "<span style=\"color:#b7791f\">⚠ このアプリより新しい世代のカードが"+futureCards+"件あります（復元は継続できます）</span><br>" : "")
-    +(haveStoredDigest ? "整合性チェック："+(digestOk?"OK":"NG") : "整合性チェック：（このファイルにはdigest記録がありません）")
+    +(futureCards>0 ? "<span style=\"color:#b7791f\">⚠ このアイビスより新しい版で作られたカードが"+futureCards+"件あります。アイビスを最新にしてから戻すのがおすすめです</span><br>" : "")
+    +(haveStoredDigest ? "整合性チェック："+(digestOk?"OK":"NG") : "整合性チェック：（このファイルには確認用の記録がありません）")
     +"<br>"+_klogPreviewLine(data, knowledgeValidation)
     +"<br><br>作成日時："+e(data.createdAt||"不明")+"　作成時バージョン："+e(data.appVersion||"不明")
     +"<br><br><b style=\"color:#c53030\">この操作は現在のカード・写真データをすべて置き換えます（マージではありません）。</b>"
-    +"<br>復元前に、現在のデータを既存の「読込」画面のエクスポート機能で保存しておくことをお勧めします。";
+    +"<br>復元前に、今のデータもまるごと引っ越しファイルを作って残しておくことをお勧めします。";
   aibisConfirm(msg, function(){ _executeFullRestore(data, knowledgeValidation); }, "復元を実行", "キャンセル");
 }
 
@@ -26842,7 +27092,7 @@ function _executeFullRestore(data, knowledgeValidation){
       _showRestoreResult(saveOk, afterManifest, mismatch, knowledgeValidation, klogResult);
     });
   }).catch(function(err){
-    aibisAlert("⚠ 復元中にエラーが発生しました：<br><span style=\"color:#c53030;font-size:11px\">"+e(String((err&&err.message)||err))+"</span><br><br>状態が不完全な可能性があります。念のため元のバックアップファイルで再度復元をお試しください。");
+    aibisAlert("⚠ 復元中にエラーが発生しました：<br><span style=\"color:#c53030;font-size:11px\">"+e(String((err&&err.message)||err))+"</span><br><br>状態が不完全な可能性があります。念のため元のまるごと引っ越しファイルで再度復元をお試しください。");
   });
 }
 function _showRestoreResult(saveOk, afterManifest, mismatch, knowledgeValidation, klogResult){
@@ -26853,18 +27103,18 @@ function _showRestoreResult(saveOk, afterManifest, mismatch, knowledgeValidation
     msg = "⚠ カードデータの保存に失敗しました。写真の復元は完了している可能性があります。<br>（営業知識ログには触れていません）";
     toastMsg = "⚠ 復元に一部失敗しました";
   }else if(mismatch){
-    msg = "<span style=\"color:#c53030\">⚠ 復元後の件数がバックアップ内容と一致しませんでした。内容をご確認ください。</span>"
+    msg = "<span style=\"color:#c53030\">⚠ 復元後の件数がまるごと引っ越しファイルの内容と一致しませんでした。内容をご確認ください。</span>"
        + "<br>（営業知識ログには触れていません）"
        + "<br><button class=\"zfa-ok\" style=\"background:#718096\" onclick=\"closeAibisAlert();restorePreRestoreSnapshot()\">⏪ 復元前の状態に戻す（カードのみ）</button>";
     toastMsg = "⚠ 復元後の件数が一致しませんでした";
   }else{
     // saveOk===true && mismatch===false: cards/mediaは成功確定。knowledgeサブ状態だけで見出しを分岐する。
     var state = _klogRestoreState(knowledgeValidation, klogResult);
-    msg = state.headline+"<br><br>カード："+afterManifest.cardCount+"件<br>写真：計"+afterManifest.mediaCount+"枚（紐付け済み"+afterManifest.linkedMediaCount+"・未紐付け"+afterManifest.unlinkedMediaCount+"）<br>世代分布："+_fmtDist(afterManifest.schemaVersionDistribution)
+    msg = state.headline+"<br><br>カード："+afterManifest.cardCount+"件<br>写真：計"+afterManifest.mediaCount+"枚（紐付け済み"+afterManifest.linkedMediaCount+"・未紐付け"+afterManifest.unlinkedMediaCount+"）"
         + "<br><br>"+state.detail;
     // 第195弾ChatGPT第1品質ゲートM1是正: 全体（cards+media+knowledge）成功時だけ
     // フルバックアップ完了toastを出す。knowledge未復元時は「カード・写真」限定の文言にする。
-    toastMsg = state.fullCompleteToast ? "✅ フルバックアップの復元が完了しました" : "✅ カード・写真の復元が完了しました";
+    toastMsg = state.fullCompleteToast ? "✅ まるごと引っ越しファイルの復元が完了しました" : "✅ カード・写真の復元が完了しました";
   }
 
   aibisAlert(msg);
@@ -26903,7 +27153,7 @@ function restorePreRestoreSnapshot(){
         // 分離表示する。「カードのみへ正常に戻った」への読み替えはしない（重大警告として明示）。
         // 顧客ID・rawTextは表示しない。
         toast("⏪ カードは復元前の状態に戻しました");
-        aibisAlert("✅ カードは復元前の状態に戻しました。<br><br>❗ 営業知識ログの復旧に失敗しました（重大）。端末内データをご確認のうえ、必要ならフルバックアップから再度復元してください。");
+        aibisAlert("✅ カードは復元前の状態に戻しました。<br><br>❗ 営業知識ログの復旧に失敗しました（重大）。端末内データをご確認のうえ、必要ならまるごと引っ越しファイルから再度復元してください。");
       }
     });
   }catch(e){ aibisAlert("スナップショットの読込に失敗しました。"); }
@@ -26918,16 +27168,16 @@ function updateFullBackupLastDisp(){
   // で安全化する。ts===0（未設定・不正・未来）は既存の未作成相当分岐へ合流。rawは不変。
   var ts=_saneTs(s);
   if(!ts){
-    el.textContent="まだフルバックアップを作成していません"; el.style.color="#718096";
-    if(nudge){ nudge.textContent="⚠ まだ一度もバックアップを作成していません"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
+    el.textContent="まだまるごと引っ越しファイルを作っていません"; el.style.color="#718096";
+    if(nudge){ nudge.textContent="⚠ まだ一度もまるごと引っ越しファイルを作っていません"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
     return;
   }
   var d=new Date(ts);
-  el.textContent="最終フルバックアップ作成：" + (d.getMonth()+1)+"/"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+  el.textContent="最後に作った日時：" + (d.getMonth()+1)+"/"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
   el.style.color="#38a169";
   if(nudge){
     var days=Math.floor((Date.now()-d.getTime())/86400000);
-    if(days>=FULL_BACKUP_WARN_DAYS){ nudge.textContent="⚠ 最終バックアップから"+days+"日経過"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
+    if(days>=FULL_BACKUP_WARN_DAYS){ nudge.textContent="⚠ 最後に作ってから"+days+"日経過"; nudge.style.color="#b7791f"; nudge.style.display="block"; }
     else { nudge.style.display="none"; }
   }
 }
@@ -27664,6 +27914,317 @@ try{ Object.defineProperty(window,'uName',{configurable:true,get:function(){retu
 
 // ===== 起動 =====
 document.addEventListener('DOMContentLoaded', function(){ init(); });
+// ===== 第252弾: タイトル画面（軽い版） =====
+// 1日1回（端末ごと・その日の最初の起動）だけ、全画面のタイトル画面を出す。「はじめる」でDOMから外す。
+// 軽い版：ロゴは文字、背景はCSSの装飾、キャラは既存のassets/jobsのドット絵だけ（新しい画像・配布ファイル0件）。
+// 見本：work-claude/design/title_v2（title.html・themes.css・title_data.js）。
+//
+// 契約：
+// ・即時関数。windowへの公開0。CSSはJSで<style>を1つ差し込み、すべて#aibisTitle配下に閉じ込める
+//   （見本のhtml・body・*・:root・reduced-motionの全体指定は#aibisTitle配下へ移した）。
+// ・自分用のDOMContentLoadedで、init()（app_bridge_boot.js）の後に動く。init()にタイマーを足さない。
+//   ホストロック（shared/hostlock.js）より後に読み込まれるため、許可外ホストでは動かない。
+// ・履歴には積まない（全画面ビューの履歴統合の例外。起動時のスプラッシュ扱い）。
+// ・読むだけ：prospect_job9_snap_v1[利用者名]の最新月の.jobを読む。j9Snapshot・promo_notifiedには触らない。
+// ・書くのは表示した日付（aibis_title_last_v1）だけ。
+// ・出す条件（すべて）：navigator.webdriverが真でない／初期設定済み（UNK・MEK・BRK・SCK）／
+//   URLにcard・inboxが無い（inbox.jsが約300ms後に消すため読み込み時に控える）／aibis_qa_returnが無い／
+//   その日にまだ出していない。
+(function () {
+  'use strict';
+
+  var TITLE_LAST_KEY = 'aibis_title_last_v1';
+  var TITLE_ID = 'aibisTitle';
+
+  // 読み込み時に控える（URLの?card／?inboxはinbox.jsが後で消す。aibis_qa_returnはquick_add.jsがload時に消す）
+  var atBootSkip = false;
+  try {
+    var atSp = new URLSearchParams(location.search || '');
+    if (atSp.has('card') || atSp.has('inbox')) atBootSkip = true;
+  } catch (exSp) {}
+  try { if (localStorage.getItem('aibis_qa_return')) atBootSkip = true; } catch (exQa) {}
+
+  // ランク（j9JobRank：0=初心者帯, 1〜5=n強, 6=天眼王）→ テーマ（見本の5つ）
+  var AT_RANK_THEME = ['midori', 'kon', 'kon', 'akatsuki', 'kin', 'enji', 'enji'];
+  var AT_RANK_LABEL = ['初心者帯', '1強', '2強', '3強', '4強', '5強', '最高位'];
+  var AT_THEME_HALO = { kin: 'rays', kon: 'arch', midori: 'land', akatsuki: 'dawn', enji: 'rays' };
+  // キャッチコピーはすべて仮（見本のテーマの言葉）
+  var AT_WORDS = {
+    kin: [['磨いた一件が、', '名刺より光る。'], ['今日の一件を、', 'チームの誇りに。']],
+    kon: [['誠実な一報が、', '次の扉を開く。'], ['約束を守る人に、', '縁は集まる。']],
+    midori: [['足で稼いだ一歩が、', '地図を変える。'], ['土地の声は、', '歩く人にだけ届く。']],
+    akatsuki: [['夜明け前から、', 'もう始まっている。'], ['昨日の種が、', '今朝ひらく。']],
+    enji: [['頂は、', '積み重ねの先にある。'], ['一件の重みを、', '知る人が強い。']]
+  };
+  var AT_LEAD = '見込みのお客様を、一件ずつ育てる営業の相棒です。';
+
+  function atPick(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function atToday() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function atShouldShow() {
+    if (atBootSkip) return false;
+    try { if (navigator.webdriver) return false; } catch (exWd) { return false; }
+    try {
+      if (!localStorage.getItem(UNK) || !localStorage.getItem(MEK) || !localStorage.getItem(BRK) || !localStorage.getItem(SCK)) return false;
+      if (localStorage.getItem(TITLE_LAST_KEY) === atToday()) return false;
+    } catch (exLs) { return false; }
+    if (!document.body || document.getElementById(TITLE_ID)) return false;
+    return true;
+  }
+
+  // いまのジョブ（最新月のスナップショットを読むだけ）。無ければnull
+  function atCurrentJob() {
+    try {
+      var snaps = JSON.parse(localStorage.getItem(J9_SNAP) || '{}');
+      var name = localStorage.getItem(UNK) || '';
+      var rec = snaps && snaps[name];
+      if (!rec || typeof rec !== 'object') return null;
+      var months = Object.keys(rec).sort();
+      for (var i = months.length - 1; i >= 0; i--) {
+        var s = rec[months[i]];
+        if (s && typeof s.job === 'string' && J9_IMGID[s.job]) {
+          var rank = (typeof s.rank === 'number') ? s.rank : j9JobRank(s.job, (s.strong || []).length);
+          rank = Math.max(0, Math.min(6, rank | 0));
+          return { job: s.job, rank: rank };
+        }
+      }
+    } catch (exSnap) {}
+    return null;
+  }
+  // 案内役・脇役に使えるジョブ（欲の強いジョブは除く）
+  function atJobPool() {
+    return Object.keys(J9_IMGID).filter(function (n) { return J9_GREED.indexOf(n) < 0; });
+  }
+  function atImgSrc(job) { return 'assets/jobs/job_' + J9_IMGID[job] + '.png?v=' + APP_VERSION; }
+
+  var AT_HALO_SVG = {
+    rays: '<svg class="at-halo" viewBox="0 0 320 320" aria-hidden="true" focusable="false"><defs><radialGradient id="aibisTitleHaloFill" cx="50%" cy="50%" r="50%"><stop offset="0" style="stop-color:var(--halo)"/><stop offset="1" style="stop-color:var(--halo);stop-opacity:0"/></radialGradient></defs>'
+      + '<circle cx="160" cy="160" r="156" fill="url(#aibisTitleHaloFill)"/><g class="at-ring"><circle cx="160" cy="160" r="152" stroke-width="1"/><circle cx="160" cy="160" r="146" stroke-width=".7" stroke-dasharray="1 5"/><circle cx="160" cy="160" r="104" stroke-width="1"/><g stroke-width=".8">'
+      + (function () { var s = ''; for (var a = 0; a < 360; a += 15) { s += (a % 30 === 0) ? '<line x1="160" y1="16" x2="160" y2="52" transform="rotate(' + a + ' 160 160)"/>' : '<line x1="160" y1="26" x2="160" y2="48" transform="rotate(' + a + ' 160 160)"/>'; } return s; })()
+      + '</g></g><path class="at-gem" d="M160 1 L166 7 L160 13 L154 7Z"/><path class="at-gem" d="M7 154 L13 160 L7 166 L1 160Z"/><path class="at-gem" d="M313 154 L319 160 L313 166 L307 160Z"/></svg>',
+    arch: '<svg class="at-halo at-halo-arch" viewBox="0 0 260 320" aria-hidden="true" focusable="false"><defs><linearGradient id="aibisTitleArchFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--window-top)"/><stop offset="1" style="stop-color:var(--window-bottom)"/></linearGradient></defs>'
+      + '<path d="M14 320 V134 A116 116 0 0 1 246 134 V320 Z" fill="url(#aibisTitleArchFill)"/><path class="at-ring" d="M14 320 V134 A116 116 0 0 1 246 134 V320" stroke-width="1"/><path class="at-ring" d="M24 320 V134 A106 106 0 0 1 236 134 V320" stroke-width=".6"/><path class="at-ring" d="M50 134 A80 80 0 0 1 210 134" stroke-width=".8" stroke-dasharray="1 5"/><path class="at-gem" d="M130 11 L137 18 L130 25 L123 18Z"/></svg>',
+    land: '<svg class="at-halo" viewBox="0 0 320 320" aria-hidden="true" focusable="false"><defs><radialGradient id="aibisTitleSunFill" cx="50%" cy="50%" r="50%"><stop offset="0" style="stop-color:var(--halo)"/><stop offset="1" style="stop-color:var(--halo);stop-opacity:0"/></radialGradient></defs>'
+      + '<circle cx="160" cy="150" r="124" fill="url(#aibisTitleSunFill)"/><g class="at-ring"><circle cx="160" cy="150" r="118" stroke-width="1"/><circle cx="160" cy="150" r="110" stroke-width=".6" stroke-dasharray="2 4"/>'
+      + '<path d="M18 110 H86 a6 6 0 0 1 0 12 H40 a6 6 0 0 0 0 12 H98" stroke-width=".9"/><path d="M302 84 H236 a6 6 0 0 0 0 12 H280 a6 6 0 0 1 0 12 H224" stroke-width=".9"/>'
+      + '<path d="M0 226 C40 212 70 204 104 212 C132 219 150 196 186 190 C222 184 262 204 320 214" stroke-width="1"/><path d="M0 240 C54 228 96 232 132 238 C176 245 220 226 262 226 C288 226 306 232 320 236" stroke-width=".6"/>'
+      + '<g stroke-width=".7"><line x1="122.1" y1="256" x2="0" y2="294.7"/><line x1="134.7" y1="256" x2="0" y2="320"/><line x1="147.4" y1="256" x2="80" y2="320"/><line x1="160" y1="256" x2="160" y2="320"/><line x1="172.6" y1="256" x2="240" y2="320"/><line x1="185.3" y1="256" x2="320" y2="320"/><line x1="197.9" y1="256" x2="320" y2="294.7"/>'
+      + '<line x1="122.1" y1="256" x2="197.9" y2="256" stroke-width=".5"/><line x1="90.5" y1="266" x2="229.5" y2="266" stroke-width=".55"/><line x1="46.3" y1="280" x2="273.7" y2="280" stroke-width=".6"/><line x1="0" y1="298" x2="320" y2="298"/><line x1="0" y1="316" x2="320" y2="316"/></g></g>'
+      + '<path class="at-gem" d="M160 25 L166 31 L160 37 L154 31Z"/></svg>',
+    dawn: '<svg class="at-halo" viewBox="0 0 320 320" aria-hidden="true" focusable="false"><defs><radialGradient id="aibisTitleDawnFill" cx="50%" cy="72%" r="55%"><stop offset="0" style="stop-color:var(--halo)"/><stop offset="1" style="stop-color:var(--halo);stop-opacity:0"/></radialGradient></defs>'
+      + '<rect x="0" y="40" width="320" height="200" fill="url(#aibisTitleDawnFill)"/><g class="at-ring"><path d="M40 230 A120 120 0 0 1 280 230" stroke-width="1"/><path d="M58 230 A102 102 0 0 1 262 230" stroke-width=".6" stroke-dasharray="1 5"/>'
+      + '<line x1="6" y1="230" x2="314" y2="230" stroke-width="1"/><line x1="40" y1="244" x2="280" y2="244" stroke-width=".6"/><line x1="84" y1="256" x2="236" y2="256" stroke-width=".5"/>'
+      + '<g stroke-width=".8"><line x1="160" y1="102" x2="160" y2="80"/><line x1="194.16" y1="102.5" x2="197.27" y2="90.91"/><line x1="125.84" y1="102.5" x2="122.73" y2="90.91"/><line x1="224" y1="119.15" x2="235" y2="100.1"/><line x1="96" y1="119.15" x2="85" y2="100.1"/>'
+      + '<line x1="253.34" y1="136.66" x2="261.82" y2="128.18"/><line x1="66.66" y1="136.66" x2="58.18" y2="128.18"/><line x1="270.85" y1="166" x2="289.9" y2="155"/><line x1="49.15" y1="166" x2="30.1" y2="155"/><line x1="287.5" y1="195.84" x2="299.09" y2="192.73"/><line x1="32.5" y1="195.84" x2="20.91" y2="192.73"/></g></g>'
+      + '<path class="at-gem" d="M160 64 L166 70 L160 76 L154 70Z"/></svg>'
+  };
+
+  // CSSはすべて#aibisTitle配下（テーマの色の組は[data-theme]ごとの変数）
+  var AT_CSS = [
+    '#aibisTitle{--font-sans:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Yu Gothic","Meiryo","Noto Sans JP",sans-serif;--font-serif-jp:"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP","Noto Serif CJK JP",serif;--font-logo:"Bodoni 72","Didot","Bodoni MT","Noto Serif Display","Noto Serif","Georgia","Times New Roman",serif;--radius-btn:14px;--stage-h:clamp(200px,36vh,330px);',
+    'position:fixed;inset:0;z-index:50000;overflow-x:hidden;overflow-y:auto;background:var(--bg);color:var(--text);font-family:var(--font-sans);line-height:1.6;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;text-size-adjust:100%}',
+    '@supports (height:1svh){#aibisTitle{--stage-h:clamp(200px,36svh,330px)}}',
+    '#aibisTitle *,#aibisTitle *::before,#aibisTitle *::after{box-sizing:border-box}',
+    '#aibisTitle[data-theme="kin"]{--bg:#0E0D0B;--bg-top:#15130F;--bg-bottom:#080706;--surface:#1C1915;--text:#F3EDE1;--text-muted:#B3A993;--primary:#C9A45C;--on-primary:#1A1408;--accent:#E6CF98;--line:#5A4B2E;--primary-hi:#E3C47F;--primary-lo:#B8914A;--primary-edge:#8A6A2E;--focus:#E6CF98;--gem:#C9A45C;--ring:rgba(201,164,92,.42);--halo:rgba(230,207,152,.20);--bg-glow:rgba(201,164,92,.16);--logo-hi:#F8EBC8;--logo-lo:#C9A45C;--logo-shadow:rgba(0,0,0,.55);--shadow-1:rgba(0,0,0,.55);--shadow-2:rgba(0,0,0,.70);--btn-inner-hi:rgba(255,248,225,.70);--btn-inner-lo:rgba(90,60,10,.35);--btn-rim:rgba(255,244,214,.38);--btn-halo:rgba(201,164,92,.12);--btn-press:rgba(60,40,8,.45);--sheen:rgba(255,250,235,.50);--ghost-border:rgba(201,164,92,.55);--ghost-inner:rgba(255,255,255,.06);--pedestal-hi:#2C261C;--pedestal-lo:#0E0D0B;--pedestal-edge:rgba(230,207,152,.35);--window-top:#1C1915;--window-bottom:#0E0D0B;--char-shadow:rgba(0,0,0,.60);--char-rim:rgba(230,207,152,.55);--side-filter:brightness(.86) saturate(.95);--grain-opacity:.10;--grain-blend:overlay}',
+    '#aibisTitle[data-theme="kon"]{--bg:#F7F5F0;--bg-top:#FBFAF7;--bg-bottom:#EFEBE3;--surface:#FFFFFF;--text:#14213D;--text-muted:#5B6478;--primary:#1B2A4A;--on-primary:#FFFFFF;--accent:#806230;--line:#D8D0BF;--primary-hi:#24365C;--primary-lo:#14213D;--primary-edge:#0E1830;--focus:#806230;--gem:#A8894F;--ring:rgba(128,98,48,.42);--halo:rgba(128,98,48,.10);--bg-glow:rgba(27,42,74,.06);--logo-hi:#2E4470;--logo-lo:#14213D;--logo-shadow:rgba(20,33,61,.12);--shadow-1:rgba(20,33,61,.16);--shadow-2:rgba(20,33,61,.30);--btn-inner-hi:rgba(255,255,255,.20);--btn-inner-lo:rgba(0,0,0,.28);--btn-rim:rgba(200,172,116,.60);--btn-halo:rgba(27,42,74,.06);--btn-press:rgba(0,0,0,.40);--sheen:rgba(255,255,255,.16);--ghost-border:#CBBF9F;--ghost-inner:rgba(255,255,255,.9);--pedestal-hi:#FFFFFF;--pedestal-lo:#E4DDCE;--pedestal-edge:rgba(255,255,255,.9);--window-top:#FFFFFF;--window-bottom:#E9ECF2;--char-shadow:rgba(20,33,61,.22);--char-rim:transparent;--side-filter:brightness(1);--grain-opacity:.05;--grain-blend:multiply}',
+    '#aibisTitle[data-theme="midori"]{--bg:#0F2A22;--bg-top:#133329;--bg-bottom:#0A1F19;--surface:#15372C;--text:#F1EBDD;--text-muted:#B7C0B0;--primary:#C8A55E;--on-primary:#10241C;--accent:#DCC38C;--line:#3E5A48;--primary-hi:#E2C583;--primary-lo:#B38E48;--primary-edge:#7E6230;--focus:#DCC38C;--gem:#C8A55E;--ring:rgba(200,165,94,.40);--halo:rgba(220,195,140,.16);--bg-glow:rgba(200,165,94,.14);--logo-hi:#F3E4BE;--logo-lo:#C8A55E;--logo-shadow:rgba(0,0,0,.45);--shadow-1:rgba(0,0,0,.45);--shadow-2:rgba(0,0,0,.60);--btn-inner-hi:rgba(255,248,225,.65);--btn-inner-lo:rgba(80,55,10,.35);--btn-rim:rgba(255,244,214,.35);--btn-halo:rgba(200,165,94,.12);--btn-press:rgba(50,35,5,.45);--sheen:rgba(255,250,235,.45);--ghost-border:rgba(200,165,94,.55);--ghost-inner:rgba(255,255,255,.06);--pedestal-hi:#22493B;--pedestal-lo:#0F2A22;--pedestal-edge:rgba(220,195,140,.30);--window-top:#15372C;--window-bottom:#0F2A22;--char-shadow:rgba(0,0,0,.50);--char-rim:rgba(220,195,140,.50);--side-filter:brightness(.88) saturate(.95);--grain-opacity:.10;--grain-blend:overlay}',
+    '#aibisTitle[data-theme="akatsuki"]{--bg:#121A33;--bg-top:#0D1328;--bg-bottom:#0A0F22;--surface:#1B2446;--text:#F4EEE6;--text-muted:#B9B4C8;--primary:#E6A765;--on-primary:#231406;--accent:#F2C99A;--line:#3A4270;--primary-hi:#F2C08A;--primary-lo:#CF8F4F;--primary-edge:#9A6431;--focus:#F2C99A;--gem:#E6A765;--ring:rgba(230,167,101,.40);--halo:rgba(242,201,154,.18);--bg-glow:rgba(230,150,100,.16);--logo-hi:#FBE3C2;--logo-lo:#E6A765;--logo-shadow:rgba(0,0,0,.50);--shadow-1:rgba(0,0,0,.50);--shadow-2:rgba(0,0,0,.66);--btn-inner-hi:rgba(255,240,220,.65);--btn-inner-lo:rgba(90,45,10,.35);--btn-rim:rgba(255,236,210,.36);--btn-halo:rgba(230,167,101,.12);--btn-press:rgba(60,30,5,.45);--sheen:rgba(255,245,230,.45);--ghost-border:rgba(230,167,101,.55);--ghost-inner:rgba(255,255,255,.06);--pedestal-hi:#2A3563;--pedestal-lo:#121A33;--pedestal-edge:rgba(242,201,154,.32);--window-top:#1B2446;--window-bottom:#121A33;--char-shadow:rgba(0,0,0,.55);--char-rim:rgba(242,201,154,.50);--side-filter:brightness(.86) saturate(.95);--grain-opacity:.09;--grain-blend:overlay}',
+    '#aibisTitle[data-theme="enji"]{--bg:#240C12;--bg-top:#2E1017;--bg-bottom:#16070B;--surface:#34141C;--text:#F5ECE4;--text-muted:#C4ABA6;--primary:#CFA65A;--on-primary:#1E0F06;--accent:#E8CB91;--line:#5E2F36;--primary-hi:#E6C47F;--primary-lo:#B38D48;--primary-edge:#7E5F2A;--focus:#E8CB91;--gem:#CFA65A;--ring:rgba(207,166,90,.42);--halo:rgba(232,203,145,.18);--bg-glow:rgba(207,166,90,.14);--logo-hi:#F6E3BA;--logo-lo:#CFA65A;--logo-shadow:rgba(0,0,0,.55);--shadow-1:rgba(0,0,0,.55);--shadow-2:rgba(0,0,0,.70);--btn-inner-hi:rgba(255,246,222,.68);--btn-inner-lo:rgba(90,50,10,.35);--btn-rim:rgba(255,242,212,.36);--btn-halo:rgba(207,166,90,.12);--btn-press:rgba(60,30,8,.45);--sheen:rgba(255,248,232,.48);--ghost-border:rgba(207,166,90,.55);--ghost-inner:rgba(255,255,255,.06);--pedestal-hi:#4A1C26;--pedestal-lo:#240C12;--pedestal-edge:rgba(232,203,145,.32);--window-top:#34141C;--window-bottom:#240C12;--char-shadow:rgba(0,0,0,.60);--char-rim:rgba(232,203,145,.50);--side-filter:brightness(.86) saturate(.95);--grain-opacity:.10;--grain-blend:overlay}',
+    '#aibisTitle .at-title{position:relative;isolation:isolate;min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + clamp(36px,6.5vh,68px)) 24px calc(env(safe-area-inset-bottom,0px) + 24px);overflow:hidden}',
+    '#aibisTitle .at-backdrop{position:absolute;inset:0;z-index:-3;background:radial-gradient(85% 50% at 50% 56%,var(--bg-glow),transparent 72%),linear-gradient(180deg,var(--bg-top) 0%,var(--bg) 45%,var(--bg-bottom) 100%)}',
+    '#aibisTitle .at-grain{position:absolute;inset:0;z-index:-2;width:100%;height:100%;opacity:var(--grain-opacity);mix-blend-mode:var(--grain-blend);pointer-events:none}',
+    '#aibisTitle .at-frame{position:absolute;inset:12px;z-index:-1;border:1px solid var(--line);border-radius:4px;pointer-events:none}',
+    '#aibisTitle .at-frame::before,#aibisTitle .at-frame::after{content:"";position:absolute;left:50%;width:9px;height:9px;margin-left:-5px;transform:rotate(45deg);border:1px solid var(--gem)}',
+    '#aibisTitle .at-frame::before{top:-5px;background:var(--bg-top)}#aibisTitle .at-frame::after{bottom:-5px;background:var(--bg-bottom)}',
+    '#aibisTitle .at-corner{position:absolute;width:16px;height:16px;border:0 solid var(--gem)}',
+    '#aibisTitle .at-corner.tl{top:5px;left:5px;border-top-width:1px;border-left-width:1px}#aibisTitle .at-corner.tr{top:5px;right:5px;border-top-width:1px;border-right-width:1px}',
+    '#aibisTitle .at-corner.bl{bottom:5px;left:5px;border-bottom-width:1px;border-left-width:1px}#aibisTitle .at-corner.br{bottom:5px;right:5px;border-bottom-width:1px;border-right-width:1px}',
+    '#aibisTitle .at-brand{display:flex;flex-direction:column;align-items:center;text-align:center}',
+    '#aibisTitle .at-eyebrow{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:.34em;text-indent:.34em;color:var(--accent)}',
+    '#aibisTitle .at-logo{margin:0;font-family:var(--font-logo);font-size:clamp(58px,17vw,78px);line-height:1.02}',
+    '#aibisTitle .at-logo-text{display:inline-block;font-style:italic;font-weight:600;letter-spacing:.005em;padding:0 .12em .04em .04em;background:linear-gradient(180deg,var(--logo-hi) 12%,var(--logo-lo) 88%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 6px var(--logo-shadow))}',
+    '#aibisTitle .at-logo-text .at-z{font-size:.56em;margin-right:.03em}',
+    '#aibisTitle .at-rule{display:block;width:150px;height:12px;margin:10px 0 12px}#aibisTitle .at-rule line{stroke:var(--gem);stroke-width:1}#aibisTitle .at-rule path{fill:var(--gem)}',
+    '#aibisTitle .at-catch{margin:0;font-family:var(--font-serif-jp);font-size:clamp(16px,4.7vw,19px);font-weight:600;letter-spacing:.12em;line-height:1.75;color:var(--text)}',
+    '#aibisTitle .at-catch .at-ph{display:inline-block}',
+    '#aibisTitle .at-kari{display:inline-block;margin-left:.6em;padding:0 7px;font-family:var(--font-sans);font-size:10px;font-weight:600;letter-spacing:.06em;line-height:18px;color:var(--text-muted);border:1px solid var(--line);border-radius:999px;vertical-align:3px}',
+    '#aibisTitle .at-lead{margin:8px 0 0;font-size:12px;letter-spacing:.06em;line-height:1.6;color:var(--text-muted)}',
+    '#aibisTitle .at-stage{position:relative;width:100%;max-width:360px;height:var(--stage-h);margin:clamp(10px,2.5vh,26px) 0 0}',
+    '#aibisTitle .at-halo{position:absolute;left:50%;top:0;height:96%;width:auto;aspect-ratio:1/1;transform:translateX(-50%);z-index:0;overflow:visible}',
+    '#aibisTitle .at-halo.at-halo-arch{aspect-ratio:260/320}',
+    '#aibisTitle .at-ring{stroke:var(--ring);fill:none}#aibisTitle .at-halo .at-gem{fill:var(--gem)}',
+    '#aibisTitle .at-pedestal{position:absolute;left:50%;bottom:3%;width:min(300px,86%);height:15%;transform:translateX(-50%);border-radius:50%;z-index:1;background:radial-gradient(closest-side,var(--pedestal-hi),var(--pedestal-lo));box-shadow:inset 0 1px 0 var(--pedestal-edge),0 14px 26px -10px var(--shadow-2)}',
+    '#aibisTitle .at-pedestal::before{content:"";position:absolute;inset:-7px -16px;border-radius:50%;border:1px solid var(--ring)}',
+    '#aibisTitle .at-char{position:absolute;display:block;width:auto;pointer-events:none;user-select:none;-webkit-user-drag:none;image-rendering:-webkit-optimize-contrast;image-rendering:crisp-edges;image-rendering:pixelated;filter:drop-shadow(0 0 .6px var(--char-rim)) drop-shadow(0 12px 12px var(--char-shadow))}',
+    '#aibisTitle .at-char.at-hero{left:50%;bottom:5%;height:74%;transform:translateX(-50%);z-index:3}',
+    '#aibisTitle .at-char.at-side{bottom:10%;height:48%;z-index:2;opacity:.55;filter:var(--side-filter) drop-shadow(0 0 .6px var(--char-rim)) drop-shadow(0 10px 10px var(--char-shadow))}',
+    '#aibisTitle .at-char.at-left{left:1%}#aibisTitle .at-char.at-right{right:1%}',
+    '#aibisTitle .at-plate{position:absolute;left:50%;bottom:0;transform:translate(-50%,50%);z-index:6;margin:0;display:flex;align-items:baseline;gap:8px;max-width:calc(100% - 4px);padding:5px 16px 6px;white-space:nowrap;background:var(--surface);border:1px solid var(--ghost-border);border-radius:10px;box-shadow:inset 0 1px 0 var(--ghost-inner),0 10px 20px -10px var(--shadow-2)}',
+    '#aibisTitle .at-plate::before,#aibisTitle .at-plate::after{content:"";position:absolute;top:50%;width:6px;height:6px;margin-top:-3px;transform:rotate(45deg);background:var(--gem)}',
+    '#aibisTitle .at-plate::before{left:-4px}#aibisTitle .at-plate::after{right:-4px}',
+    '#aibisTitle .at-plate-label{font-size:10.5px;font-weight:700;letter-spacing:.16em;color:var(--accent)}',
+    '#aibisTitle .at-plate-name{font-family:var(--font-serif-jp);font-size:16px;font-weight:700;letter-spacing:.08em;line-height:1.35;color:var(--text)}',
+    '#aibisTitle .at-plate-yomi{font-size:10.5px;letter-spacing:.04em;color:var(--text-muted)}',
+    '#aibisTitle .at-plate-tier{font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--text-muted);padding-left:8px;border-left:1px solid var(--line)}',
+    '#aibisTitle .at-plate-yomi:empty,#aibisTitle .at-plate-tier:empty{display:none}',
+    '@media (max-width:350px){#aibisTitle .at-plate-yomi{display:none}}',
+    '#aibisTitle .at-actions{width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px;margin-top:clamp(28px,4.2vh,40px)}',
+    '#aibisTitle .at-btn{-webkit-appearance:none;appearance:none;position:relative;display:flex;align-items:center;justify-content:center;width:100%;margin:0;padding:0 20px;font-family:inherit;border-radius:var(--radius-btn);cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;transition:transform .14s ease,box-shadow .2s ease,filter .2s ease}',
+    '#aibisTitle .at-btn-primary{min-height:56px;overflow:hidden;font-size:17px;font-weight:700;letter-spacing:.28em;text-indent:.28em;color:var(--on-primary);background:linear-gradient(180deg,var(--primary-hi) 0%,var(--primary) 50%,var(--primary-lo) 100%);border:1px solid var(--primary-edge);box-shadow:inset 0 1px 0 var(--btn-inner-hi),inset 0 -2px 0 var(--btn-inner-lo),0 1px 1px var(--shadow-1),0 10px 22px -8px var(--shadow-2),0 0 0 4px var(--btn-halo)}',
+    '#aibisTitle .at-btn-primary::before{content:"";position:absolute;inset:3px;border-radius:calc(var(--radius-btn) - 3px);border:1px solid var(--btn-rim);pointer-events:none}',
+    '#aibisTitle .at-btn-primary::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 38%,var(--sheen) 50%,transparent 62%);transform:translateX(-130%);animation:aibisTitleSheen 1.4s 1.2s ease-in-out both}',
+    '#aibisTitle .at-btn-primary .at-arrow{position:absolute;right:20px;top:50%;width:18px;height:10px;margin-top:-5px;stroke:currentColor;fill:none;stroke-width:1.4;opacity:.8}',
+    '@media (hover:hover) and (pointer:fine){#aibisTitle .at-btn-primary:hover{filter:brightness(1.06) saturate(1.05);transform:translateY(-1px)}}',
+    '#aibisTitle .at-btn-primary:active{transform:translateY(1px);filter:none;box-shadow:inset 0 2px 5px var(--btn-press),0 0 0 1px var(--btn-halo)}',
+    '#aibisTitle .at-btn:focus{outline:none}#aibisTitle .at-btn:focus-visible{outline:2px solid var(--focus);outline-offset:4px}',
+    '#aibisTitle .at-meta{display:flex;align-items:center;gap:10px;margin-top:16px;font-size:12px;letter-spacing:.14em;color:var(--text-muted);font-variant-numeric:tabular-nums}',
+    '#aibisTitle .at-meta .at-dot{width:5px;height:5px;transform:rotate(45deg);background:var(--gem);opacity:.8}',
+    '@keyframes aibisTitleRise{from{opacity:0;transform:translate3d(0,10px,0)}to{opacity:1;transform:none}}',
+    '@keyframes aibisTitleSheen{from{transform:translateX(-130%)}to{transform:translateX(130%)}}',
+    '#aibisTitle .at-reveal{animation:aibisTitleRise .9s cubic-bezier(.2,.7,.2,1) both}',
+    '#aibisTitle .at-d1{animation-delay:.05s}#aibisTitle .at-d1b{animation-delay:.14s}#aibisTitle .at-d2{animation-delay:.26s}#aibisTitle .at-d3{animation-delay:.46s}#aibisTitle .at-d4{animation-delay:.62s}',
+    '@media (prefers-reduced-motion:reduce){#aibisTitle,#aibisTitle *,#aibisTitle *::before,#aibisTitle *::after{animation:none!important;transition:none!important}}',
+    '@media (forced-colors:active){#aibisTitle .at-logo-text{background:none;color:CanvasText;filter:none}}',
+    '@media (max-height:760px){#aibisTitle{--stage-h:clamp(180px,31vh,280px)}#aibisTitle .at-title{padding-top:calc(env(safe-area-inset-top,0px) + clamp(22px,3.6vh,36px))}#aibisTitle .at-eyebrow{margin-bottom:6px}#aibisTitle .at-logo{font-size:clamp(50px,14vw,64px)}#aibisTitle .at-rule{margin:6px 0 8px}#aibisTitle .at-catch{line-height:1.6}#aibisTitle .at-actions{margin-top:26px;gap:10px}#aibisTitle .at-meta{margin-top:10px}}',
+    '@media (min-width:768px){#aibisTitle .at-title{padding-top:clamp(48px,8vh,96px)}#aibisTitle .at-frame{inset:20px;max-width:560px;left:50%;right:auto;width:calc(100% - 40px);transform:translateX(-50%)}}',
+    '@media print{#aibisTitle{display:none!important}}'
+  ].join('\n');
+
+  function atEl(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function atChar(cls, job) {
+    var img = atEl('img', 'at-char ' + cls);
+    img.alt = ''; img.setAttribute('aria-hidden', 'true');
+    img.onerror = function () { img.style.visibility = 'hidden'; };
+    img.src = atImgSrc(job);
+    return img;
+  }
+
+  function atBuild() {
+    var cur = atCurrentJob();
+    var pool = atJobPool();
+    var heroJob = cur ? cur.job : atPick(pool);
+    var rank = cur ? cur.rank : 0;
+    var theme = AT_RANK_THEME[rank] || 'midori';
+    var sidePool = pool.filter(function (n) { return n !== heroJob; });
+    var sideA = atPick(sidePool);
+    sidePool = sidePool.filter(function (n) { return n !== sideA; });
+    var sideB = atPick(sidePool);
+    var words = atPick(AT_WORDS[theme]);
+
+    var root = atEl('div');
+    root.id = TITLE_ID;
+    root.setAttribute('data-theme', theme);
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-labelledby', 'aibisTitleName');
+
+    var style = document.createElement('style');
+    style.textContent = AT_CSS;
+    root.appendChild(style);
+
+    var main = atEl('div', 'at-title');
+    main.appendChild(atEl('div', 'at-backdrop'));
+    var grainWrap = atEl('div');
+    grainWrap.innerHTML = '<svg class="at-grain" aria-hidden="true" focusable="false"><filter id="aibisTitleGrainF"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(#aibisTitleGrainF)"/></svg>';
+    main.appendChild(grainWrap.firstChild);
+    var frame = atEl('div', 'at-frame');
+    frame.setAttribute('aria-hidden', 'true');
+    ['tl', 'tr', 'bl', 'br'].forEach(function (c) { frame.appendChild(atEl('span', 'at-corner ' + c)); });
+    main.appendChild(frame);
+
+    var brand = atEl('div', 'at-brand'); // 本体CSSのheader{}（一覧の帯）を受けないようdivにする
+    brand.appendChild(atEl('p', 'at-eyebrow at-reveal at-d1', 'LAND SALES COMPANION'));
+    var logo = atEl('h1', 'at-logo');
+    logo.id = 'aibisTitleName';
+    var logoText = atEl('span', 'at-logo-text at-reveal at-d1');
+    logoText.appendChild(atEl('span', 'at-z', 'z.'));
+    logoText.appendChild(document.createTextNode('Aibis'));
+    logo.appendChild(logoText);
+    brand.appendChild(logo);
+    var ruleWrap = atEl('div');
+    ruleWrap.innerHTML = '<svg class="at-rule at-reveal at-d1b" viewBox="0 0 150 12" aria-hidden="true" focusable="false"><line x1="0" y1="6" x2="62" y2="6"/><path d="M75 0.5 L80.5 6 L75 11.5 L69.5 6Z"/><line x1="88" y1="6" x2="150" y2="6"/></svg>';
+    brand.appendChild(ruleWrap.firstChild);
+    var catchP = atEl('p', 'at-catch at-reveal at-d1b');
+    catchP.appendChild(atEl('span', 'at-ph', words[0]));
+    catchP.appendChild(atEl('span', 'at-ph', words[1]));
+    var kari = atEl('span', 'at-kari', '仮');
+    kari.title = 'キャッチコピーは仮';
+    catchP.appendChild(kari);
+    brand.appendChild(catchP);
+    brand.appendChild(atEl('p', 'at-lead at-reveal at-d1b', AT_LEAD));
+    main.appendChild(brand);
+
+    var stage = atEl('section', 'at-stage at-reveal at-d2');
+    stage.setAttribute('aria-label', cur ? 'いまのジョブ' : 'きょうの案内役');
+    var haloWrap = atEl('div');
+    haloWrap.innerHTML = AT_HALO_SVG[AT_THEME_HALO[theme]] || AT_HALO_SVG.rays;
+    stage.appendChild(haloWrap.firstChild);
+    var ped = atEl('div', 'at-pedestal'); ped.setAttribute('aria-hidden', 'true');
+    stage.appendChild(ped);
+    if (sideA) stage.appendChild(atChar('at-side at-left', sideA));
+    if (sideB) stage.appendChild(atChar('at-side at-right', sideB));
+    stage.appendChild(atChar('at-hero', heroJob));
+    var plate = atEl('p', 'at-plate');
+    plate.appendChild(atEl('span', 'at-plate-label', cur ? 'いまのジョブ' : 'きょうの案内役'));
+    plate.appendChild(atEl('span', 'at-plate-name', heroJob));
+    plate.appendChild(atEl('span', 'at-plate-yomi', (typeof J9_YOMI !== 'undefined' && J9_YOMI[heroJob]) || ''));
+    plate.appendChild(atEl('span', 'at-plate-tier', cur ? (AT_RANK_LABEL[rank] || '') : ''));
+    stage.appendChild(plate);
+    main.appendChild(stage);
+
+    var nav = atEl('nav', 'at-actions at-reveal at-d3');
+    nav.setAttribute('aria-label', 'はじめに');
+    var start = atEl('button', 'at-btn at-btn-primary', 'はじめる');
+    start.type = 'button';
+    start.id = 'aibisTitleStart';
+    var arrowWrap = atEl('div');
+    arrowWrap.innerHTML = '<svg class="at-arrow" viewBox="0 0 18 10" aria-hidden="true" focusable="false"><path d="M0 5 H16 M12 1 L16 5 L12 9"/></svg>';
+    start.appendChild(arrowWrap.firstChild);
+    nav.appendChild(start);
+    main.appendChild(nav);
+
+    var meta = atEl('footer', 'at-meta at-reveal at-d4');
+    meta.appendChild(atEl('span', '', 'z.Aibis'));
+    var dot = atEl('span', 'at-dot'); dot.setAttribute('aria-hidden', 'true');
+    meta.appendChild(dot);
+    meta.appendChild(atEl('span', 'aibisVer', APP_VERSION));
+    main.appendChild(meta);
+
+    root.appendChild(main);
+    return { root: root, start: start, theme: theme };
+  }
+
+  function atShow() {
+    if (!atShouldShow()) return;
+    var built = atBuild();
+    var tc = document.querySelector('meta[name="theme-color"]');
+    var prevColor = tc ? tc.getAttribute('content') : null;
+    built.start.addEventListener('click', function () {
+      if (built.root.parentNode) built.root.parentNode.removeChild(built.root);
+      if (tc && prevColor != null) tc.setAttribute('content', prevColor);
+    });
+    document.body.appendChild(built.root);
+    // ブラウザの上端の色をテーマの背景色（--bg）に合わせる。閉じるときに元へ戻す
+    try {
+      var bg = getComputedStyle(built.root).getPropertyValue('--bg').trim();
+      if (tc && bg) tc.setAttribute('content', bg);
+    } catch (exTc) {}
+    try { localStorage.setItem(TITLE_LAST_KEY, atToday()); } catch (exSet) {}
+    try { built.start.focus(); } catch (exFocus) {}
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    try { atShow(); } catch (exTitle) {}
+  });
+})();
+
 
 })();
 </script>
@@ -28487,7 +29048,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
     <!-- 第205弾: ⑥アナログ協議（既存のまま） -->
     <div style="background:#fffff0;border:1px solid #fefcbf;border-radius:6px;padding:12px;margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:12px;font-weight:700;color:#744210">✍️ アナログ協議</div>
+        <div style="font-size:12px;font-weight:700;color:#744210">✍️ フォーアイズ作戦ボード</div>
         <div style="display:flex;gap:6px;align-items:center">
           <button type="button" class="mic-btn" onclick="micStart('f_analog',this)">🎤</button>
           <button type="button" onclick="clearStrategyField('f_analog')" style="font-size:11px;padding:3px 10px;border:1px solid #fefcbf;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
