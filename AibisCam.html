@@ -488,7 +488,7 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.81";
+const APP_VERSION = "cam-v1.82";
 
 /* 第237弾 CP2: 利き手（prospect_hand_v1）read-only consumer。唯一の状態源は本体と共有する
    localStorageのprospect_hand_v1のみ。cameraはこのkeyへ一切書き込まない（新規key 0）。
@@ -1124,15 +1124,87 @@ async function _ensureAddr(id){
   if(s && !s.addr && s.lat!=null){ try{ await resolveAddr(id); s=await idbGet(id); }catch(e){} }
   return s;
 }
+/* 第258弾: カメラから戻ると本体のタブが2つになる件の是正。
+ * 本体が別タブでAibisCamを開いた（window.openerが同じオリジンで生きている）のにwindow.close()が
+ * 効かなかった場合、最後の手段のlocation.hrefでこのタブまで本体に切り替えると本体が2タブになる。
+ * そのときは移らずに「このタブを閉じてください」と案内し、「本体を開く」ボタン（押したときだけ
+ * 従来の最後の手段＝このタブを本体へ切り替え）を出す。openerのDOMは読み書きしない（focusだけ試す）。
+ * openerが無いときは従来どおり。_closeToMain()と_cancelToMain()の両方から呼ぶ表示専用の関数で、
+ * 完了（反映）と取消の処理そのものは混ぜない。 */
+function _zcOpenerTabNotice258(goMain){
+  var op=null;
+  try{ op=window.opener; }catch(e){ op=null; }
+  if(!op) return false;
+  var alive=false;
+  try{ alive = !op.closed && op.location.origin===location.origin; }catch(e){ alive=false; }
+  if(!alive) return false;
+  try{ op.focus(); }catch(e){}
+  aibisAlert('アイビスは別のタブで開いています。<br>このタブを閉じてください。',
+    [ {label:"本体を開く", style:"background:#e2e8f0;color:#2d3748", cb:function(){ try{ goMain(); }catch(e){} }} ]);
+  return true;
+}
+/* 光速入力のカメラから戻るとき（2026-10-01）: 「✓ 完了」で書いたaibis_qa_returnを、生きている本体のタブが
+ * 受け取って消したかを見るための印（このdocumentのメモリだけ。新しい保存キーは作らない）。 */
+var _qaReturnWritten=false;
+/* 光速入力のカメラから戻るとき（2026-10-01）: window.close()が効かなかったとき、最大約1.5秒、
+ * aibis_qa_returnが消えたか（＝生きている本体のタブがstorageイベントで受け取った）を見る。
+ * 消えた→このタブは移らずに「住所はアイビスに入れました。この画面を閉じて…」と案内し、
+ * 「ここでアイビスを開く」を押したときだけ移る（goMain）。消えない→onMissed()（第258弾の案内か、
+ * このタブで本体を開いて受け取る）。遷移が始まった（isDone）・タブが隠れたら何もしない。 */
+function _zcQaHandoffWait(goMain, isDone, onMissed){
+  var t0=Date.now();
+  var tick=function(){
+    if(document.hidden || isDone()) return;
+    var still=true;
+    try{ still = localStorage.getItem("aibis_qa_return")!==null; }catch(e){ still=true; }
+    if(!still){
+      try{ var op=window.opener; if(op && !op.closed) op.focus(); }catch(e){}
+      aibisAlert('住所はアイビスに入れました。<br>この画面を閉じて、アイビスに戻ってください。',
+        [ {label:"ここでアイビスを開く", style:"background:#e2e8f0;color:#2d3748", cb:function(){ try{ goMain(); }catch(e){} }} ]);
+      return;
+    }
+    if(Date.now()-t0>=1250){ onMissed(); return; }
+    setTimeout(tick,100);
+  };
+  tick();
+}
+/* 第258弾: 「✓ 完了」の二重実行防止（_cancelToMain()と同じ形。共通部品にはせず、ここに書く）。
+ * 同じdocument内で2回目以降の完了closeは即return。遷移開始（beforeunload・Navigation API navigate）
+ * と遷移確定（pagehide）のどれかが来たら、最後の手段のlocation.hrefは出さない。 */
+var _closeInFlight=false;
 function _closeToMain(){
+  if(_closeInFlight) return;
+  _closeInFlight=true;
   try{ stopCamera(); }catch(e){}
-  var go=function(){ try{
-    if(qaReturnMode){ location.href="ZenisAibis.html"; return; }
-    if(targetCard && targetCard!==INBOX){ location.href="ZenisAibis.html?card="+encodeURIComponent(targetCard)+"&from=cam"; return; }
-    location.href="ZenisAibis.html?inbox";
+  var _closeDone=false;
+  var arm=function(){ _closeDone=true; };
+  window.addEventListener("beforeunload", arm, {once:true});
+  window.addEventListener("pagehide", arm, {once:true});
+  try{
+    if(typeof navigation!=="undefined" && navigation && typeof navigation.addEventListener==="function"){
+      navigation.addEventListener("navigate", arm, {once:true});
+    }
+  }catch(_e){}
+  /* 光速入力のカメラから戻るとき（2026-10-01）: 本体へ移るときはlocation.replace（戻るでカメラへ戻らない）。
+   * 光速入力からは?from=camを付ける（タイトル画面を出さない目印）。 */
+  var go=function(){ if(_closeDone) return; _closeDone=true; try{
+    if(qaReturnMode){ location.replace("ZenisAibis.html?from=cam"); return; }
+    if(targetCard && targetCard!==INBOX){ location.replace("ZenisAibis.html?card="+encodeURIComponent(targetCard)+"&from=cam"); return; }
+    location.replace("ZenisAibis.html?inbox");
   }catch(e){} };
   try{ window.close(); }catch(e){}
-  setTimeout(function(){ if(!document.hidden) go(); }, 250);
+  setTimeout(function(){
+    if(document.hidden || _closeDone) return;
+    if(qaReturnMode && _qaReturnWritten){ // 光速入力: 本体のタブが受け取ったかを見てから決める
+      _zcQaHandoffWait(go, function(){ return _closeDone; }, function(){
+        if(_zcOpenerTabNotice258(go)) return; // 受け取られていないが本体（opener）は生きている＝そちらが後で受け取る
+        go(); // 本体のタブが無い＝このタブで本体を開いて受け取る
+      });
+      return;
+    }
+    if(_zcOpenerTabNotice258(go)) return; // 第258弾: 本体が別タブで開いていれば移らずに案内
+    go();
+  }, 250);
 }
 /* 第237弾 CP4 D-4正式契約: launched-from-main root（?ret=qa / ?cardId）専用のcancel。
  * completion用_closeToMain()とは完全に別関数（cancelとcompleteを混ぜない）。
@@ -1182,29 +1254,38 @@ function _cancelToMain(){
     }
   }catch(_e){}
   var fallbackUrl = qaReturnMode ? "ZenisAibis.html" : (_launchCid ? "ZenisAibis.html?card="+encodeURIComponent(_launchCid) : "ZenisAibis.html");
-  var goFinal=function(){ if(_cancelDone) return; _cancelDone=true; try{ location.href=fallbackUrl; }catch(e){} };
+  var goFinal=function(){ if(_cancelDone) return; _cancelDone=true; try{ location.replace(fallbackUrl); }catch(e){} }; // 光速入力のカメラから戻るとき（2026-10-01）: replace（戻るでカメラへ戻らない）
   try{ window.close(); }catch(e){}
   setTimeout(function(){
     if(document.hidden || _cancelDone) return; // window.close()が奏功（popup close済み）
+    if(_zcOpenerTabNotice258(goFinal)) return; // 第258弾: 本体が別タブなら戻らずに案内
     try{ history.back(); }catch(e){}
     setTimeout(function(){ if(_cancelDone || document.hidden) return; goFinal(); }, 1000);
   }, 250);
 }
+/* 第258弾: doneBtnの再入防止。連打で2回目のクリックが1回目の処理中に走ると、aibis_qa_returnの
+ * 書込と本体への遷移が2回ずつ起きる。処理中は2回目以降を無視する（本体から起動した場合はこのあと
+ * documentを離れるので戻さない。直接起動では処理の最後に戻す）。 */
+let _doneInFlight=false;
 $("doneBtn").addEventListener("click",async()=>{
+  if(_doneInFlight) return;
   if(!curSet){ toast("先に撮影してください"); return; }
+  _doneInFlight=true;
+  try{
   const sid=curSet;
   let s=null;
   try{ s=await Promise.race([_ensureAddr(sid), new Promise(function(r){ setTimeout(function(){ r(null); },2000); })]); }catch(e){}
   if(!s){ try{ s=await idbGet(sid); }catch(e){} }
   if(qaReturnMode){
     const payload={ addr:(s&&s.addr)||"", banchi:(s&&s.banchi)||"", lat:s&&s.lat, lng:s&&s.lng, setId:sid, ts:Date.now() };
-    try{ localStorage.setItem("aibis_qa_return", JSON.stringify(payload)); }catch(e){}
+    try{ localStorage.setItem("aibis_qa_return", JSON.stringify(payload)); _qaReturnWritten=true; }catch(e){}
   }
   curSet=null;
   try{ mediaPing(); }catch(e){}
   if(_launchedFromMain){ _closeToMain(); }   // 本体側から起動＝反映してクローズ
   else if(_scr==="set"){ _zcBack("set", _aibisBack); }  // 直接起動・set再入場中＝pop
   else { try{ stopCamera(); }catch(e){} openInbox(); }  // 直接起動・root＝forward push
+  } finally { if(!_launchedFromMain) _doneInFlight=false; }
 });
 
 /* ---------- 仕分けパネル ---------- */
@@ -1397,9 +1478,14 @@ function bindDrows(host,fromWhere){
   host.querySelectorAll("[data-gotomain]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); gotoMain(b.dataset.gotomain); }));
   host.querySelectorAll("[data-link]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); linkTargetId=b.dataset.link; linkFromInbox=true; openPick("link"); }));
 }
+/* 第258弾（高田さん決定B）: 直接起動したカメラの受信箱から本体へ移る前に、「本体が別のタブで開いていれば、
+ * そちらを使ってください」と一言出す。移るとこのタブも本体になり、本体が2タブになることがあるため。
+ * トーストはページ移動ですぐ消えて読めないので、既存のaibisConfirm（このまま移る／やめる）で確かめる。 */
 function gotoMain(spec){
   var qs = spec==="inbox" ? "?inbox=1&from=cam" : (spec&&spec.indexOf("card:")===0 ? "?card="+encodeURIComponent(spec.slice(5)) : "");
-  try{ location.href="ZenisAibis.html"+qs; }catch(e){ try{ window.open("ZenisAibis.html"+qs,"_self"); }catch(_e){} }
+  aibisConfirm("本体が別のタブで開いていれば、そちらを使ってください。<br>このタブで本体へ移りますか？", function(){
+    try{ location.href="ZenisAibis.html"+qs; }catch(e){ try{ window.open("ZenisAibis.html"+qs,"_self"); }catch(_e){} }
+  }, "このまま移る", "やめる");
 }
 
 /* ---------- 送信設定 ---------- */
