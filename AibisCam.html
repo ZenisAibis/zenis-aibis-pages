@@ -488,7 +488,7 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.82";
+const APP_VERSION = "cam-v1.83";
 
 /* 第237弾 CP2: 利き手（prospect_hand_v1）read-only consumer。唯一の状態源は本体と共有する
    localStorageのprospect_hand_v1のみ。cameraはこのkeyへ一切書き込まない（新規key 0）。
@@ -974,12 +974,25 @@ function startGeo(){
 function stopGeo(){ if(geoWatch!=null){ navigator.geolocation.clearWatch(geoWatch); geoWatch=null; } }
 
 /* ---------- 地理院＋自治体マスター ---------- */
+/* カメラの住所（2026-10-02）: 住所の通信に時間切れを付ける。止まったまま「住所を取得中…」に
+ * ならないよう、時間切れは失敗として扱う（呼び出し元の既存の失敗処理へ）。 */
+function _camFetchT(url, opts, ms, kind){
+  let ac=null; try{ ac=(typeof AbortController==="function")? new AbortController() : null; }catch(e){ ac=null; }
+  const o=Object.assign({}, opts||{}); if(ac) o.signal=ac.signal;
+  let tm=null;
+  const to=new Promise(function(_res, rej){ tm=setTimeout(function(){ try{ if(ac) ac.abort(); }catch(e){} rej(new Error("timeout")); }, ms); });
+  /* Codexレビュー是正（2026-10-03）: 応答の本文を読み終えるまでを同じ時間切れに含める（ヘッダーだけ
+   * 届いて本文が止まる場合も打ち切る）。kind='json'|'text'で読んだ本文を返す。 */
+  const body=fetch(url, o).then(function(r){ return kind==="json" ? r.json() : r.text(); });
+  return Promise.race([body, to]).finally(function(){ clearTimeout(tm); });
+}
+const CAM_GSI_TIMEOUT_MS=6000, CAM_MUNI_TIMEOUT_MS=8000;
 async function loadMuni(){
   if(MUNI) return MUNI;
   let base=Object.assign({}, TOKYO_WARDS);
   try{ const c=localStorage.getItem("aibis_muni_v1"); if(c){ MUNI=Object.assign(base, JSON.parse(c)); return MUNI; } }catch(e){}
   try{
-    const r=await fetch(GSI_MUNI_URL); const txt=await r.text();
+    const txt=await _camFetchT(GSI_MUNI_URL, null, CAM_MUNI_TIMEOUT_MS, "text");
     const map={}; const re=/"(\d{5})"\s*\]?\s*[:=]\s*['"]([^'"]+)['"]/g; let m;
     while((m=re.exec(txt))){ const parts=m[2].split(","); map[m[1]]={pref:parts[1]||"",city:parts[3]||parts[parts.length-1]||""}; }
     if(Object.keys(map).length){ try{ localStorage.setItem("aibis_muni_v1", JSON.stringify(map)); }catch(e){} base=Object.assign(base, map); }
@@ -987,8 +1000,8 @@ async function loadMuni(){
   MUNI=base; return MUNI;
 }
 async function gsiReverse(lat,lng){
-  const r=await fetch(GSI_URL+"?lat="+lat+"&lon="+lng,{mode:"cors"});
-  const j=await r.json(); const res=j&&j.results;
+  const j=await _camFetchT(GSI_URL+"?lat="+lat+"&lon="+lng,{mode:"cors"}, CAM_GSI_TIMEOUT_MS, "json");
+  const res=j&&j.results;
   let lv=res&&res.lv01Nm?String(res.lv01Nm):""; if(lv==="－"||lv==="−") lv="";
   const muni=res&&res.muniCd?String(res.muniCd):"";
   return {muni, lv};
@@ -1082,7 +1095,15 @@ async function capture(){
 async function addPhoto(photo){
   if(curSet){
     const s=await idbGet(curSet); if(!s) { curSet=null; }
-    else { s.photos.push(photo); await idbPut(s); await renderSetPanel(); setCamFocus(true); await updateRightCount(); return; }
+    else {
+      s.photos.push(photo);
+      /* カメラの住所（2026-10-02）: 1枚目のときに位置が無くても、今は位置が取れていれば入れて住所を探す */
+      let _needAddr=false;
+      if(s.lat==null && lastPos){ s.lat=lastPos.lat; s.lng=lastPos.lng; s.acc=lastPos.acc; s.addrPending=true; _needAddr=true; }
+      await idbPut(s); await renderSetPanel(); setCamFocus(true); await updateRightCount();
+      if(_needAddr) resolveAddr(s.id);
+      return;
+    }
   }
   // 新規データ
   if(targetCard===INBOX){ const n=await idbCountByCard(INBOX);
@@ -1263,6 +1284,37 @@ function _cancelToMain(){
     setTimeout(function(){ if(_cancelDone || document.hidden) return; goFinal(); }, 1000);
   }, 250);
 }
+/* カメラの住所（2026-10-02）: 光速入力では、住所がまだなら「住所を取得中…」を出して最大
+ * QA_ADDR_WAIT_MS 待つ（取れた時点ですぐ戻る）。「住所なしで戻る」で待つのをやめられる。
+ * 位置が無い（GPSなし）ときは待たない。待つ間は_doneInFlightで二重押しを防ぐ（既存）。 */
+const QA_ADDR_WAIT_MS=8000;
+function _qaAddrWaitUi(show, onSkip){
+  let el=document.getElementById("qaAddrWait");
+  if(!show){ if(el && el.parentNode) el.parentNode.removeChild(el); return; }
+  if(el) return;
+  el=document.createElement("div"); el.id="qaAddrWait"; el.setAttribute("role","status");
+  el.style.cssText="position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 120px);transform:translateX(-50%);z-index:9000;background:rgba(26,32,44,.92);color:#fff;border-radius:14px;padding:12px 16px;font-size:14px;line-height:1.5;text-align:center;max-width:86vw;box-shadow:0 6px 20px rgba(0,0,0,.35)";
+  const msg=document.createElement("div"); msg.textContent="住所を取得中…（そのままお待ちください）";
+  const b=document.createElement("button"); b.type="button"; b.id="qaAddrWaitSkip"; b.textContent="住所なしで戻る";
+  b.style.cssText="margin-top:8px;background:#fff;color:#1a202c;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700";
+  b.addEventListener("click", function(){ try{ onSkip(); }catch(e){} });
+  el.appendChild(msg); el.appendChild(b); document.body.appendChild(el);
+}
+async function _qaWaitAddr(sid){
+  let s=null; try{ s=await idbGet(sid); }catch(e){ s=null; }
+  if(!s) return null;
+  if(s.addr) return s;
+  if(s.lat==null && lastPos){ s.lat=lastPos.lat; s.lng=lastPos.lng; s.acc=lastPos.acc; s.addrPending=true; try{ await idbPut(s); }catch(e){} }
+  if(s.lat==null) return s;               // 位置が無い＝住所は作れない。待たない
+  let skip=null; const skipP=new Promise(function(r){ skip=r; });
+  const waitP=new Promise(function(r){ setTimeout(function(){ r(null); }, QA_ADDR_WAIT_MS); });
+  const showT=setTimeout(function(){ _qaAddrWaitUi(true, function(){ skip(null); }); }, 300);
+  let got=null;
+  try{ got=await Promise.race([_ensureAddr(sid), waitP, skipP]); }catch(e){ got=null; }
+  clearTimeout(showT); _qaAddrWaitUi(false);
+  if(!got){ try{ got=await idbGet(sid); }catch(e){} }
+  return got;
+}
 /* 第258弾: doneBtnの再入防止。連打で2回目のクリックが1回目の処理中に走ると、aibis_qa_returnの
  * 書込と本体への遷移が2回ずつ起きる。処理中は2回目以降を無視する（本体から起動した場合はこのあと
  * documentを離れるので戻さない。直接起動では処理の最後に戻す）。 */
@@ -1274,7 +1326,8 @@ $("doneBtn").addEventListener("click",async()=>{
   try{
   const sid=curSet;
   let s=null;
-  try{ s=await Promise.race([_ensureAddr(sid), new Promise(function(r){ setTimeout(function(){ r(null); },2000); })]); }catch(e){}
+  if(qaReturnMode){ s=await _qaWaitAddr(sid); }
+  else { try{ s=await Promise.race([_ensureAddr(sid), new Promise(function(r){ setTimeout(function(){ r(null); },2000); })]); }catch(e){} }
   if(!s){ try{ s=await idbGet(sid); }catch(e){} }
   if(qaReturnMode){
     const payload={ addr:(s&&s.addr)||"", banchi:(s&&s.banchi)||"", lat:s&&s.lat, lng:s&&s.lng, setId:sid, ts:Date.now() };
