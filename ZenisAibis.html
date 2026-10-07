@@ -2886,7 +2886,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.44";
+var APP_VERSION = "v11.45";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12678,6 +12678,32 @@ function _j9CustCadence(cards){
   });
   return sum/cs.length;
 }
+// DAN250第2段: フォーアイズ作戦ボードで協議した日（analog_days）→ 作戦軸に担当レベルで加点（数字はこの定数1か所）
+var J9_FOUREYES={windowDays:90, perCardMax:3, step:2, max:14};
+// 直近windowDays日（当日を含む）の協議日を、カードごとに新しい方からperCardMax日まで数える（1日の件数の制限なし）。
+// 日付として読めない値・未来の日・analog_daysが配列でないカードは数えない。カードはid順で数える（同じ入力で同じ結果）。
+function _j9FoureyesCount(cards, now){
+  var t=new Date(now), t0=new Date(t.getFullYear(),t.getMonth(),t.getDate()).getTime();
+  var byId={};
+  (cards||[]).forEach(function(c){
+    if(!c||!Array.isArray(c.analog_days)) return;
+    var id=String(c.id), set=byId[id]||(byId[id]={});
+    c.analog_days.forEach(function(s){
+      var m=(typeof s==='string')?/^(\d{4})-(\d{2})-(\d{2})$/.exec(s):null; if(!m) return;
+      var d=new Date(+m[1],+m[2]-1,+m[3]);
+      if(d.getFullYear()!==+m[1]||d.getMonth()!==+m[2]-1||d.getDate()!==+m[3]) return;
+      var age=Math.round((t0-d.getTime())/864e5);
+      if(age<0||age>=J9_FOUREYES.windowDays) return;
+      set[s]=1;
+    });
+  });
+  var S=0;
+  Object.keys(byId).sort().forEach(function(id){
+    S+=Object.keys(byId[id]).sort().reverse().slice(0,J9_FOUREYES.perCardMax).length;
+  });
+  return S;
+}
+function j9FoureyesBonus(cards, now){ return Math.min(J9_FOUREYES.max, _j9FoureyesCount(cards, now)*J9_FOUREYES.step); }
 // 担当（カード配列）→ 9軸スコア（0-100, 信頼度補正前）と入力信頼度
 function j9Axes(cards){
   cards=(cards||[]).filter(function(c){return c&&c.pursuit_judge!=='X';}); // ×(打ち切り)=削除予定。保有枚数にも軸計算にも数えない
@@ -12805,6 +12831,9 @@ function j9Axes(cards){
     ax.seian=_clip(ax.seian+seB);
     ax.enmusubi=_clip(ax.enmusubi+enB);
   }
+  // フォーアイズ作戦ボードの協議日（analog_days）→ 作戦軸に加点（カードごとの点に足さず、担当レベルで足す） DAN250第2段
+  var _feB=j9FoureyesBonus(cards, now);
+  if(_feB>0) ax.sakujin=_clip(ax.sakujin+_feB);
   // 顧客訪問テンポ（担当レベル・顧客数に非依存）→ 信頼に加点（最大15） v9.79
   var _cvc=_j9CustCadence(cards);
   if(_cvc!=null) ax.enmusubi=_clip(ax.enmusubi + _cvc*15);
@@ -19622,6 +19651,7 @@ function mkBlank() {
     job9_ranks:null, job9_ranks_at:'', ai_memo:'', family_headcount:false, family_headcount_at:'', family_bikou:'', doukou:false, doukou_at:'', mgr_involve:'単独', cust_type:'新規', asset_type:false, ekitoho:'', proposal_req:false, proposal_req_at:'', next_aim:'',
     roleplay_eval_history:[], // 第220弾: 累積ロープレ評価履歴（配列additive・旧カードは(c.roleplay_eval_history||[])で無害）
     analog_days:[], // フォーアイズ作戦ボードで協議した日（'YYYY-MM-DD'・最大30件。配列additive・旧カードは(c.analog_days||[])＋Array.isArrayで無害）
+    analog_memo_history:[], // DAN250第2段: 作戦ボードの🗑でしまった前回までの作戦（{at,text}・最大ANALOG_HISTORY_MAX件。配列additive・旧カードはArray.isArrayで無害）
     schemaVersion:CURRENT_SCHEMA_VERSION, // 第150弾：新規カードにのみ付与。既存カードへの遡及付与はしない
     created_at:new Date().toISOString(), updated_at:new Date().toISOString()
   };
@@ -19974,6 +20004,50 @@ function _collectAnalogDays(c, av){
   c.analog_days=days;
   _analogBaseText=av;
 }
+// DAN250第2段: 作戦ボードの履歴（analog_memo_history・{at,text}）。🗑で欄を空にする前の本文をしまう（最大件数はこの定数1か所）。
+var ANALOG_HISTORY_MAX=20;
+// 空白だけ・直前の1件と同じ本文は足さない。atはanalog_memo_atが日時として読めればそれ、読めなければしまった時刻。
+function _analogArchiveBoard(c, text){
+  if(!c) return;
+  var t=String(text==null?'':text);
+  if(!t.trim()) return;
+  var hist=Array.isArray(c.analog_memo_history)?c.analog_memo_history.slice():[];
+  var last=hist.length?hist[hist.length-1]:null;
+  if(last && last.text===t) return;
+  var at=String(c.analog_memo_at||'').trim();
+  if(!at || !isFinite(Date.parse(at))) at=new Date().toISOString();
+  hist.push({at:at, text:t});
+  while(hist.length>ANALOG_HISTORY_MAX) hist.shift();
+  c.analog_memo_history=hist;
+}
+// 「📚 前回までの作戦」の表示（読むだけ。保存データは書き換えない）。0件のときはdetailsごと隠す。
+function _analogHistRender(c){
+  try{
+    var det=document.getElementById('analogHistDetails');
+    var list=document.getElementById('analogHistList');
+    if(!det || !list) return;
+    var hist=(c && Array.isArray(c.analog_memo_history)) ? c.analog_memo_history.filter(function(h){ return h && typeof h==='object'; }) : [];
+    var sum=det.querySelector('summary'); if(sum) sum.textContent='📚 前回までの作戦（'+hist.length+'件）';
+    list.textContent='';
+    det.hidden=!hist.length;
+    det.open=false; // カードを開いて描き直すたびに閉じた状態へ戻す
+    hist.slice().reverse().forEach(function(h){
+      var row=document.createElement('div');
+      row.style.marginTop='6px';
+      var head=document.createElement('div');
+      head.style.fontSize='11px';
+      head.textContent=((typeof _fmtStamp==='function')?_fmtStamp(h.at):'')||'-';
+      var body=document.createElement('div');
+      body.style.fontSize='12px';
+      body.style.whiteSpace='pre-wrap';
+      body.style.overflowWrap='anywhere'; // 区切りの無い長い文字（URLなど）で横にはみ出さない
+      body.style.wordBreak='break-word';
+      body.textContent=String(h.text||'');
+      row.appendChild(head); row.appendChild(body);
+      list.appendChild(row);
+    });
+  }catch(_e){}
+}
 
 function fillForm(c) {
   var el=document.getElementById('editTitle'); if(el) el.textContent='📝 '+(c.name||'新規カード');
@@ -20051,6 +20125,7 @@ function fillForm(c) {
   var ag=document.getElementById('f_analog'); if(ag) ag.value=c.analog_memo||'';
   _analogBaseText=String(c.analog_memo||'');
   var agAt=document.getElementById('analog_at'); if(agAt) agAt.textContent=c.analog_memo_at?('📌 '+_fmtStamp(c.analog_memo_at)):'';
+  _analogHistRender(c);
   // 第218弾: ロープレ評価（roleplay_eval）。f_analogと同型（analog型_at規約）。
   var rpe=document.getElementById('f_roleplay_eval'); if(rpe) rpe.value=c.roleplay_eval||'';
   var rpeAt=document.getElementById('roleplay_eval_at'); if(rpeAt) rpeAt.textContent=c.roleplay_eval_at?('📌 '+_fmtStamp(c.roleplay_eval_at)):'';
@@ -21258,8 +21333,11 @@ async function doMerge(imp, onDone){
       var impTime=new Date(ic.updated_at||0).getTime();
       // 第259弾: ロープレの評価履歴は上書きせず両方の和にする（新しい方で置き換える動きの中でこの1項目だけ）。
       var rpHist259=(typeof _mergeRoleplayHistory259==='function')?_mergeRoleplayHistory259(cards[idx].roleplay_eval_history, ic.roleplay_eval_history):null;
+      // DAN250第2段: 作戦ボードの履歴（analog_memo_history）も同じく両方の和にする。
+      var amHist250=(typeof _mergeAnalogHistory250==='function')?_mergeAnalogHistory250(cards[idx].analog_memo_history, ic.analog_memo_history):null;
       if(impTime>existTime){ cards[idx]=ic; updCount++; }
       if(rpHist259) cards[idx].roleplay_eval_history=rpHist259;
+      if(amHist250) cards[idx].analog_memo_history=amHist250;
     } else {
       cards.push(ic); newCount++;
     }
@@ -21289,6 +21367,14 @@ function _mergeRoleplayHistory259(a, b){
   }
   (A||[]).forEach(add); (B||[]).forEach(add);
   out.sort(function(x,y){ var p=String(x.at||''), q=String(y.at||''); return p<q?-1:(p>q?1:0); });
+  return out;
+}
+// DAN250第2段: 作戦ボードの履歴（card.analog_memo_history・{at,text}）の和。日時と本文で1つにする部分は上と同じで、
+// 最後に新しい方からANALOG_HISTORY_MAX件（form_core.js）までを残す。どちらも配列でなければnull（触らない）。
+function _mergeAnalogHistory250(a, b){
+  var out=_mergeRoleplayHistory259(a, b);
+  if(!out) return null;
+  if(out.length>ANALOG_HISTORY_MAX) out=out.slice(out.length-ANALOG_HISTORY_MAX);
   return out;
 }
 // 受け取った記録ファイル群を、受け取った側にカードがあるお客様だけ合流し、結果を事実どおり表示する。
@@ -29403,20 +29489,22 @@ window.mailCardToSelf=mailCardToSelf;
 function clearStrategyField(id){
   var el=document.getElementById(id); if(!el) return;
   if(!el.value){toast('すでに空です');return;}
-  aibisAlert('この欄の内容を削除するよ。よろしい？<br><br>'
+  aibisAlert((id==='f_analog'?'今の作戦は『前回までの作戦』にしまって、欄を空にするよ。よろしい？<br><br>':'この欄の内容を削除するよ。よろしい？<br><br>')
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();doClearStrategyField(\''+id+'\')" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button>'
+    +'<button onclick="closeAibisAlert();doClearStrategyField(\''+id+'\')" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">'+(id==='f_analog'?'しまう':'削除する')+'</button>'
     +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 function doClearStrategyField(id){
   var el=document.getElementById(id); if(!el) return;
+  // DAN250第2段: 作戦ボードは空にする前の本文を「前回までの作戦」（analog_memo_history）へしまう。
+  if(id==='f_analog'&&cur&&typeof _analogArchiveBoard==='function'){ _analogArchiveBoard(cur, el.value); if(typeof _analogHistRender==='function') _analogHistRender(cur); }
   el.value='';
   // 第176弾: bubbling inputを1回dispatchし、既存のdirty_guard/scheduleDraftSave/
   // generalのinline oninput（3検出）へ委譲する。paste時と同じ「値変更後は必ずinputを
   // 1回発火する」原則。
   el.dispatchEvent(new Event('input',{bubbles:true}));
-  toast('クリアしました');
+  toast(id==='f_analog'?'前回までの作戦にしまいました':'クリアしました');
   // 以下のtimestamp消去は、上記inputイベントのリスナ（dirty_guard.js）側でも
   // 同一処理（空文字→at=''）が行われるため冪等な保険として残す。
   if(/^f_ai_/.test(id)&&cur){
@@ -35271,7 +35359,11 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
           <button type="button" onclick="clearStrategyField('f_analog')" style="font-size:11px;padding:3px 10px;border:1px solid #fefcbf;border-radius:4px;background:white;cursor:pointer;color:#718096">🗑</button>
         </div>
       </div>
-      <textarea id="f_analog" rows="6" placeholder="課長との対面協議メモ・ホワイトボード内容などを記録" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:100px"></textarea><div id="analog_at" class="paste-at"></div>
+      <textarea id="f_analog" rows="6" placeholder="課長との対面協議メモ・ホワイトボード内容などを記録（🗑で「前回までの作戦」にしまえます）" style="font-size:13px;border:none;background:transparent;resize:vertical;min-height:100px"></textarea><div id="analog_at" class="paste-at"></div>
+      <details id="analogHistDetails" hidden style="margin-top:6px">
+        <summary style="font-size:11px">📚 前回までの作戦（0件）</summary>
+        <div id="analogHistList" style="font-size:12px;margin-top:4px"></div>
+      </details>
     </div>
   </div>
 
