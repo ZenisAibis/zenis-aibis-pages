@@ -488,7 +488,7 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.84";
+const APP_VERSION = "cam-v1.85";
 
 /* 第237弾 CP2: 利き手（prospect_hand_v1）read-only consumer。唯一の状態源は本体と共有する
    localStorageのprospect_hand_v1のみ。cameraはこのkeyへ一切書き込まない（新規key 0）。
@@ -1214,6 +1214,7 @@ function _closeToMain(){
     location.replace("ZenisAibis.html?inbox");
   }catch(e){} };
   try{ window.close(); }catch(e){}
+  try{ if(window.closed){ var _op=window.opener; if(_op && !_op.closed && _op.location.origin===location.origin) _op.focus(); } }catch(e){} // 閉じることが決まった（closed=true）ときだけ、同じオリジンの開いた元へ焦点を戻す
   setTimeout(function(){
     if(document.hidden || _closeDone) return;
     if(qaReturnMode && _qaReturnWritten){ // 光速入力: 本体のタブが受け取ったかを見てから決める
@@ -1233,7 +1234,7 @@ function _closeToMain(){
  * - _closeToMain()を呼ばない／mediaPing等の既存保存副作用を新たに追加しない
  * - 新規storage sentinel/keyを作らない／historyへ新規hidden sentinelをpushしない
  * - direct launchでは呼ばれない（呼出元のrightBtnハンドラが_launchedFromMain時のみ呼ぶ）
- * 遷移順: window.close()（popup成功なら終了・opener DOMは触らない）→
+ * 遷移順: window.close()（popup成功なら終了・opener DOMは触らない）→閉じることが決まった（window.closed）ときだけ同じオリジンの開いた元へfocus（DOMは触らない）→
  *         同tab fallback: 履歴を1段戻す操作を1回だけ→有限timeout後もdocumentがactiveなら
  *         最終location.href fallback（?ret=qa→ZenisAibis.html、?cardId→
  *         ZenisAibis.html?card=<encoded id>、from=camは付けない）。無限retryなし。 */
@@ -1277,6 +1278,7 @@ function _cancelToMain(){
   var fallbackUrl = qaReturnMode ? "ZenisAibis.html" : (_launchCid ? "ZenisAibis.html?card="+encodeURIComponent(_launchCid) : "ZenisAibis.html");
   var goFinal=function(){ if(_cancelDone) return; _cancelDone=true; try{ location.replace(fallbackUrl); }catch(e){} }; // 光速入力のカメラから戻るとき（2026-10-01）: replace（戻るでカメラへ戻らない）
   try{ window.close(); }catch(e){}
+  try{ if(window.closed){ var _op=window.opener; if(_op && !_op.closed && _op.location.origin===location.origin) _op.focus(); } }catch(e){} // 閉じることが決まった（closed=true）ときだけ、同じオリジンの開いた元へ焦点を戻す
   setTimeout(function(){
     if(document.hidden || _cancelDone) return; // window.close()が奏功（popup close済み）
     if(_zcOpenerTabNotice258(goFinal)) return; // 第258弾: 本体が別タブなら戻らずに案内

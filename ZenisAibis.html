@@ -2886,7 +2886,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.45";
+var APP_VERSION = "v11.46";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -27800,7 +27800,7 @@ function planEsc(s){ return String(s||'').replace(/"/g,'&quot;'); }
 function planSuggestPurpose(st){ st=+st; if(st<=1)return 'ザイオンス'; if(st===2)return '情報収集'; if(st===3)return 'テスクロ'; return '各種提案'; }
 function planAreaStage(c){ var st=+(c.stage||0); var nm=['面識','注意','興味','連想','欲求','比較','信念','決心'][st]||''; var area=c.address?String(c.address).replace(/[0-9０-９\-－].*$/,'').slice(0,12):''; return (area?area+'・':'')+nm; }
 function planHasTodayAppo(c){ var t=todayStr(); var arr=[].concat(c.revisits||[],c.pursuits||[]); return arr.some(function(v){ return v && v.next_appo_date===t; }); }
-var PLAN_UNTIMED_MAX=10; // A4・1枚に収まる実測上限
+var PLAN_UNTIMED_MAX=10; // 時間未定だけなら1枚に収まる上限（時刻ありと合わせた1枚は印刷側で収める）
 function planUntimedCount(exceptIdx){ return (_plan.entries||[]).filter(function(en,i){ return !en.time && en.kind!=='ev' && i!==exceptIdx; }).length; }
 function planUntimedFullWarn(){ if(typeof aibisAlert==='function') aibisAlert('時間未定の見込み客は<b>10件まで</b>だよ！<br>それ以上入れても行けないでしょ😅 まずはこの10件を回り切ろう。<br><span style="font-size:12px;color:#718096">⏰時刻を指定したアポなら追加できるよ。入れ替えたいときは✕で1件外してね。</span>'); else toast('時間未定は10件まで'); }
 function makePlanEntry(c){ var appo=planHasTodayAppo(c); return {cardId:c.id,target:(c.name||'(無名)'),sub:planAreaStage(c),kind:appo?'k1':'k3',purpose:planSuggestPurpose(c.stage),time:'',note:'',result:''}; }
@@ -29423,16 +29423,48 @@ function renderPlannerSheet(){
     +'<div style="display:flex;justify-content:flex-end;gap:12px;margin-top:14px"><div class="pstamp">担当印</div><div class="pstamp">課長確認</div></div></div>'
     +'<div style="background:#fff;max-width:780px;margin:18px auto 0;padding:24px 28px;box-shadow:0 2px 12px rgba(0,0,0,.12);page-break-before:always"><h2 style="text-align:center;letter-spacing:3px;border-bottom:3px double #2d3748;padding-bottom:8px;margin:0 0 12px;font-size:17px">エリア順 見込み一覧</h2><table class="pltt"><thead><tr><th>対象</th><th>住所（市区町・番地）</th><th class="pc">目的</th></tr></thead><tbody>'+planAreaRows()+'</tbody></table></div>';
 }
+/* 段階1a: 予定表の印刷を1枚に収める。1枚目の高さ h（縮める前に、A4 の内側の幅で測った px）と
+ * 使える高さ avail（px）から縮める率を決める。1=縮めない（入る日は今のまま）／min 以上 1 未満=その率で縮める／
+ * 0=下限まで縮めても入らない（縮めずに2枚目へ続ける）。外に依存しない（VM で試す）。 */
+var PLAN_PRINT_ZOOM_MIN=0.9; // 縮める下限（仮。試し印刷を見て決め直す）
+function planPrintZoomFor(h,avail,min){
+  var room=avail-6; // 数pxのゆとり（縮める日だけ見込む）
+  if(!(h>0)||!(room>0)||h<=avail) return 1;
+  var r=Math.floor(room/h*100)/100;
+  return r>=min?r:0;
+}
+/* 段階1a: 印刷用 iframe（1123px 幅）の中で、1枚目のかたまりの幅を A4 の内側に固定して高さを測り、
+ * 入りきらない日だけ zoom を付ける。入る日は何も足さない。printHTMLDocument は共用なので触らない。 */
+function _planPrintFit(fr,mg){
+  try{
+    var doc=fr&&fr.contentWindow&&fr.contentWindow.document; var p1=doc&&doc.getElementById('plP1'); if(!p1) return;
+    var avail=(297-2*mg)*96/25.4;
+    p1.style.width=(210-2*mg)+'mm';
+    var h=p1.getBoundingClientRect().bottom;
+    var z=planPrintZoomFor(h,avail,PLAN_PRINT_ZOOM_MIN), fit=false;
+    // 縮めた後も同じ幅のまま測り直し、まだはみ出す日は下限の中で 0.01 ずつ下げる（回数の上限つき）
+    for(var i=0;i<20&&z>0&&z<1;i++){
+      p1.style.zoom=String(z);
+      if(p1.getBoundingClientRect().bottom<=avail){ fit=true; break; }
+      z=Math.round(z*100-1)/100; if(z<PLAN_PRINT_ZOOM_MIN) z=0;
+    }
+    if(z>0&&z<1&&!fit) z=0;
+    p1.removeAttribute('style');
+    if(z>0&&z<1) p1.style.zoom=String(z);
+    else if(z===0&&typeof toast==='function') toast('予定が多いため2枚に分かれます');
+  }catch(err){ console.error('planner print fit error',err); }
+}
 function printPlanner(){
   if(!hasFSA){ aibisAlert('印刷はPC版（Chrome）でのみ使えるよ！'); return; }
-  var css='@page{size:A4;margin:12mm}body{font-family:sans-serif;margin:0;padding:0}h2{text-align:center;letter-spacing:4px;border-bottom:3px double #2d3748;padding-bottom:8px;margin:0 0 10px;font-size:18px}.meta{display:flex;justify-content:space-between;font-size:12px;margin-bottom:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th{background:#2c5282;color:#fff;font-size:11px;padding:5px 4px}td{border:1px solid #cbd5e0;padding:2px 6px;height:22px;font-size:12px}.pti{width:40px;text-align:center;font-weight:700;color:#4a5568;background:#f7fafc;font-size:11px}.ph{border-top:2px solid #94a3b8}.ptt{font-weight:700}.psub{font-weight:400;color:#718096;font-size:10px}.pc{text-align:center;width:54px}.pm{font-size:11px;color:#4a5568}.pbadge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;color:#fff}.pb-k1{background:#276749}.pb-k2{background:#dd6b20}.pb-k3{background:#718096}.pb-ev{background:#553c9a}.foot{display:flex;justify-content:flex-end;gap:12px;margin-top:14px}.pstamp{border:1px solid #cbd5e0;border-radius:4px;width:78px;height:50px;font-size:10px;color:#718096;text-align:center;padding-top:3px}.pareah td{background:#ebf4ff;color:#2c5282;font-weight:800;text-align:left}';
+  var mg=10; // 紙の余白（mm）
+  var css='@page{size:A4;margin:'+mg+'mm}body{font-family:sans-serif;margin:0;padding:0}h2{text-align:center;letter-spacing:4px;border-bottom:3px double #2d3748;padding-bottom:8px;margin:0 0 10px;font-size:18px}.meta{display:flex;justify-content:space-between;font-size:12px;margin-bottom:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th{background:#2c5282;color:#fff;font-size:11px;padding:5px 4px}td{border:1px solid #cbd5e0;padding:2px 6px;height:22px;font-size:12px}.pti{width:40px;text-align:center;font-weight:700;color:#4a5568;background:#f7fafc;font-size:11px}.ph{border-top:2px solid #94a3b8}.ptt{font-weight:700}.psub{font-weight:400;color:#718096;font-size:10px}.pc{text-align:center;width:54px}.pm{font-size:11px;color:#4a5568}.pbadge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;color:#fff}.pb-k1{background:#276749}.pb-k2{background:#dd6b20}.pb-k3{background:#718096}.pb-ev{background:#553c9a}.foot{display:flex;justify-content:flex-end;gap:12px;margin-top:14px}.pstamp{border:1px solid #cbd5e0;border-radius:4px;width:78px;height:50px;font-size:10px;color:#718096;text-align:center;padding-top:3px}.pareah td{background:#ebf4ff;color:#2c5282;font-weight:800;text-align:left}';
   var html='<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'
-    +'<h2>日 次 予 定 表</h2><div class="meta"><span>日付：'+planDateLabel()+'</span><span style="font-weight:700">'+e(((branch||'')+' '+(section||'')).trim()+(uName?'　'+uName:''))+'</span></div>'
+    +'<div id="plP1"><h2>日 次 予 定 表</h2><div class="meta"><span>日付：'+planDateLabel()+'</span><span style="font-weight:700">'+e(((branch||'')+' '+(section||'')).trim()+(uName?'　'+uName:''))+'</span></div>'
     +planPrioBlockHTML()+planGrid2HTML()
     +planUntimedBlockHTML()
-    +'<div class="foot"><div class="pstamp">担当印</div><div class="pstamp">課長確認</div></div>'
+    +'<div class="foot"><div class="pstamp">担当印</div><div class="pstamp">課長確認</div></div></div>'
     +'<div style="page-break-before:always"><h2>エリア順 見込み一覧</h2><table><thead><tr><th>対象</th><th>住所（市区町・番地）</th><th>目的</th></tr></thead><tbody>'+planAreaRows()+'</tbody></table></div></body></html>';
-  printHTMLDocument(html);
+  _planPrintFit(printHTMLDocument(html),mg);
 }
 function plannerToPhone(){
   var ids=_plan.entries.filter(function(en){return en.cardId;}).map(function(en){return en.cardId;});
