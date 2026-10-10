@@ -57,9 +57,62 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
 :root{
-  --za-navy:#1A365D; --za-navy2:#2C5282; --za-bg:#F3F6FA; --za-card-soft:#F8FAFC;
-  --za-line:#E2E8F0; --za-ink:#2D3748; --za-sub:#718096; --za-red:#C53030;
-  --za-green:#2F855A; --za-gold:#B7791F; --za-cyan:#34E3D0; --za-violet:#6B46C1; --za-champion:#D4AF37;
+  /* 紺 */
+  --za-navy:#1A365D; --za-navy-hi:#24497A; --za-navy2:#2C5282; --za-navy-soft:#EBF4FF;
+  /* 緑（保存・成功・把握） */
+  --za-green:#2F855A; --za-green-lo:#276749; --za-green-soft:#E6F4EC; --za-green-line:#A9D5BD; --za-green-hi:#68D391;
+  /* 金（主ボタンの縁・選択中・達成 の3つだけ）。暁の金 #C8A55E の1色（title_screen.js の --primary）。文字に使うときだけ --za-gold-ink */
+  --za-gold:#C8A55E; --za-gold-dark:#C8A55E;
+  --za-gold-ink:#896C2F;      /* 金の文字（白の上 4.94） */
+  --za-gold-rim:rgba(200,165,94,.92); --za-gold-rim-dark:rgba(200,165,94,.95); --za-gold-glow:rgba(200,165,94,.30);
+  --za-champion:#D4AF37;
+  /* 琥珀（保留・断片・課長へ・聞いてきてほしいこと・フォーカスの輪・保存を促す縁） */
+  --za-amber:#B7791F; --za-amber-hi:#D69E2E; --za-amber-top:#E3B354; --za-amber-ink:#7A4F0E;
+  --za-amber-soft:#FBF3DC; --za-amber-line:#E6CD86; --za-amber-paper:#FFFDF6;
+  --za-nudge:#FBD38D;
+  /* 灰 */
+  --za-ink:#2D3748; --za-mute:#4A5568; --za-sub:#5A6B85; --za-line:#E2E8F0; --za-line-mid:#C3CDD9;
+  --za-line-chip:#A9B8CC; --za-line-strong:#7D8FA9; --za-bg:#F3F6FA; --za-card-soft:#F8FAFC;
+  --za-surface:#FFFFFF; --za-surface-lo:#F4F7FB; --za-surface-hover:#EEF3F9; --za-gray-soft:#EDF2F7;
+  /* 赤・注意・AI */
+  --za-red:#C53030; --za-red-lo:#A52A2A; --za-red-soft:#FFF5F5; --za-red-line:#FEB2B2;
+  --za-warn:#9C4221; --za-warn-soft:#FFF5EB; --za-warn-line:#F6AD55;
+  --za-ai:#553C9A; --za-ai-soft:#F4F0FC; --za-ai-line:#D6CCF0;
+  --za-violet:#6B46C1; --za-cyan:#34E3D0;
+  /* 影・光 */
+  --za-sh-1:0 1px 2px rgba(15,23,42,.08),0 3px 8px -5px rgba(26,54,93,.26);
+  --za-sh-2:0 24px 48px -16px rgba(15,23,42,.55),0 0 0 1px rgba(26,54,93,.08);
+  --za-sh-press:inset 0 2px 4px rgba(15,23,42,.18);
+  --za-hl:inset 0 1px 0 rgba(255,255,255,.95);
+  --za-hl-dark:inset 0 1px 0 rgba(255,255,255,.16);
+  --za-ts:0 1px 0 rgba(0,0,0,.22);
+  /* 角丸・文字・動き */
+  --za-r-s:8px; --za-r-m:12px; --za-r-pill:999px; --za-r-modal:16px;
+  --za-fs-xs:11px; --za-fs-s:12px; --za-fs-m:13px; --za-fs-base:14px; --za-fs-l:16px;
+  --za-dur-fast:150ms; --za-dur-mid:240ms; --za-dur-once:450ms; --za-dur-loop:1100ms;
+  --za-blink-n:3;
+  --za-focus:var(--za-amber);
+  /* 部品の作り */
+  --za-pri:linear-gradient(180deg,var(--za-navy-hi) 0%,var(--za-navy) 100%);
+  --za-pri-press:linear-gradient(180deg,var(--za-navy) 0%,var(--za-navy-hi) 100%);
+  --za-pri-sh:var(--za-hl-dark),inset 0 0 0 1px var(--za-gold-rim-dark),var(--za-sh-1);
+  --za-pri-sh-press:inset 0 0 0 1px var(--za-gold-rim-dark),inset 0 2px 4px rgba(8,20,40,.40);
+  --za-sec:linear-gradient(180deg,var(--za-surface) 0%,var(--za-surface-lo) 100%);
+  --za-sec-hover:linear-gradient(180deg,var(--za-surface),var(--za-surface-hover));
+  --za-sec-press:var(--za-navy-soft); --za-sec-line:var(--za-line-strong); --za-sec-ink:var(--za-navy);
+  --za-sec-sh:var(--za-hl),var(--za-sh-1);
+  --za-save:linear-gradient(180deg,var(--za-green) 0%,var(--za-green-lo) 100%);
+  --za-save-press:linear-gradient(180deg,var(--za-green-lo) 0%,var(--za-green) 100%);
+  --za-danger:linear-gradient(180deg,var(--za-red) 0%,var(--za-red-lo) 100%);
+  --za-danger-press:linear-gradient(180deg,var(--za-red-lo) 0%,var(--za-red) 100%);
+  --za-amber-fill:linear-gradient(180deg,var(--za-amber-top) 0%,var(--za-amber-hi) 100%);
+  --za-amber-sh:inset 0 1px 0 rgba(255,255,255,.35),inset 0 0 0 1px rgba(122,79,14,.22),var(--za-sh-1);
+  --za-sel:linear-gradient(180deg,var(--za-navy) 0%,var(--za-navy-hi) 100%);
+  --za-sel-sh:inset 0 0 0 1px var(--za-gold-rim-dark),inset 0 2px 3px rgba(8,20,40,.30);
+  --za-win-sh:inset 0 0 0 1px var(--za-gold),0 0 0 2px var(--za-gold-glow),var(--za-sh-1);
+}
+@media (prefers-reduced-motion:reduce){
+  :root{--za-dur-fast:0ms;--za-dur-mid:0ms;--za-dur-once:0ms}
 }
 body{font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;background:#f0f2f5;color:#1a1a1a;line-height:1.5;padding:12px;font-size:14px;padding-bottom:80px}
 .container{max-width:900px;margin:0 auto}
@@ -1088,6 +1141,7 @@ body.is-mob .mob-menu{display:inline-block}
 .paste-at{font-size:11px;color:#5a6b85;font-weight:600;margin-top:4px;text-align:right}.zdash .z-stamp{font-size:10px;color:var(--z-dim);text-align:right;margin-top:6px}
 #planSvBtn:disabled{opacity:.38;cursor:not-allowed}
 /* Phase6: 編集ヘッダーの窮屈さ解消（狭い画面で中央ロゴを隠し、画面名に余白） */@media(max-width:520px){.ehdr-logo{display:none!important}.ehdr-l{max-width:64%!important}}
+/* 編集ヘッダー：右のボタン群が2行目に回っても右に寄せる（1行のときは今と同じ位置。screen限定・印刷はheaderごと出さない） */@media screen{#editView header .ha > div:last-child{margin-left:auto}}
 /* z.Aibis dashboard polish (scoped, additive) */.zdash-mgr,.zdash-rep{-webkit-font-smoothing:antialiased}.zdash .z-card{border-radius:16px}.zdash-mgr .z-card,.zdash-rep .z-card{background:#fff;border-color:#e6eaf2;box-shadow:0 1px 2px rgba(20,40,80,.04),0 8px 22px -12px rgba(20,40,80,.18)}.zdash .z-kpi .z-klab{display:block;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}.zdash .z-num,.zdash .z-kval,.zdash .stat-num,.zdash .bar-num,.zdash .z-pno,.zdash .z-ptemp{font-variant-numeric:tabular-nums}.zdash-mgr .z-cmdhead{letter-spacing:.13em}.zdash-mgr .z-cmdhead span{letter-spacing:.03em}.zdash .z-sec-h{border-radius:14px;font-size:13.5px}.zdash .z-secsub{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.job-card{border-radius:16px}.zdash-rep .job-card,.zdash-mgr .job-card,.zjf-wrap .job-card{box-shadow:0 1px 2px rgba(20,40,80,.05),0 10px 28px -14px rgba(20,40,80,.22)}.job-card::before{content:'';position:absolute;left:0;right:0;top:0;height:3px;border-radius:16px 16px 0 0;background:linear-gradient(90deg,var(--jc-accent,#8b7cff),transparent 88%);opacity:.85;pointer-events:none}.jc-tier-0::before{opacity:.4}.jc-tier-king::before{background:linear-gradient(90deg,#ffd43b,transparent 80%);opacity:1}.job-name{min-width:0;row-gap:2px;font-size:clamp(18px,4.8vw,22px)}.job-name .jn-txt{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}.job-title{min-width:0;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 0 rgba(0,0,0,.05)}.job-strong{min-width:0}.stat-row,.bar-row{min-width:0}.stat-lab{width:84px}.bar-lab{width:84px}.stat-num,.bar-num{text-align:right;min-width:30px}.z-jobgrid{gap:14px}.z-jobcell{min-width:0}.zjz-card{border-radius:18px}.zdash-rep .z-self-job{border-color:#cfe0ff;box-shadow:0 1px 2px rgba(20,40,80,.05),0 12px 30px -14px rgba(43,108,176,.28)}.zdash .z-sec-body{padding:10px 7px 3px}.zdash-mgr .z-card,.zdash-rep .z-card{padding:14px}.zdash .z-actrow{display:flex;flex-wrap:nowrap;gap:5px;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch}.zdash .z-actrow .z-chip{flex:0 0 auto;margin:0;font-size:10.5px;padding:5px 9px}.zdash-mgr .z-axking{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid #edf2f7}.zdash-mgr .z-axk-st{font-size:12px;font-weight:700;color:#2d3748;min-width:78px;display:inline-flex;align-items:center}.zdash-mgr .z-axk-ic{display:inline-block;width:1.5em;text-align:center;margin-right:3px;flex:none}.zdash-mgr .z-axk-t{font-size:10.5px;font-weight:800;background:rgba(212,175,55,.16);color:#b7791f;border-radius:8px;padding:2px 8px;white-space:nowrap}.zdash-mgr .z-axk-nm{font-size:12.5px;font-weight:700;color:#1a365d;margin-left:auto}.zdash-mgr .z-axk-v{font-variant-numeric:tabular-nums;font-weight:700;color:#5b6b85;min-width:26px;text-align:right}@media(max-width:620px){.zdash .z-sec-body{padding:9px 5px 2px}.zdash-mgr .z-card,.zdash-rep .z-card{padding:12px}}body.is-dev button[onclick="openAibisChat()"]{background:#7c3aed!important;box-shadow:0 0 0 2px rgba(124,58,237,.25)}body.is-dev .dev-selfacc{margin-top:16px}body.is-dev .dev-selfacc>summary{list-style:none;cursor:pointer;background:#fde68a;color:#7c2d12;font-size:12px;font-weight:800;padding:9px 13px;border-radius:10px;display:flex;align-items:center;gap:8px}body.is-dev .dev-selfacc>summary::-webkit-details-marker{display:none}body.is-dev .dev-selfacc>summary::after{content:"\25B6";margin-left:auto;font-size:10px}body.is-dev .dev-selfacc[open]>summary::after{content:"\25BC"}body.is-dev .dev-selfacc>div{border:1px solid #fcd34d;border-top:none;border-radius:0 0 10px 10px;padding:10px}.zdash .z-sec-h{flex-wrap:nowrap}@media(max-width:620px){.zdash .z-sec-h .z-secsub{display:none}.zdash .z-sec-h{white-space:nowrap}}@media(max-width:620px){.zdash .z-card{padding:13px}.job-card{padding:12px}.job-name{font-size:19px}.z-jobgrid{grid-template-columns:1fr;gap:11px}.zdash-mgr .z-cmdhead{font-size:14px}}
 /* =========================================================
    PC専用 安全補正パッチ v9.23（dev検証用）
@@ -1522,6 +1576,33 @@ body.is-mob .mob-menu{display:inline-block}
 #zStratStrip{transition:opacity .15s ease}
 /* ===== DAN255 初期設定をPCで2列に（配置のみ。screen限定＝印刷には効かない・isMob/pointerでは判定しない） ===== */
 @media screen and (min-width:1000px){ #setupView .setup-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:14px;align-items:start} #setupView .setup-col{min-width:0} }
+/* ===== UIの統一 段階1b（案C「紺と金の縁」）共通クラスの色だけ。並び・大きさは変えない（screen限定＝印刷には効かない） =====
+   金は主ボタン・選択中の2つだけ。インラインで背景を持つ .bp（list_view.html の読込など）には金の縁を当てない。課長へ（.bw）は琥珀＋紺の文字 */
+@media screen{
+  .bp:not([style*="background"]){color:#fff;background:var(--za-pri);box-shadow:var(--za-pri-sh);text-shadow:var(--za-ts);border-radius:var(--za-r-s)}
+  .bp:not([style*="background"]):active{background:var(--za-pri-press);box-shadow:var(--za-pri-sh-press)}
+  .bs{color:#fff;background:var(--za-save);box-shadow:var(--za-hl-dark),var(--za-sh-1);text-shadow:var(--za-ts);border-radius:var(--za-r-s)}
+  .bs:active{background:var(--za-save-press);box-shadow:var(--za-sh-press)}
+  .bc{color:var(--za-sec-ink);background:var(--za-sec);border-color:var(--za-sec-line);box-shadow:var(--za-sec-sh);border-radius:var(--za-r-s)}
+  .bc:active{background:var(--za-sec-press);box-shadow:var(--za-sh-press)}
+  .bd{color:#fff;background:var(--za-danger);box-shadow:var(--za-hl-dark),var(--za-sh-1);text-shadow:var(--za-ts);border-radius:var(--za-r-s)}
+  .bd:active{background:var(--za-danger-press);box-shadow:var(--za-sh-press)}
+  .bw{color:var(--za-navy);background:var(--za-amber-fill);box-shadow:var(--za-amber-sh);border-radius:var(--za-r-s)}
+  .bw:active{box-shadow:var(--za-sh-press)}
+  .sbtn.active{color:#fff;background:var(--za-sel);border-color:var(--za-navy);box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
+  /* 選択中のタブ：文字の色はインラインなので触らない。.tab.done の背景・文字（!important）はそのまま勝つ。済で選択中は紺などの上の金の線 */
+  .tabs .tab[data-tab="ti"].active{background:linear-gradient(180deg,var(--za-surface),var(--za-navy-soft));box-shadow:inset 0 2px 0 var(--za-gold-rim)}
+  .tabs .tab[data-tab="tr"].active{background:linear-gradient(180deg,var(--za-surface),var(--za-green-soft));box-shadow:inset 0 2px 0 var(--za-gold-rim)}
+  .tabs .tab[data-tab="tp"].active{background:linear-gradient(180deg,var(--za-surface),var(--za-red-soft));box-shadow:inset 0 2px 0 var(--za-gold-rim)}
+  .tabs .tab[data-tab="ta"].active,.tabs .tab.done.active[data-tab]{box-shadow:inset 0 2px 0 var(--za-gold-rim-dark)}
+  /* 妖精の吹き出しの OK：aibis_message_style.html が main.css より後に読まれるので .zfa-card で強さを上げる。インライン背景つきには当てない */
+  .zfa-card .zfa-ok:not([style*="background"]){background:var(--za-pri);box-shadow:var(--za-pri-sh);text-shadow:var(--za-ts)}
+  .zfa-card .zfa-ok:not([style*="background"]):active{background:var(--za-pri-press);box-shadow:var(--za-pri-sh-press)}
+  /* 段階1c 保存を促す点滅：緑のまま琥珀の輪が脈打つ。動きを減らす設定では止めて、動かない琥珀の輪を残す（未保存の知らせは消さない） */
+  .bs.needsave{box-shadow:var(--za-hl-dark),0 0 0 2px var(--za-nudge);animation:za-saveBlink 1s ease-in-out infinite}
+  @keyframes za-saveBlink{0%,100%{box-shadow:var(--za-hl-dark),0 0 0 2px var(--za-nudge)}50%{box-shadow:var(--za-hl-dark),0 0 0 5px var(--za-nudge)}}
+  @media (prefers-reduced-motion:reduce){ .bs.needsave{animation:none} }
+}
 
 </style>
 </head>
@@ -2886,7 +2967,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.46";
+var APP_VERSION = "v11.47";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -19669,7 +19750,8 @@ function newCard(){
   (function(){ var _ev=document.getElementById('editView'); if(_ev) _ev.scrollTop=0; })();
   if(typeof renderCardPhotos==='function') renderCardPhotos(curId);
   if(typeof renderCardShotgun==='function') renderCardShotgun(curId);
-  setTimeout(function(){setDirty(false);},100);
+  // 開いた直後のdirty解除は同期で行う（旧100ms遅延は分割前の地図moveend対策の名残りで、開いて約200ms以内の操作のsetDirty(true)を上書きしていた）。fillFormはinput/changeをdispatchしない前提。
+  setDirty(false);
   _navGo('edit',curId);
   if(typeof updateCardNav==='function') updateCardNav();
   if(typeof _syncEditBackButton==='function') _syncEditBackButton();
@@ -19770,7 +19852,8 @@ function openCard(id){
   (function(){ var _ev=document.getElementById('editView'); if(_ev) _ev.scrollTop=0; })();
   if(typeof renderCardPhotos==='function') renderCardPhotos(curId);
   if(typeof renderCardShotgun==='function') renderCardShotgun(curId);
-  setTimeout(function(){setDirty(false);},100);
+  // 開いた直後のdirty解除は同期で行う（旧100ms遅延は分割前の地図moveend対策の名残りで、開いて約200ms以内の操作のsetDirty(true)を上書きしていた）。fillFormはinput/changeをdispatchしない前提。
+  setDirty(false);
   _navGo('edit',curId);
   if(typeof updateCardNav==='function') updateCardNav();
   if(typeof _syncEditBackButton==='function') _syncEditBackButton();
