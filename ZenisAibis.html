@@ -2967,7 +2967,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.47";
+var APP_VERSION = "v11.48";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12394,6 +12394,7 @@ document.querySelectorAll('.help-details').forEach(function(d){
 var isDirty=false;
 var lastSaveSnapshot=null;
 function setDirty(v){
+  if(v) setDirty._seq=(setDirty._seq||0)+1;
   isDirty=v;
   var d=document.getElementById('dirtyDot');
   if(d) d.style.display=v?'inline-block':'none';
@@ -21039,7 +21040,8 @@ function autoCommitEdit(){
     if(curId){ var idx=cards.findIndex(function(c){return c.id===curId;}); if(idx>=0){ _stageUpLog(cards[idx],cur); cards[idx]=cur; try{ _kev197=(window.klogCapturePaste&&typeof klogCapturePaste.appEventDiffV1==='function')?klogCapturePaste.appEventDiffV1(cur):null; }catch(_e197){ _kev197=null; } } else { cards.push(cur); curId=cur.id; } }
     else { _stageUpLog(null,cur); cards.push(cur); curId=cur.id; }
     // 第183弾: 保存成功が確定するまでdirtyを解除しない（失敗時はdirty維持・draft保持）。
-    doSaveCards(function(ok){ if(ok){ if(_kev197){ try{ klogCapturePaste.appEventAppendV1(_kev197); }catch(_e197b){} } setDirty(false); clearDraft(); if(typeof renderCards==='function') renderCards(); } });
+    var _seq=(setDirty._seq||0);
+    doSaveCards(function(ok){ if(ok){ if(_kev197){ try{ klogCapturePaste.appEventAppendV1(_kev197); }catch(_e197b){} } if((setDirty._seq||0)===_seq){ setDirty(false); clearDraft(); } if(typeof renderCards==='function') renderCards(); } });
   }catch(ex){}
 }
 function maybeRestoreDraft(){
@@ -21081,12 +21083,12 @@ function saveCard(){
   else{ _stageUpLog(null,cur); cards.push(cur); curId=cur.id; }
   // 第197弾: beforeは保存呼出直前のlocalStorage SK（in-memory cards[idx]ではない）から取得する。
   var _kev197=null; if(!wasNew && idx>=0){ try{ _kev197=(window.klogCapturePaste&&typeof klogCapturePaste.appEventDiffV1==='function')?klogCapturePaste.appEventDiffV1(cur):null; }catch(_e197){ _kev197=null; } }
+  var _seq=(setDirty._seq||0);
   doSaveCards(function(ok){
     if(!ok){ toast('⚠ 保存に失敗しました'); return; }
     if(_kev197){ try{ klogCapturePaste.appEventAppendV1(_kev197); }catch(_e197b){} }
     updateCount();
-    setDirty(false);
-    clearDraft();
+    if((setDirty._seq||0)===_seq){ setDirty(false); clearDraft(); }
     if(typeof renderCards==='function') renderCards(); if(wasNew && typeof updateCardNav==='function') updateCardNav();
     // 最終更新表示も更新
     var ud=document.getElementById('dispUpdated');
