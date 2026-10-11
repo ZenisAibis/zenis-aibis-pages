@@ -2967,7 +2967,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.48";
+var APP_VERSION = "v11.49";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -3586,10 +3586,16 @@ window.restoreBackup=restoreBackup; window.doRestoreBackup=doRestoreBackup;
 // saveLS→FSA順序・callback契約）は一切変更しない。状態はdoSaveCards自身のfunction property
 // （doSaveCards._diag）に持たせる自己完結構成（._busy/._pendingと同型の既存パターン）。
 // 新規window exportは行わない。
+// 書き込み中の同期保存（2026-10-11 高田さん承認）：busy中に来た要求も、保留へ積む前にsaveLS()を同期で行う
+// （書き込み中に閉じる・隠すと最後の入力がlocalStorageへ残らなかったため）。戻り値は見ず、結果は合流後のflushのcbで各1回返す。
+// 不変条件：doSaveCards(cb)が返った時点で、localStorageのSKはその時点のcardsを映している（saveLSが成功した限り）。
+// 直列化するのはファイル書き込みだけ。合流後のflushはsaveLS({skipBackup:true})で保存し、「⏪ 1つ前に戻す」の退避が
+// 今のSKと同じ中身にならないようにする（退避は順番待ちの保存の前の中身のまま）。
 function doSaveCards(cb) {
   if (!doSaveCards._diag) { doSaveCards._diag = { busyStartTime:null, currentFlushStartTime:null, pendingCount:0, busyEndTime:null }; }
   if (doSaveCards._busy) {
     // 実行中：新規writerを増やさず、保留1件へ合流する。
+    saveLS(); // 書き込み中の同期保存：localStorageへは今のcardsを先に保存する（戻り値は見ない）
     if (!doSaveCards._pending) doSaveCards._pending = [];
     doSaveCards._pending.push(cb);
     doSaveCards._diag.pendingCount = doSaveCards._pending.length;
@@ -3598,9 +3604,9 @@ function doSaveCards(cb) {
   doSaveCards._busy = true;
   doSaveCards._diag.busyStartTime = Date.now();
   doSaveCards._diag.busyEndTime = null;
-  (function flush(fcb) {
+  (function flush(fcb, merged) {
     doSaveCards._diag.currentFlushStartTime = Date.now();
-    var okLS = saveLS();
+    var okLS = merged ? saveLS({skipBackup:true}) : saveLS();
     function finish(ok) {
       try { fcb && fcb(ok); } catch (e) { /* callback例外はキュー進行を止めない */ }
       var pending = doSaveCards._pending;
@@ -3613,7 +3619,7 @@ function doSaveCards(cb) {
           pending.forEach(function(pcb) {
             try { pcb && pcb(ok2); } catch (e) { /* 1件の例外で他のcbを止めない */ }
           });
-        });
+        }, true);
       } else {
         doSaveCards._busy = false;
         doSaveCards._diag.busyEndTime = Date.now();
@@ -21046,9 +21052,20 @@ function autoCommitEdit(){
 }
 function maybeRestoreDraft(){
   var dr=getDraft(); if(!dr||!dr.data) return;
-  if(dr.id&&dr.id!=='new'){ var exc=cards.find(function(c){return c.id===dr.id;}); if(exc&&JSON.stringify(exc)===JSON.stringify(dr.data)){ clearDraft(); return; } }
+  // 起動時の下書きの比べ（2026-10-11 高田さん承認）：updated_at を外して比べ、同じなら下書きを消す（並び順が違えば一致しないだけ＝安全側）。
+  // 中身が違い、保存側の updated_at が下書きの ts より新しければ（両方読めるときだけ）、破棄を主にした案内にする。新規カードの下書き（id:'new'）も data.id で保存済みのカードを引く。
+  var exId=(dr.id==='new')?dr.data.id:dr.id, savedNewer=false;
+  if(exId){ var exc=cards.find(function(c){return c.id===exId;}); if(exc){ var _a=Object.assign({},exc), _b=Object.assign({},dr.data); delete _a.updated_at; delete _b.updated_at; if(JSON.stringify(_a)===JSON.stringify(_b)){ clearDraft(); return; } var _tSaved=Date.parse(exc.updated_at), _tDraft=Date.parse(dr.ts); if(!isNaN(_tSaved)&&!isNaN(_tDraft)&&_tSaved>_tDraft) savedNewer=true; } }
   var when=''; try{ when=_fmtStamp(dr.ts); }catch(e){}
   var nm=(dr.data&&dr.data.name)?e(dr.data.name)+'\u69d8':'(\u540d\u524d\u672a\u5165\u529b)';
+  if(savedNewer){
+    aibisAlert('\u524d\u56de\u306e<b>\u672a\u4fdd\u5b58\u306e\u5165\u529b</b>\u306e\u63a7\u3048\u304c\u898b\u3064\u304b\u3063\u305f\u3088\ud83d\udcdd<br>'+nm+'\u3000'+when+'<br><br>\u3067\u3082\u3001<b>\u4fdd\u5b58\u6e08\u307f\u306e\u5185\u5bb9\u306e\u65b9\u304c\u65b0\u3057\u3044</b>\u3088\u3002\u63a7\u3048\u3092\u958b\u304f\u3068\u3001\u65b0\u3057\u3044\u4fdd\u5b58\u3092\u53e4\u3044\u5185\u5bb9\u3067\u4e0a\u66f8\u304d\u3057\u3066\u3057\u307e\u3046\u304b\u3082\u3002<br>\u63a7\u3048\u306f\u7834\u68c4\u3059\u308b\u306e\u304c\u304a\u3059\u3059\u3081\u3002<br><br>'
+      +'<div style="display:flex;gap:8px;margin-top:8px">'
+      +'<button onclick="closeAibisAlert();_discardDraft()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u7834\u68c4\u3059\u308b</button>'
+      +'<button onclick="closeAibisAlert();_restoreDraft()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u305d\u308c\u3067\u3082\u63a7\u3048\u306e\u5185\u5bb9\u3092\u958b\u304f</button>'
+      +'</div>');
+    return;
+  }
   aibisAlert('\u524d\u56de\u306e<b>\u672a\u4fdd\u5b58\u306e\u5165\u529b</b>\u304c\u898b\u3064\u304b\u3063\u305f\u3088\ud83d\udcdd<br>'+nm+'\u3000'+when+'<br><br>\u958b\u3044\u3066\u7d9a\u3051\u308b\uff1f<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
     +'<button onclick="closeAibisAlert();_restoreDraft()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u958b\u3044\u3066\u7d9a\u3051\u308b</button>'
@@ -21058,6 +21075,7 @@ function maybeRestoreDraft(){
 function _restoreDraft(){
   var dr=getDraft(); if(!dr||!dr.data) return;
   cur=dr.data; curId=(dr.id&&dr.id!=='new')?dr.id:null;
+  if(dr.id==='new'&&dr.data.id&&cards.some(function(c){return c.id===dr.data.id;})) curId=dr.data.id; // 新規カードの下書きが保存済みなら、そのカードとして開く（次の保存で同じidを二重に入れない・2026-10-11）
   document.getElementById('listView').style.display='none';
   document.getElementById('setupView').style.display='none';
   document.getElementById('editView').style.display=hasFSA&&!isMob?'flex':'block';
