@@ -2967,7 +2967,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.49";
+var APP_VERSION = "v11.50";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -10285,7 +10285,7 @@ if(document.readyState === 'loading'){
     'revisits.content/rec':     ['tr', null],
     'pursuits.date':             ['tp', null],
     'pursuits.content/rec':      ['tp', null],
-    'stage':                     ['tp', null]
+    'stage':                     ['ti', null]
   };
   var KLOG_TAB = 'ta';
   var AI_FIELD_ANCHOR = { ai_inheritance: 'f_ai_inheritance', ai_hearing: 'f_ai_hearing', ai_motivation: 'f_ai_motivation', ai_personality: 'f_ai_personality', ai_general: 'f_ai_general', ai_next_visit: 'f_ai_next_visit' };
@@ -10310,6 +10310,15 @@ if(document.readyState === 'loading'){
   function _kcvMissingAsk(m) {
     if (typeof zKnowMissingAsk === 'function') { var a = zKnowMissingAsk(m); if (a && a.ask) return a; }
     return { ask: m, short: m, nav: null };
+  }
+  // T4: カードの状態で決めた飛び先と行内の案内文（knowledge_ask_nav.js）。無ければ飛び先も案内も無し。
+  function _kcvAskTarget(m, card) {
+    if (typeof zKnowAskTarget === 'function') { try { var t = zKnowAskTarget(m, card); if (t) return t; } catch (_e) {} }
+    return { nav: null, hint: '' };
+  }
+  // T4 段階3: 根拠の行の飛び先（knowledge_ask_nav.js）。決められなければ null（今までの飛び方）。
+  function _kcvEvidenceTarget(ev, card) {
+    try { return zKnowEvidenceTarget(ev.field, ev.preview, card) || null; } catch (_e) { return null; }
   }
   function _kcvStanceText(preview) {
     if (typeof zKnowStanceLabel !== 'function') return preview;
@@ -10410,8 +10419,15 @@ if(document.readyState === 'loading'){
 
   // 第1品質ゲートM4是正: navSpecは[tab, panelIdOrNull]。panelId有りならDOM確定後に
   // _cardScrollToPanel(id,0)を呼ぶ。panelId無しはtab遷移のみに留め「panelへ戻れる」と偽装しない。
-  function _kcvNavigateTo(navSpec) {
+  // T4: 飛ぶ処理（knowledge_ask_nav.js::zKnowNavigate）があればそれで飛ぶ（askNav＝カードの状態で決めた
+  // 飛び先。無ければnavSpecの[tab, panelId]）。zKnowNavigateが無ければ今までの飛び方のまま。
+  // opts.focus===false は光らせるだけ（焦点を当てない）。根拠の行の「→ 該当箇所へ」はこれで呼ぶ。
+  function _kcvNavigateTo(navSpec, askNav, opts) {
     _kcvCloseOverlay();
+    if (typeof zKnowNavigate === 'function') {
+      try { zKnowNavigate(askNav || null, navSpec, opts); } catch (_eAskNav) { /* 読取専用機能のため無視する */ }
+      return;
+    }
     try {
       var tab = navSpec && navSpec[0], panelId = navSpec && navSpec[1];
       if (!tab) return;
@@ -10519,11 +10535,13 @@ if(document.readyState === 'loading'){
       row.appendChild(_kcvEl('div', { text: 'カード項目：' + _kcvFieldLabel(ev.field), style: { fontSize: '10px', color: '#a0aec0', marginBottom: '2px' } }));
       row.appendChild(_kcvEl('div', { text: (ev.field === 'family.met/stance') ? _kcvStanceText(ev.preview) : ev.preview, style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }));
       var navSpec = FIELD_NAV_MAP[ev.field];
+      // T4 段階3: 行・段階のボタンなど、カードの写しで決められる所はその場所へ（knowledge_ask_nav.js）。
+      var evNav = (navSpec && typeof zKnowEvidenceTarget === 'function') ? _kcvEvidenceTarget(ev, ctx.cardSnapshot) : null;
       if (navSpec) {
         var navBtn3 = _kcvEl('button', {
-          text: navSpec[1] ? '\u2192 該当箇所へ' : '\u2192 該当タブへ', attrs: { type: 'button' },
+          text: (navSpec[1] || evNav) ? '\u2192 該当箇所へ' : '\u2192 該当タブへ', attrs: { type: 'button' },
           style: { marginTop: '4px', fontSize: '11px', padding: '3px 7px', border: '1px solid #cbd5e0', borderRadius: '4px', background: 'white', cursor: 'pointer', fontFamily: 'inherit' },
-          onclick: function () { _kcvNavigateTo(navSpec); }
+          onclick: function () { _kcvNavigateTo(navSpec, evNav, { focus: false }); }
         });
         row.appendChild(navBtn3);
       }
@@ -10794,11 +10812,12 @@ if(document.readyState === 'loading'){
   // 第256弾: 「📝 次に聞いてきてほしいこと」。「把握」以外の軸の足りないものを軸の順に並べる。
   // 行頭は6軸の略称（card_axis_strip.jsと同じ）。障害・矛盾の文はここでは繰り返さない。
   var KCV_AXIS_ABBR = { contact: '接触', family: '家族', asset: '資産', motivation: '動機', proposal: '提案', nextaction: '次回' };
-  function _kcvRenderAskPanel(container, axes) {
+  // T4: cardは開いたときのカードの写し（ctx.cardSnapshot）。飛び先と案内文をカードの状態で決める。
+  function _kcvRenderAskPanel(container, axes, card) {
     var items = [];
     (axes || []).forEach(function (ax) {
       if (!ax || ax.level === '\u628a\u63e1' || !Array.isArray(ax.missing)) return;
-      ax.missing.forEach(function (m) { items.push({ abbr: KCV_AXIS_ABBR[ax.key] || ax.label, a: _kcvMissingAsk(m) }); });
+      ax.missing.forEach(function (m) { items.push({ abbr: KCV_AXIS_ABBR[ax.key] || ax.label, a: _kcvMissingAsk(m), t: _kcvAskTarget(m, card) }); });
     });
     if (items.length === 0) return;
     var box = _kcvEl('div', { attrs: { id: 'kcvAskPanel' }, style: { background: '#fffbeb', border: '1px solid #f6e05e', borderRadius: '8px', padding: '8px 10px', marginBottom: '10px' } });
@@ -10806,13 +10825,21 @@ if(document.readyState === 'loading'){
     items.forEach(function (it) {
       var row = _kcvEl('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '6px', flexWrap: 'wrap', fontSize: '12px', color: '#4a5568', padding: '3px 0', borderTop: '1px dashed #faf089' } });
       row.appendChild(_kcvEl('span', { text: it.abbr, style: { flexShrink: '0', fontWeight: '700', fontSize: '11px', color: '#975a16', background: '#fefcbf', borderRadius: '8px', padding: '0 6px' } }));
-      row.appendChild(_kcvEl('span', { text: it.a.ask, style: { flex: '1 1 200px', minWidth: '0', wordBreak: 'break-word' } }));
-      if (it.a.nav && it.a.nav[0]) {
+      var askSpan = _kcvEl('span', { text: it.a.ask, style: { flex: '1 1 200px', minWidth: '0', wordBreak: 'break-word' } });
+      if (it.t.hint) {
+        // 行内の案内文（例：次に会う日をこの行の訪問日に入れましょう）。聞き方の文の次の行に出す。
+        askSpan.appendChild(_kcvEl('br', {}));
+        askSpan.appendChild(_kcvEl('span', { text: it.t.hint, style: { color: '#975a16' } }));
+      }
+      row.appendChild(askSpan);
+      // 飛び先があればボタン。案内だけ（飛び先なし・案内あり）のときはボタンを出さない。
+      if (it.t.nav || (!it.t.hint && it.a.nav && it.a.nav[0])) {
         var navSpecAsk = it.a.nav;
+        var askNavTarget = it.t.nav;
         row.appendChild(_kcvEl('button', {
           text: '\u270e 入力欄を開く', attrs: { type: 'button' },
           style: { flexShrink: '0', fontSize: '11px', padding: '2px 7px', border: '1px solid #d69e2e', borderRadius: '4px', background: 'white', cursor: 'pointer', fontFamily: 'inherit', color: '#744210' },
-          onclick: function () { _kcvNavigateTo(navSpecAsk); }
+          onclick: function () { _kcvNavigateTo(navSpecAsk, askNavTarget); }
         }));
       }
       box.appendChild(row);
@@ -10886,7 +10913,7 @@ if(document.readyState === 'loading'){
       return;
     }
 
-    _kcvRenderAskPanel(body, deriveResult.axes);
+    _kcvRenderAskPanel(body, deriveResult.axes, ctx.cardSnapshot);
     _kcvRenderLevelLegend(body, deriveResult.axes);
     var axesBox = _kcvEl('div', { style: { marginBottom: '6px' } });
     deriveResult.axes.forEach(function (ax) { _kcvRenderAxisChip(axesBox, ax, ctx); });
@@ -11108,10 +11135,10 @@ var ZKNOW_MISSING_ASK = {
     short: '土地の今の使い道を聞く', nav: ['ti', 'f_genjo'] },
   '段階（stage）の設定': {
     ask: 'お客様の気持ちがどの段階か（面識・注意・興味・連想・欲求・比較・信念・決心）を選んでください',
-    short: '気持ちの段階を選ぶ', nav: ['tp', null] },
+    short: '気持ちの段階を選ぶ', nav: ['ti', null] },
   '段階理由または動機・人物像の根拠': {
     ask: 'なぜその段階だと思ったか、何がきっかけで考え始めたかを聞いて書いてください',
-    short: 'きっかけと理由を聞く', nav: ['tp', null] },
+    short: 'きっかけと理由を聞く', nav: ['ti', null] },
   '有効な提案依頼（proposal_req＋strict有効日付・未来日でない）': {
     ask: '「一度プランを見てみたい」と言っていただけたら、提案依頼のボタンを押してください（押した日も残ります）',
     short: '提案のご依頼をいただく', nav: ['tr', 'proposalReqBtn'] },
@@ -11148,6 +11175,315 @@ function zKnowConfirmationUiEnabled(){
     if(typeof isMgrUnlocked === 'function' && isMgrUnlocked() === true) return true;
     return false;
   }catch(_eKnowUi){ return false; }
+}
+
+// ===== T4: 「次に聞く」の飛ぶ先（knowledge-ask-nav・2026-10-11 高田さん承認） =====
+// 目的：🧭 現状ナレッジの「📝 次に聞いてきてほしいこと」の「✎ 入力欄を開く」を、カードの状態に
+// 合った入力欄へ飛ばす（今までは状態を見ずに決まったタブへ飛んでいた。段階の設定は追撃タブを
+// 指していたが、段階のボタンは初訪タブにある）。
+// - knowledge_display_labels.js／card_axis_strip.js と同じく即時関数で包まず、関数をそのまま置く。
+// - 画面の外（window）へは何も公開しない。保存領域には一切触れない。カードの値も変えない。
+// - zKnowAskTarget は純関数（画面・タイマー・保存領域を使わない）。飛び先と案内文を返すだけ。
+//   判定はカードの写し（cardSnapshot）の値だけで行う（isRevisitJudgeDone は開発版で常に真のため使わない）。
+// - zKnowNavigate は飛ぶだけ（タブを切り替え、欄を見える位置へ動かし、1.5秒だけ縁を光らせる）。
+//   値は変えない（input／change を出さない）。表示・配置・余白・大きさは変えない（光らせるのは outline だけ）。
+// 呼ぶ側（knowledge_card_view.js）は typeof で存在を確かめ、無ければ今までの飛び方のまま。
+
+// 「再訪が3回そろった」と見る回数。アプリの他の場所と同じ REVISIT_PHASE.times（list_core.js）を読む。
+// 読み込み順で未定義でも、数字が不正でも、3回として扱う。
+function _zKnowAskRevisitTimes(){
+  var t = (typeof REVISIT_PHASE !== 'undefined' && REVISIT_PHASE) ? REVISIT_PHASE.times : 0;
+  return (typeof t === 'number' && t > 0) ? t : 3;
+}
+
+// 派生（knowledge_derive.js）が出す「足りないもの」の文（13文）→ 飛び先を決める種類。
+var ZKNOW_ASK_KIND = {
+  '実接触記録（初訪内容／有効な再訪日／有効な追客日／家族対面）': 'contact',
+  '内容根拠（録音要約／再訪内容／追客内容／会話レベル／現地メモ／一般ナレッジ／AI総合分析）': 'content',
+  '家族構成の実名入力': 'family',
+  '決定者（owner／kp）の特定': 'family',
+  '家族との接触またはstance': 'family',
+  '定量情報（相続財産規模・路線価・面積等）': 'quant',
+  '定性課題（現況・土地種別・老朽貸家等）またはヒアリング根拠': 'qual',
+  '段階（stage）の設定': 'stage',
+  '段階理由または動機・人物像の根拠': 'stage_reason',
+  '有効な提案依頼（proposal_req＋strict有効日付・未来日でない）': 'proposal_req',
+  '依頼の質または素材（proposal_req_quality／ヒアリング根拠）': 'proposal_quality',
+  '有効な期日（未来のrevisits.date、または現在のpursuits.next_appo_date、または有効な判断pair）': 'next_date',
+  '狙いまたは判断（next_aim／revisit_judge＋日付pair／pursuit_judge_sel＋日付pair／次回行動klog／AI次回行動欄）': 'next_aim'
+};
+
+// 行の中に出す案内文（現場の言葉。英字の内部名は入れない）。
+var ZKNOW_ASK_HINT = {
+  stageReason: '入れる欄はありません。きっかけを聞いたら、動機引上げか性格応対の分析を貼ると理由として残ります',
+  proposalFirst: 'まず提案のご依頼をいただきましょう',
+  nextDateRow: '次に会う日をこの行の訪問日に入れましょう',
+  // 回数は読むたびに組み立てる（この読み込みの時点では REVISIT_PHASE がまだ無いため）。
+  get revisitsFull(){ return '再訪' + _zKnowAskRevisitTimes() + '回の記録がそろっています。課長と協議して再訪の判断を入れましょう'; },
+  judgePair: '判断と判定日をそろえましょう',
+  addPursuit: '追撃訪問を追加して次回アポ日を入れましょう',
+  lastPursuit: '最後の追撃訪問の次回に日付を入れましょう',
+  ended: '訪問を終える判断が入っています。次に会う日は入れなくてかまいません',
+  aimEnded: '訪問を終える判断が入っています。次回の狙いは入れなくてかまいません',
+  aimJudge: '課長と協議して、再訪の判断と判定日を入れましょう',
+  aimNextVisit: '次回作戦の分析を貼ると次回の狙いになります'
+};
+
+// 終える判断の値（knowledge_derive.js の VALID_REVISIT_JUDGE／VALID_PURSUIT_JUDGE_SEL の最後の値）。
+var ZKNOW_ASK_END_JUDGE = '打ち切り';
+
+function _zKnowAskText(v){
+  return (typeof v === 'string') ? v.trim() : '';
+}
+function _zKnowAskList(card, key){
+  return (card && Array.isArray(card[key])) ? card[key] : [];
+}
+// 再訪の判断を始めたか（判断・判定日・課長との協議のどれかが入っている）。
+function _zKnowAskRevisitStarted(card){
+  return !!(_zKnowAskText(card.revisit_judge) || _zKnowAskText(card.revisit_judge_date) || _zKnowAskText(card.revisit_4eyes));
+}
+// 再訪の判断と判定日がそろっているか。
+function _zKnowAskRevisitPaired(card){
+  return !!(_zKnowAskText(card.revisit_judge) && _zKnowAskText(card.revisit_judge_date));
+}
+function _zKnowAskEnded(card){
+  return _zKnowAskText(card.revisit_judge) === ZKNOW_ASK_END_JUDGE || _zKnowAskText(card.pursuit_judge_sel) === ZKNOW_ASK_END_JUDGE;
+}
+// 日付だけで中身（訪問内容・録音要約）が空の行のうち、最後の行の番号（無ければ -1）。
+function _zKnowAskLastDateOnly(rows){
+  for(var i = rows.length - 1; i >= 0; i--){
+    var r = rows[i];
+    if(r && _zKnowAskText(r.date) && !_zKnowAskText(r.content) && !_zKnowAskText(r.rec)) return i;
+  }
+  return -1;
+}
+// 訪問日が空の最初の行の番号（無ければ -1）。
+function _zKnowAskFirstNoDate(rows){
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if(r && !_zKnowAskText(r.date)) return i;
+  }
+  return -1;
+}
+// 訪問内容か録音要約が入っている行の数（list_core.js の _revisitCount と同じ数え方）。
+function _zKnowAskVisitedCount(rows){
+  var n = 0;
+  rows.forEach(function(r){ if(r && (_zKnowAskText(r.content) || _zKnowAskText(r.rec))) n++; });
+  return n;
+}
+function _zKnowAskOut(nav, hint){
+  return { nav: nav, hint: hint || '' };
+}
+
+function _zKnowAskNextDate(card){
+  var revisits = _zKnowAskList(card, 'revisits');
+  var pursuits = _zKnowAskList(card, 'pursuits');
+  // 終える判断（再訪・追撃のどちらか）は、ほかのどの案内よりも先に見る（案内だけでボタンを出さない）。
+  if(_zKnowAskEnded(card)) return _zKnowAskOut(null, ZKNOW_ASK_HINT.ended);
+  if(!_zKnowAskRevisitStarted(card)){
+    // 再訪が3回そろっていれば、空いた日付の行より先に課長との協議へ（一覧の判定待ち・判断ボタンと同じ見方）。
+    if(_zKnowAskVisitedCount(revisits) >= _zKnowAskRevisitTimes()){
+      return _zKnowAskOut({ tab: 'tr', id: 'f_r4eyes' }, ZKNOW_ASK_HINT.revisitsFull);
+    }
+    var empty = _zKnowAskFirstNoDate(revisits);
+    if(empty >= 0){
+      return _zKnowAskOut({ tab: 'tr', id: 'rv_' + empty + '_c', up: '.vcard', focusSel: 'input[data-f="date"]' }, ZKNOW_ASK_HINT.nextDateRow);
+    }
+    return _zKnowAskOut({ tab: 'tr' }, '');
+  }
+  if(!_zKnowAskRevisitPaired(card)){
+    return _zKnowAskOut({ tab: 'tr', id: 'f_rjdate' }, ZKNOW_ASK_HINT.judgePair);
+  }
+  if(pursuits.length === 0){
+    return _zKnowAskOut({ tab: 'tp', id: 'addPursuitBtn' }, ZKNOW_ASK_HINT.addPursuit);
+  }
+  return _zKnowAskOut({ tab: 'tp', id: 'pt_' + (pursuits.length - 1) + '_c', up: '.vcard', focusSel: 'input[data-f="nad"]' }, ZKNOW_ASK_HINT.lastPursuit);
+}
+
+function _zKnowAskNextAim(card){
+  // 終える判断（再訪・追撃のどちらか）は、ほかのどの案内よりも先に見る（案内だけでボタンを出さない）。
+  if(_zKnowAskEnded(card)) return _zKnowAskOut(null, ZKNOW_ASK_HINT.aimEnded);
+  var revisits = _zKnowAskList(card, 'revisits');
+  var started = _zKnowAskRevisitStarted(card);
+  if(started && !_zKnowAskRevisitPaired(card)){
+    return _zKnowAskOut({ tab: 'tr', id: 'f_rjdate' }, ZKNOW_ASK_HINT.aimJudge);
+  }
+  if(!started && _zKnowAskVisitedCount(revisits) >= _zKnowAskRevisitTimes()){
+    return _zKnowAskOut({ tab: 'tr', id: 'f_r4eyes' }, ZKNOW_ASK_HINT.aimJudge);
+  }
+  return _zKnowAskOut({ tab: 'ta', id: 'f_ai_next_visit', theme: 'next_visit' }, ZKNOW_ASK_HINT.aimNextVisit);
+}
+
+function _zKnowAskContent(card){
+  if(_zKnowAskRevisitStarted(card)){
+    var p = _zKnowAskLastDateOnly(_zKnowAskList(card, 'pursuits'));
+    if(p >= 0) return _zKnowAskOut({ tab: 'tp', id: 'pt_' + p + '_c' }, '');
+  }
+  var r = _zKnowAskLastDateOnly(_zKnowAskList(card, 'revisits'));
+  if(r >= 0) return _zKnowAskOut({ tab: 'tr', id: 'rv_' + r + '_c' }, '');
+  return _zKnowAskOut({ tab: 'ti', id: 'f_content_rec' }, '');
+}
+
+// 足りないものの文とカードの写しから、飛び先（nav）と行内の案内文（hint）を決める。
+// nav が null で hint があれば「案内だけ」（ボタンを出さない）。nav も hint も無ければ呼ぶ側の今の飛び方。
+// 返す nav：{ tab, id または sel, up（基準にする祖先）, focusSel（焦点を当てる欄）, theme（戦略のテーマ） }。
+function zKnowAskTarget(missingText, card){
+  var t = String(missingText == null ? '' : missingText);
+  var c = (card && typeof card === 'object') ? card : {};
+  var kind = Object.prototype.hasOwnProperty.call(ZKNOW_ASK_KIND, t) ? ZKNOW_ASK_KIND[t] : '';
+  if(kind === 'contact') return _zKnowAskOut({ tab: 'ti', id: 'f_content' }, '');
+  if(kind === 'content') return _zKnowAskContent(c);
+  if(kind === 'family') return _zKnowAskOut({ tab: 'ti', id: 'famGen0', up: '.sec' }, '');
+  if(kind === 'quant') return _zKnowAskOut({ tab: 'ti', id: 'f_m2' }, '');
+  if(kind === 'qual') return _zKnowAskOut({ tab: 'ti', id: 'f_genjo' }, '');
+  if(kind === 'stage') return _zKnowAskOut({ tab: 'ti', sel: '.stbtn[data-s="0"]', up: '.sec' }, '');
+  if(kind === 'stage_reason') return _zKnowAskOut(null, ZKNOW_ASK_HINT.stageReason);
+  if(kind === 'proposal_req') return _zKnowAskOut({ tab: 'tr', id: 'proposalReqBtn' }, '');
+  if(kind === 'proposal_quality'){
+    if(c.proposal_req !== true) return _zKnowAskOut({ tab: 'tr', id: 'proposalReqBtn' }, ZKNOW_ASK_HINT.proposalFirst);
+    return _zKnowAskOut({ tab: 'tp', id: 'f_proposal_quality' }, '');
+  }
+  if(kind === 'next_date') return _zKnowAskNextDate(c);
+  if(kind === 'next_aim') return _zKnowAskNextAim(c);
+  return _zKnowAskOut(null, '');
+}
+
+// 段階3：軸の行の「→ 該当箇所へ」（カードの項目の根拠）の飛び先。
+// 根拠の表示（preview）は派生の _kdPreview40 と同じ作り方（最初の空でない行・40字超は40字＋…）。
+function _zKnowAskPreview40(v){
+  var lines = (typeof v === 'string' ? v : '').split('\n');
+  var first = '';
+  for(var i = 0; i < lines.length; i++){
+    var t = lines[i].trim();
+    if(t.length > 0){ first = t; break; }
+  }
+  return first.length > 40 ? (first.slice(0, 40) + '…') : first;
+}
+// 再訪・追撃の行のうち、test に合う行がちょうど1行ならその番号（0行・2行以上は -1）。
+function _zKnowAskOneRow(rows, test){
+  var hit = -1;
+  for(var i = 0; i < rows.length; i++){
+    if(rows[i] && test(rows[i])){
+      if(hit >= 0) return -1;
+      hit = i;
+    }
+  }
+  return hit;
+}
+var ZKNOW_EVIDENCE_ROWS = {
+  'revisits.date':        { list: 'revisits', tab: 'tr', pre: 'rv_', by: 'date' },
+  'pursuits.date':        { list: 'pursuits', tab: 'tp', pre: 'pt_', by: 'date' },
+  'revisits.content/rec': { list: 'revisits', tab: 'tr', pre: 'rv_', by: 'text' },
+  'pursuits.content/rec': { list: 'pursuits', tab: 'tp', pre: 'pt_', by: 'text' }
+};
+// 根拠の項目名・表示・カードの写しから飛び先を決める。決められなければ null（呼ぶ側は今までの飛び方）。
+// 日付は表示と同じ日付の行、内容は表示が行の訪問内容か録音要約の表示と同じ行が、ちょうど1行のときだけ。
+function zKnowEvidenceTarget(field, preview, card){
+  var f = String(field == null ? '' : field);
+  if(f === 'stage') return { tab: 'ti', sel: '.stbtn[data-s="0"]', up: '.sec' };
+  if(!Object.prototype.hasOwnProperty.call(ZKNOW_EVIDENCE_ROWS, f)) return null;
+  var spec = ZKNOW_EVIDENCE_ROWS[f];
+  var p = String(preview == null ? '' : preview);
+  if(!p.trim()) return null;
+  var rows = _zKnowAskList((card && typeof card === 'object') ? card : {}, spec.list);
+  var i;
+  if(spec.by === 'date'){
+    i = _zKnowAskOneRow(rows, function(r){ return _zKnowAskText(r.date) === p.trim(); });
+    if(i < 0) return null;
+    return { tab: spec.tab, id: spec.pre + i + '_c', up: '.vcard', focusSel: 'input[data-f="date"]' };
+  }
+  i = _zKnowAskOneRow(rows, function(r){
+    return (_zKnowAskText(r.content) && _zKnowAskPreview40(r.content) === p) || (_zKnowAskText(r.rec) && _zKnowAskPreview40(r.rec) === p);
+  });
+  if(i < 0) return null;
+  return { tab: spec.tab, id: spec.pre + i + '_c', up: '.vcard' };
+}
+
+// ===== ここから下は飛ぶ処理（画面に触れる。値は変えない） =====
+var ZKNOW_NAV_GLOW_MS = 1500;
+var ZKNOW_NAV_GLOW_OUTLINE = '3px solid var(--za-amber)';
+var ZKNOW_NAV_FOCUS_TAGS = { INPUT: 1, TEXTAREA: 1, SELECT: 1 };
+var _zKnowNavGlowing = null;
+
+// 飛び先の要素を探す。id は getElementById、sel はそのタブの中で探す。up があればその祖先を基準にする。
+function _zKnowNavResolve(nav){
+  var el = null;
+  if(nav.id){
+    el = document.getElementById(nav.id);
+  }else if(nav.sel){
+    var panel = document.getElementById(nav.tab);
+    el = panel ? panel.querySelector(nav.sel) : null;
+  }
+  if(!el) return null;
+  var base = (nav.up && typeof el.closest === 'function') ? (el.closest(nav.up) || el) : el;
+  return { el: el, base: base };
+}
+function _zKnowNavOpenDetails(node){
+  for(var p = node; p; p = p.parentElement){
+    if(p.tagName === 'DETAILS' && !p.open) p.open = true;
+  }
+}
+// カードの実際のスクロール（editView）だけを動かす。
+function _zKnowNavScroll(nav, hit){
+  if(nav.id && hit.base === hit.el && typeof _cardScrollToPanel === 'function'){
+    _cardScrollToPanel(nav.id, 0);
+    return;
+  }
+  if(typeof _cardScroller !== 'function') return;
+  var ev = _cardScroller();
+  if(!ev) return;
+  var top = hit.base.getBoundingClientRect().top - ev.getBoundingClientRect().top + ev.scrollTop
+    - (typeof _cardStickyH === 'function' ? _cardStickyH() : 0);
+  ev.scrollTop = (typeof _cardClampScroll === 'function') ? _cardClampScroll(top) : Math.max(0, Math.round(top));
+}
+// 入力欄なら焦点を当てる（スクロールさせない・値は変えない）。
+function _zKnowNavFocus(nav, hit){
+  var f = nav.focusSel ? hit.base.querySelector(nav.focusSel) : hit.el;
+  if(!f || !ZKNOW_NAV_FOCUS_TAGS[f.tagName] || f.disabled || f.readOnly || f.type === 'hidden') return;
+  try{ f.focus({ preventScroll: true }); }catch(_eFocus){}
+}
+function _zKnowNavGlowEnd(){
+  var g = _zKnowNavGlowing;
+  _zKnowNavGlowing = null;
+  if(!g) return;
+  clearTimeout(g.timer);
+  try{ g.node.style.outline = g.prev; }catch(_eGlow){}
+}
+// 飛んだ先を 1.5 秒だけ光らせる（outline だけ。並び・大きさは変えない）。
+function _zKnowNavGlow(node){
+  _zKnowNavGlowEnd();
+  var prev = node.style.outline;
+  node.style.outline = ZKNOW_NAV_GLOW_OUTLINE;
+  _zKnowNavGlowing = { node: node, prev: prev, timer: setTimeout(_zKnowNavGlowEnd, ZKNOW_NAV_GLOW_MS) };
+}
+
+// 飛ぶ。target は zKnowAskTarget の nav、fallbackNav は今までの [タブ, id または null]。
+// opts.focus が false のときは焦点を当てず、光らせるだけにする（根拠の行の「→ 該当箇所へ」用）。
+// 飛び先が見つからなければ、今までの飛び方のタブだけへ切り替える。飛べたら true。
+function zKnowNavigate(target, fallbackNav, opts){
+  try{
+    var ov = document.getElementById('kcvOverlay');
+    if(ov && ov.parentNode) ov.parentNode.removeChild(ov);
+    var doFocus = !(opts && opts.focus === false);
+    var fb = (Array.isArray(fallbackNav) && fallbackNav[0]) ? fallbackNav : null;
+    var nav = (target && target.tab) ? target : (fb && fb[1] ? { tab: fb[0], id: fb[1] } : null);
+    var hit = (nav && (nav.id || nav.sel)) ? _zKnowNavResolve(nav) : null;
+    var tab = hit ? nav.tab : (fb ? fb[0] : (nav ? nav.tab : null));
+    if(!tab) return false;
+    if(typeof switchTab === 'function') switchTab(tab);
+    if(!hit) return false;
+    if(nav.tab === 'ta' && nav.theme && typeof switchStrategyTab === 'function') switchStrategyTab(nav.theme);
+    _zKnowNavOpenDetails(hit.base);
+    // switchTab の表示の切り替えが画面に反映されてから動かす。
+    setTimeout(function(){
+      try{
+        _zKnowNavScroll(nav, hit);
+        if(doFocus) _zKnowNavFocus(nav, hit);
+        _zKnowNavGlow(hit.base);
+      }catch(_eLater){}
+    }, 0);
+    return true;
+  }catch(_eNav){ return false; }
 }
 
 // ===== 第212弾: customer-story-readonly Phase 1（営業知識OS 派生・read-onlyタイムライン） =====
