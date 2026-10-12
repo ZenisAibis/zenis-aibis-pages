@@ -1621,6 +1621,85 @@ body.is-mob .mob-menu{display:inline-block}
 }
 /* T5 (c) 左「データ保存先の設定」と右「まるごと引っ越しファイル」の説明枠の高さをそろえる：PC の2列（幅1000px以上）だけ。スマホ・1列には持ち込まない。配置系（min-height）はこの1行だけ。値は 1280px で実測した自然な高さ（左 130.5px・右 122px）の大きい方に余裕を足したもの（左が 130px を超えたので 140px ではなく 152px。CI の Linux の字で折り返しが増える恐れ） */
 @media screen and (min-width:1000px){ #setupView .setup-eq{min-height:152px} }
+/* ===== T2 確認カード（AI候補）案B（2026-10-12 高田さん承認）：#zConfirmCard を details にし、閉じた1行（summary）と開いた中身の見た目。screen限定＝印刷には効かない（no-print は維持） =====
+   色は --za-* の変数を使う。直書きは透明度つきの影と光（タイルの縁の白 .18、zcc-glow の紺 .45）だけ＝変数が無いので残した（段階1b・T5 と同じ）。
+   金は使わない（判断待ちの「！」は琥珀 --za-amber-hi、タイルは var(--za-navy-hi)・var(--za-navy)）。選択中の判断ボタンだけ共通の --za-sel／--za-sel-sh。段階1b の塊・T5 の塊には足さない。
+   常に動くのは判断待ちの「！」1つ。保存を促す点滅（#saveCardBtn.needsave）の間は止める。食い違いの「！」は3回点滅して止まる。動きを減らす設定では全部止める */
+@media screen{
+  #zConfirmCard{--zcc-st:var(--za-ai);--zcc-st-soft:var(--za-ai-soft);--zcc-st-line:var(--za-ai-line)}
+  #zConfirmCard[data-zcc-state="adopt"]{--zcc-st:var(--za-green-lo);--zcc-st-soft:var(--za-green-soft);--zcc-st-line:var(--za-green-line)}
+  #zConfirmCard[data-zcc-state="reject"]{--zcc-st:var(--za-mute);--zcc-st-soft:var(--za-gray-soft);--zcc-st-line:var(--za-line-mid)}
+  #zConfirmCard[data-zcc-state="hold"]{--zcc-st:var(--za-amber-ink);--zcc-st-soft:var(--za-amber-soft);--zcc-st-line:var(--za-amber-line)}
+  #zConfirmCard[data-zcc-conflict="1"]{--zcc-st:var(--za-warn);--zcc-st-soft:var(--za-warn-soft);--zcc-st-line:var(--za-warn-line)}
+  #zConfirmCard>summary{list-style:none;display:flex;align-items:center;gap:8px;min-height:40px;padding:4px 4px 4px 5px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;background:var(--za-surface);border-radius:var(--za-r-m);box-shadow:inset 3px 0 0 var(--zcc-st),0 0 0 1px var(--za-line),var(--za-sh-1)}
+  #zConfirmCard[open]>summary{box-shadow:inset 3px 0 0 var(--zcc-st),0 0 0 1px var(--zcc-st-line),var(--za-sh-1)}
+  #zConfirmCard>summary::-webkit-details-marker{display:none}
+  #zConfirmCard>summary::marker{content:""}
+  #zConfirmCard>summary:focus-visible{outline:2px solid var(--za-focus);outline-offset:2px}
+  #zConfirmCard .zcc-tile{position:relative;flex:0 0 auto;width:30px;height:30px;margin-left:3px;border-radius:var(--za-r-s);display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(180deg,var(--za-navy-hi),var(--za-navy));box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),var(--za-hl-dark)}
+  #zConfirmCard .zcc-tile::before{content:"";width:14px;height:14px;background:var(--za-surface);clip-path:polygon(0 4px,6px 4px,6px 0,8px 0,8px 2px,10px 2px,10px 4px,12px 4px,12px 6px,14px 6px,14px 8px,12px 8px,12px 10px,10px 10px,10px 12px,8px 12px,8px 14px,6px 14px,6px 10px,0 10px)}
+  #zConfirmCard .zcc-badge{position:absolute;top:-5px;right:-6px;width:14px;height:14px;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:11px;font-weight:900;line-height:1;clip-path:polygon(2px 0,12px 0,12px 2px,14px 2px,14px 12px,12px 12px,12px 14px,2px 14px,2px 12px,0 12px,0 2px,2px 2px)}
+  #zConfirmCard[data-zcc-state="pending"] .zcc-badge{background:var(--za-amber-hi);color:var(--za-navy);animation:zcc-bob var(--za-dur-loop) steps(1,end) infinite}
+  #zConfirmCard[data-zcc-state="pending"] .zcc-badge::before{content:"!"}
+  #zConfirmCard[data-zcc-state="adopt"] .zcc-badge{background:var(--za-green-lo);color:var(--za-surface)}
+  #zConfirmCard[data-zcc-state="adopt"] .zcc-badge::before{content:"\2713"}
+  #zConfirmCard[data-zcc-state="reject"] .zcc-badge{background:var(--za-mute);color:var(--za-surface)}
+  #zConfirmCard[data-zcc-state="reject"] .zcc-badge::before{content:"\2715"}
+  #zConfirmCard[data-zcc-state="hold"] .zcc-badge{background:var(--za-amber-soft);color:var(--za-amber-ink)}
+  #zConfirmCard[data-zcc-state="hold"] .zcc-badge::before{content:"\2016"}
+  #zConfirmCard[data-zcc-conflict="1"] .zcc-badge{background:var(--za-warn);color:var(--za-surface);animation:zcc-blink 1s steps(1,end) var(--za-blink-n)}
+  #zConfirmCard[data-zcc-conflict="1"] .zcc-badge::before{content:"!"}
+  #zConfirmCard .zcc-ttl{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--za-fs-base);font-weight:800;color:var(--za-navy)}
+  #zConfirmCard .zcc-ai{display:inline-block;margin-left:5px;padding:2px 6px 1px;border-radius:var(--za-r-pill);font-size:var(--za-fs-xs);font-weight:800;line-height:1.1;letter-spacing:.04em;color:var(--za-surface);background:var(--za-ai);vertical-align:1px}
+  #zConfirmCard .zcc-chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:var(--za-r-pill);font-size:var(--za-fs-xs);font-weight:800;line-height:1;white-space:nowrap;color:var(--zcc-st);background:var(--zcc-st-soft);box-shadow:inset 0 0 0 1px var(--zcc-st-line)}
+  #zConfirmCard[data-zcc-state="adopt"] .zcc-chip::before{content:"\2713";font-weight:900}
+  #zConfirmCard[data-zcc-state="reject"] .zcc-chip::before{content:"\2715";font-weight:900}
+  #zConfirmCard[data-zcc-state="hold"] .zcc-chip::before{content:"\2016";font-weight:900}
+  #zConfirmCard[data-zcc-conflict="1"] .zcc-chip::before{content:"\26A0"}
+  #zConfirmCard .zcc-dot{flex:0 0 auto;width:8px;height:8px;border-radius:var(--za-r-pill);background:var(--za-ai);box-shadow:0 0 0 2px var(--za-ai-line)}
+  #zConfirmCard .zcc-date{flex:0 0 auto;white-space:nowrap;color:var(--za-sub);font-size:var(--za-fs-xs)}
+  #zConfirmCard .zcc-chev{flex:0 0 auto;width:22px;height:22px;border-radius:var(--za-r-pill);display:inline-flex;align-items:center;justify-content:center;color:var(--za-sub)}
+  #zConfirmCard .zcc-chev::before{content:"";width:6px;height:6px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform var(--za-dur-mid) ease}
+  #zConfirmCard[open] .zcc-chev::before{transform:translateY(1px) rotate(-135deg)}
+  #zConfirmCard[open]>:not(summary){animation:zcc-in var(--za-dur-mid) ease-out 1}
+  #zConfirmCard>.zcc-head{margin:9px 4px 0;font-size:var(--za-fs-xs);font-weight:800;letter-spacing:.02em;color:var(--za-ai);overflow-wrap:anywhere}
+  #zConfirmCard>.zcc-conflict{margin-top:6px;padding:6px 9px;border-radius:var(--za-r-s);font-size:var(--za-fs-s);font-weight:800;line-height:1.45;color:var(--za-warn);background:var(--za-warn-soft);box-shadow:inset 0 0 0 1px var(--za-warn-line);overflow-wrap:anywhere}
+  #zConfirmCard>.zcc-row{font-size:var(--za-fs-s);line-height:1.55;color:var(--za-ink);overflow-wrap:anywhere}
+  #zConfirmCard>.zcc-row+.zcc-row{margin-top:5px}
+  #zConfirmCard>.zcc-tips{margin-top:4px;padding:0 4px;color:var(--za-warn);font-weight:700}
+  #zConfirmCard>.zcc-opt{margin-top:8px;padding:9px 11px 9px 13px;font-size:var(--za-fs-base);font-weight:700;color:var(--za-navy);background:var(--za-surface);border-radius:var(--za-r-m);box-shadow:inset 3px 0 0 var(--za-ai),0 0 0 1px var(--za-line),var(--za-sh-1)}
+  #zConfirmCard>.zcc-stance{padding:0 4px;color:var(--za-ai);font-weight:700}
+  #zConfirmCard>.zcc-reason{padding:0 4px;color:var(--za-mute)}
+  #zConfirmCard>.zcc-miss,#zConfirmCard>.zcc-caut{position:relative;padding:5px 9px 5px 29px;border-radius:var(--za-r-s);font-weight:600}
+  #zConfirmCard>.zcc-miss{color:var(--za-navy2);background:var(--za-navy-soft)}
+  #zConfirmCard>.zcc-caut{color:var(--za-warn);background:var(--za-warn-soft)}
+  #zConfirmCard>.zcc-miss::before,#zConfirmCard>.zcc-caut::before{position:absolute;left:8px;top:6px;width:15px;height:15px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;line-height:1;color:var(--za-surface);clip-path:polygon(2px 0,13px 0,13px 2px,15px 2px,15px 13px,13px 13px,13px 15px,2px 15px,2px 13px,0 13px,0 2px,2px 2px)}
+  #zConfirmCard>.zcc-miss::before{content:"?";background:var(--za-navy2)}
+  #zConfirmCard>.zcc-caut::before{content:"!";background:var(--za-warn)}
+  #zConfirmCard>.zcc-resp{margin-top:8px;padding:0 4px;font-weight:800;color:var(--zcc-st)}
+  #zConfirmCard>.zcc-resp::before{content:"";display:inline-block;width:7px;height:7px;background:currentColor;margin-right:6px;vertical-align:1px}
+  #zConfirmCard>.zcc-acts{display:flex;gap:8px;margin-top:9px;padding-bottom:5px}
+  #zConfirmCard>.zcc-acts>button{flex:1 1 0;min-width:0;min-height:40px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--za-sec-line);border-radius:var(--za-r-s);background:var(--za-sec);color:var(--za-sec-ink);font:inherit;font-size:var(--za-fs-m);font-weight:700;line-height:1;white-space:nowrap;cursor:pointer;touch-action:manipulation;box-shadow:var(--za-sec-sh)}
+  #zConfirmCard>.zcc-acts>button::before{display:inline-block;font-size:var(--za-fs-m);font-weight:900;line-height:1}
+  #zConfirmCard>.zcc-acts>button[data-zcc-act="adopt"]::before{content:"\2713";color:var(--za-green-lo)}
+  #zConfirmCard>.zcc-acts>button[data-zcc-act="reject"]::before{content:"\2715";color:var(--za-mute)}
+  #zConfirmCard>.zcc-acts>button[data-zcc-act="hold"]::before{content:"\2016";color:var(--za-amber-ink)}
+  #zConfirmCard>.zcc-acts>button:active{background:var(--za-sec-press);box-shadow:var(--za-sh-press)}
+  #zConfirmCard>.zcc-acts>button:focus-visible{outline:2px solid var(--za-focus);outline-offset:2px}
+  #zConfirmCard>.zcc-acts>button[aria-pressed="true"]{color:var(--za-surface);background:var(--za-sel);border-color:var(--za-navy);box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
+  #zConfirmCard>.zcc-acts>button[aria-pressed="true"]::before{color:var(--za-surface)}
+  #zConfirmCard[data-zcc-just="1"]>.zcc-acts>button[aria-pressed="true"]{animation:zcc-glow .9s ease-out 1}
+  #zConfirmCard[data-zcc-just="1"]>.zcc-acts>button[aria-pressed="true"]::before{animation:zcc-stamp var(--za-dur-once) cubic-bezier(.2,.9,.3,1.35) 1 both}
+  #zConfirmCard[data-zcc-just="1"] .zcc-chip,#zConfirmCard[data-zcc-just="1"] .zcc-badge{animation:zcc-pop var(--za-dur-once) cubic-bezier(.2,.9,.3,1.3) 1 both}
+  @keyframes zcc-in{from{opacity:0}to{opacity:1}}
+  @keyframes zcc-bob{0%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+  @keyframes zcc-blink{0%{opacity:1}50%{opacity:.35}}
+  @keyframes zcc-glow{0%{box-shadow:0 0 0 0 rgba(26,54,93,.45)}100%{box-shadow:0 0 0 12px rgba(26,54,93,0)}}
+  @keyframes zcc-stamp{0%{transform:scale(2.4) rotate(-14deg);opacity:0}55%{transform:scale(.88) rotate(0deg);opacity:1}100%{transform:scale(1);opacity:1}}
+  @keyframes zcc-pop{0%{transform:scale(.7);opacity:.2}60%{transform:scale(1.08);opacity:1}100%{transform:scale(1);opacity:1}}
+  #editView:has(#saveCardBtn.needsave) #zConfirmCard[data-zcc-state="pending"]:not([data-zcc-conflict="1"]) .zcc-badge{animation:none}
+  @media (prefers-reduced-motion:reduce){ #zConfirmCard,#zConfirmCard *,#zConfirmCard *::before,#zConfirmCard *::after{animation:none!important;transition:none!important} }
+}
 
 </style>
 </head>
@@ -2990,7 +3069,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.51";
+var APP_VERSION = "v11.52";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -12582,16 +12661,8 @@ function _zConfirmEl(tag, opts){
   opts = opts || {};
   if(opts.className) el.className = opts.className;
   if(opts.text != null) el.textContent = opts.text;
-  if(opts.style){ Object.keys(opts.style).forEach(function(k){ el.style[k] = opts.style[k]; }); }
   if(opts.attrs){ Object.keys(opts.attrs).forEach(function(k){ el.setAttribute(k, opts.attrs[k]); }); }
   return el;
-}
-
-// 1行=1visual line用の共通style（横方向はellipsisで省略し、文書横overflowを起こさない。
-// 明示的な幅指定・vw単位・パーセント単位は使わない＝block要素のauto幅がそのまま親paddingの
-// 内側に収まるため、overflow:hidden＋white-space:nowrapだけで安全にellipsis化できる）。
-function _zConfirmRowStyle(color){
-  return { fontSize:'11px', color: color || '#4a5568', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' };
 }
 
 // ───────────────────────────────────────────
@@ -12617,16 +12688,6 @@ function _zConfirmFmtMD208(iso){
   return mo + '/' + da;
 }
 
-function _zConfirmButtonStyle208(active){
-  return {
-    flex:'1', fontSize:'11px', fontWeight:'700', padding:'5px 2px', borderRadius:'6px',
-    border:'1px solid ' + (active ? '#805ad5' : '#cbd5e0'),
-    background: active ? '#805ad5' : '#ffffff',
-    color: active ? '#ffffff' : '#4a5568',
-    cursor:'pointer', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
-  };
-}
-
 // 採用/却下/保留ボタン共通click handler。新API呼出siteはファイル内ちょうど1箇所＝ここ。
 // 成功（ok:true。code:ok/deduped/unchangedのいずれも含む）時だけzStratStripRender(card)を
 // 1回呼び、fresh read後の再描画へ戻す。失敗時はerror toastのみでDOM状態（aria-pressed等）を
@@ -12638,6 +12699,8 @@ function _zConfirmHandleClick208(customerId, councilId, actionKey, candidateFull
     });
     if(res208 && res208.ok){
       if(typeof zStratStripRender === 'function') zStratStripRender(card);
+      var box208 = document.getElementById('zConfirmCard');
+      if(box208 && box208.style.display !== 'none'){ box208.open = true; box208.setAttribute('data-zcc-just', '1'); }
     } else {
       if(typeof toast === 'function') toast('担当者判断の記録に失敗しました');
     }
@@ -12656,6 +12719,8 @@ function zConfirmCardRender(card, d){
   if(!box) return;
   try{
     while(box.firstChild) box.removeChild(box.firstChild);
+    box.open = false;                       // T2: 描き直しは常に閉じた形
+    box.setAttribute('data-zcc-just', '0'); // ハンコの印も消す
 
     // OPTIONSは表示可否の判定自体にも使うため先に1回だけ算出し、_zConfirmShouldHideへ渡す
     // （zStratExtractSectionBodyの呼出をOPTIONS/MISSING/CAUTIONそれぞれちょうど1回に保つ）。
@@ -12676,11 +12741,37 @@ function zConfirmCardRender(card, d){
     // カード上部のこの帯で知らせる。ボタンを1回選ぶと、食い違った判断・分かれ目の記録を全部参照する
     // 新しい判断として記録される（参照一覧はnextActionResponseApplyV1が同じresolverで付ける）。
     var conflict259 = (d && d.confirmConflict) ? d.confirmConflict : null;
+
+    // T2: 閉じた1行（summary）。状態は属性で持ち、色と印は main.css の T2 の塊が付ける
+    var stateKeyT2 = (currentResp208 && ['adopt', 'reject', 'hold'].indexOf(currentResp208.response) >= 0) ? currentResp208.response : 'pending';
+    box.setAttribute('data-zcc-state', stateKeyT2);
+    box.setAttribute('data-zcc-conflict', conflict259 ? '1' : '0');
+    var sumT2 = _zConfirmEl('summary');
+    var tileT2 = _zConfirmEl('span', { className: 'zcc-tile', attrs: { 'aria-hidden': 'true' } });
+    tileT2.appendChild(_zConfirmEl('span', { className: 'zcc-badge' }));
+    sumT2.appendChild(tileT2);
+    var ttlT2 = _zConfirmEl('span', { text: '次の一手', className: 'zcc-ttl' });
+    ttlT2.appendChild(_zConfirmEl('span', { text: 'AI', className: 'zcc-ai' }));
+    sumT2.appendChild(ttlT2);
+    var chipMDT2 = currentResp208 ? _zConfirmFmtMD208(currentResp208.occurredAt) : '';
+    var chipT2 = _zConfirmEl('span', {
+      text: conflict259 ? '食い違い' : (currentResp208 ? ((_ZCONFIRM_RESPONSE_LABEL_208[currentResp208.response] || '') + (chipMDT2 ? (' ' + chipMDT2) : '')) : null),
+      className: 'zcc-chip'
+    });
+    if(!conflict259 && !currentResp208){
+      chipT2.appendChild(_zConfirmEl('span', { className: 'zcc-dot', attrs: { 'aria-hidden': 'true' } }));
+      chipT2.appendChild(_zConfirmEl('span', { text: '判断待ち' }));
+    }
+    sumT2.appendChild(chipT2);
+    if(d.dateMD) sumT2.appendChild(_zConfirmEl('span', { text: '協議 ' + d.dateMD, className: 'zcc-date' }));
+    sumT2.appendChild(_zConfirmEl('span', { className: 'zcc-chev', attrs: { 'aria-hidden': 'true' } }));
+    box.appendChild(sumT2);
+
     if(conflict259){
       box.appendChild(_zConfirmEl('div', {
         text: '⚠ PC とスマホで判断が違います（選んでください）',
-        attrs: { 'data-zconfirm-conflict': '1', role: 'status' },
-        style: { fontSize:'11px', fontWeight:'700', color:'#9c4221', background:'#fffaf0', border:'1px solid #f6ad55', borderRadius:'6px', padding:'3px 6px', marginBottom:'3px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }
+        className: 'zcc-conflict',
+        attrs: { 'data-zconfirm-conflict': '1', role: 'status' }
       }));
       var tipLabels259 = [];
       (conflict259.tips || []).forEach(function(t){
@@ -12689,7 +12780,7 @@ function zConfirmCardRender(card, d){
         if(lb) tipLabels259.push(lb + (md ? (' ' + md) : ''));
       });
       if(tipLabels259.length){
-        box.appendChild(_zConfirmEl('div', { text: '食い違っている判断: ' + tipLabels259.join('・'), style: _zConfirmRowStyle('#9c4221') }));
+        box.appendChild(_zConfirmEl('div', { text: '食い違っている判断: ' + tipLabels259.join('・'), className: 'zcc-row zcc-tips' }));
       }
     }
 
@@ -12697,18 +12788,18 @@ function zConfirmCardRender(card, d){
     if(d.dateMD) headerText += '\u3000協議 ' + d.dateMD;
     box.appendChild(_zConfirmEl('div', {
       text: headerText,
-      style: { fontSize:'11px', fontWeight:'700', color:'#805ad5', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }
+      className: 'zcc-head'
     }));
 
-    box.appendChild(_zConfirmEl('div', { text: '次の一手候補: ' + optLine, style: _zConfirmRowStyle() }));
+    box.appendChild(_zConfirmEl('div', { text: '次の一手候補: ' + optLine, className: 'zcc-row zcc-opt' }));
     // DAN231: AI stanceはd.stance（strategy_current_nav.jsで1回derive済み）だけを表示し、
     // ここでSTANCE本文を再parseしない。Human採用/却下/保留とは別行・別prefixを維持する。
     if(d.stance){
-      box.appendChild(_zConfirmEl('div', { text: '参考姿勢: ' + d.stance.label, style: _zConfirmRowStyle('#553c9a') }));
-      if(d.stance.reason) box.appendChild(_zConfirmEl('div', { text: '理由: ' + d.stance.reason, style: _zConfirmRowStyle('#4a5568') }));
+      box.appendChild(_zConfirmEl('div', { text: '参考姿勢: ' + d.stance.label, className: 'zcc-row zcc-stance' }));
+      if(d.stance.reason) box.appendChild(_zConfirmEl('div', { text: '理由: ' + d.stance.reason, className: 'zcc-row zcc-reason' }));
     }
-    if(missLine) box.appendChild(_zConfirmEl('div', { text: '未確認: ' + missLine, style: _zConfirmRowStyle('#a0623a') }));
-    if(cautLine) box.appendChild(_zConfirmEl('div', { text: '注意: ' + cautLine, style: _zConfirmRowStyle('#975a16') }));
+    if(missLine) box.appendChild(_zConfirmEl('div', { text: '未確認: ' + missLine, className: 'zcc-row zcc-miss' }));
+    if(cautLine) box.appendChild(_zConfirmEl('div', { text: '注意: ' + cautLine, className: 'zcc-row zcc-caut' }));
 
     // 第208弾C4: 応答済みは、AI候補行とは別のDOM行・別prefix・別色で担当者判断を表示する
     // （AI出力と人間判断を視覚上混同しない）。
@@ -12717,21 +12808,20 @@ function zConfirmCardRender(card, d){
       var respMD208 = _zConfirmFmtMD208(currentResp208.occurredAt);
       box.appendChild(_zConfirmEl('div', {
         text: '担当者判断: ' + respLabel208 + (respMD208 ? (' ' + respMD208) : ''),
-        style: { fontSize:'11px', fontWeight:'700', color:'#2c5282', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginTop:'2px' }
+        className: 'zcc-row zcc-resp'
       }));
     }
 
     // 第208弾C7: 採用/却下/保留の3ボタンを未応答・応答済み両方で常設する（応答変更の入口）。
-    // UI側でdisable状態機械は追加しない。360px幅で3ボタンが収まるようflex:1を使用しpx単位のみ。
-    var btnRow208 = _zConfirmEl('div', { style: { display:'flex', gap:'6px', marginTop:'4px' } });
+    // UI側でdisable状態機械は追加しない。3ボタンは横並びで等分し、見た目と40pxの高さは main.css の T2 の塊が決める。
+    var btnRow208 = _zConfirmEl('div', { className: 'zcc-acts' });
     var councilId208 = d.council.id;
     var customerId208 = card.id;
     ['adopt', 'reject', 'hold'].forEach(function(actionKey208){
       var isActive208 = !!(currentResp208 && currentResp208.response === actionKey208);
       var btn208 = _zConfirmEl('button', {
         text: _ZCONFIRM_RESPONSE_LABEL_208[actionKey208],
-        style: _zConfirmButtonStyle208(isActive208),
-        attrs: { type:'button', 'aria-pressed': isActive208 ? 'true' : 'false' }
+        attrs: { type:'button', 'aria-pressed': isActive208 ? 'true' : 'false', 'data-zcc-act': actionKey208 }
       });
       btn208.addEventListener('click', (function(clickActionKey208){
         return function(){ _zConfirmHandleClick208(customerId208, councilId208, clickActionKey208, optLine, card); };
@@ -35104,7 +35194,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
     </div>
     <div id="zStratStrip" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
     <div id="zAxisStrip" class="no-print" style="display:none;padding:3px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
-    <div id="zConfirmCard" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
+    <details id="zConfirmCard" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></details>
   <div class="tabs no-print">
     <div class="tab active" data-tab="ti" onclick="clickCardTab('ti')" style="color:#2c5282;font-size:15px;font-weight:700"><span class="ic">📋</span>初訪</div>
     <div class="tab" data-tab="tr" onclick="clickCardTab('tr')" style="color:#276749;font-size:15px;font-weight:700"><span class="ic">🔁</span>再訪</div>
