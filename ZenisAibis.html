@@ -1603,6 +1603,24 @@ body.is-mob .mob-menu{display:inline-block}
   @keyframes za-saveBlink{0%,100%{box-shadow:var(--za-hl-dark),0 0 0 2px var(--za-nudge)}50%{box-shadow:var(--za-hl-dark),0 0 0 5px var(--za-nudge)}}
   @media (prefers-reduced-motion:reduce){ .bs.needsave{animation:none} }
 }
+/* ===== T5 初期設定の画面（2026-10-11 高田さん承認）：ヘッダーの「💾 保存して開始」・「初めての方へ」の琥珀のアコーディオン（色と形、閉じた行の並び（折り返し・上端そろえ）と余白。大きさの下限は下の別の塊。screen限定＝印刷には効かない） =====
+   金は使わない（印・見出し・フォーカスの輪は琥珀 --za-amber 系、「⚠ 大切なデータです」の札は赤 --za-red 系）。既存の .setup-acc（紫・担当者メアド・家系図）は変えない。
+   注意：この節のコメントにも 2列化のクラス名の文字を書かない（check 255-c1 がその文字の出現場所を数える） */
+@media screen{
+  #setupView .setup-save-top{border:1px solid rgba(255,255,255,.28);font-weight:700;white-space:nowrap}
+  #setupView .setup-save-top:focus-visible{outline:2px solid var(--za-focus);outline-offset:2px}
+  #setupView .setup-acc.setup-guide{border-color:var(--za-amber-line);background:var(--za-amber-paper);box-shadow:var(--za-sh-1)}
+  #setupView .setup-acc.setup-guide>summary{flex-wrap:nowrap;align-items:flex-start;color:var(--za-amber-ink)}
+  #setupView .setup-acc.setup-guide>summary:focus-visible{outline:2px solid var(--za-amber);outline-offset:-2px;border-radius:var(--za-r-s)}
+  #setupView .setup-acc.setup-guide[open]>summary{background:var(--za-amber-soft);box-shadow:0 1px 0 var(--za-amber-line)}
+  #setupView .setup-guide .setup-guide-ttl{flex:1 1 auto;min-width:0}
+  #setupView .setup-guide .setup-acc-badge.setup-guide-warn{flex-shrink:0;white-space:nowrap;color:var(--za-red);background:var(--za-red-soft);box-shadow:inset 0 0 0 1px var(--za-red-line);border-radius:var(--za-r-pill)}
+  #setupView .setup-guide .setup-acc-arrow{flex-shrink:0;color:var(--za-amber)}
+  #setupView .setup-guide .setup-acc-body{font-size:12px;line-height:1.8;padding-top:8px}
+  #setupView .setup-guide .setup-guide-danger{margin-top:10px}
+}
+/* T5 (c) 左「データ保存先の設定」と右「まるごと引っ越しファイル」の説明枠の高さをそろえる：PC の2列（幅1000px以上）だけ。スマホ・1列には持ち込まない。配置系（min-height）はこの1行だけ。値は 1280px で実測した自然な高さ（左 130.5px・右 122px）の大きい方に余裕を足したもの（左が 130px を超えたので 140px ではなく 152px。CI の Linux の字で折り返しが増える恐れ） */
+@media screen and (min-width:1000px){ #setupView .setup-eq{min-height:152px} }
 
 </style>
 </head>
@@ -2414,6 +2432,7 @@ body.is-mob .mob-menu{display:inline-block}
         <div style="font-size:12px;color:rgba(255,255,255,0.75);white-space:nowrap">⚙ 初期設定</div>
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0;align-items:center">
+        <button type="button" class="bs setup-save-top" id="setupHeaderSaveBtn">💾 保存して開始</button>
         <button onclick="openAibisChat()" style="background:#d97706;color:white;border:none;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.2;flex:0 0 auto">🧚<br><span class="aibisVer" style="font-size:8px;opacity:0.8;font-weight:700">v3.3</span></button>
       </div>
     </div>
@@ -2523,17 +2542,17 @@ body.is-mob .mob-menu{display:inline-block}
     <div class="sec" id="setupSaveSection">
       <div id="setupSavePC" style="display:none">
       <div class="stitle">■ データ保存先の設定</div>
-      <div style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:13px;line-height:1.7;margin-bottom:10px">
+      <div class="setup-eq" style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:13px;line-height:1.7;margin-bottom:10px">
         <strong style="color:#2c5282">💡 いつもの保存先と予備の保存先の2か所を設定してください</strong><br>
         <b>いつもの保存先</b>：保存するたびに自動で書き込まれるファイル（OneDrive の「ドキュメント」がおすすめ）<br>
         <b>予備の保存先</b>：一覧の「💾 保存」を押したときに、同じ内容を書き込む控えのファイル（C ドライブの「ドキュメント」など）
       </div>
-      <div id="setupFileDisp" style="font-size:13px;padding:10px;border-radius:6px;margin-bottom:10px;border:1px solid #e2e8f0;background:#f7fafc">読み込み中...</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <button class="bp" onclick="setupChooseSave()" style="font-size:13px;padding:10px 16px">💾 いつもの保存先を設定</button>
         <button class="bc" onclick="setupUsePrevFile()" style="font-size:13px;padding:10px 16px">📂 前のファイルを使う</button>
         <button class="bc" onclick="setupChooseCopy()" style="font-size:13px;padding:10px 16px">📋 予備の保存先を指定</button>
       </div>
+      <div id="setupFileDisp" style="font-size:13px;padding:10px;border-radius:6px;margin-bottom:10px;border:1px solid #e2e8f0;background:#f7fafc">読み込み中...</div>
       <div style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8;margin-bottom:10px">
         <strong style="color:#c53030">⚠ 前に使っていたファイルを「設定」で選ぶと、中身が消えます</strong><br>
         前のファイルは「📂 前のファイルを使う」から選んでください。
@@ -2556,29 +2575,33 @@ body.is-mob .mob-menu{display:inline-block}
         <div class="ht" style="margin:0">ブラウザのデータを消した・PCを替えたときは、「📂 前のナレッジファイルを使う」で前のファイルを選び直してください（ファイルにある記録をこの端末に戻します）。書き込みの許可を求められたら「許可」を押してください。</div>
       </div>
       <button type="button" id="setupSaveDiagOpenBtn" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#2c5282;border:1px solid #2c5282;color:#fff;border-radius:6px;padding:9px 12px;font-size:12px;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 困ったとき（保存・データの自己診断）</button>
-      <div style="padding:10px;background:#fff8e1;border-left:3px solid #ffd54f;border-radius:4px;font-size:12px;line-height:1.8;margin-bottom:8px">
-        <strong style="color:#e65100">初めての方へ（先にフォルダを作ります）：</strong><br>
-        【いつもの保存先】① エクスプローラーで、OneDrive の「ドキュメント」の中に「アイビス」フォルダを作る<br>
-        　② 上のボタンを押すと案内が表示されます → OKでファイル選択画面が開きます<br>
-        　③ OneDrive の「ドキュメント」＞「アイビス」を開く<br>
-        　④ ファイル名は自動で入ります →「保存」で完了<br>
-        【予備の保存先】① C ドライブの「ドキュメント」の中に「アイビス」フォルダを作る<br>
-        　② 上のボタンを押して、そのフォルダを開いて「保存」で完了<br>
-        【まるごと引っ越しファイル】OneDrive の「ドキュメント」＞「アイビス」の中に「引っ越しファイル」フォルダを作り、作ったファイル（ふつうはダウンロードフォルダに入ります）をそこへ移します。新しい2つを残し、古いものは消してください
-      </div>
-      <div style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8">
-        <strong style="color:#c53030">⚠ 大切なデータです</strong><br>
-        いつもの保存先のファイルにあなたの全カードデータが入っています。<br>
-        <strong>絶対に削除しないでください。</strong><br>
-        予備の保存先も設定し、写真まで守るために下の「📦 まるごと引っ越しファイル」もときどき作ることを強くお勧めします。
-      </div>
+      <details class="setup-acc setup-guide" id="setupGuideAcc">
+        <summary><span class="setup-guide-ttl">初めての方へ（先にフォルダを作ります）</span><span class="setup-acc-badge setup-guide-warn">⚠ 大切なデータです</span><span class="setup-acc-arrow">▾</span></summary>
+        <div class="setup-acc-body">
+          <div class="setup-guide-steps">
+            【いつもの保存先】① エクスプローラーで、OneDrive の「ドキュメント」の中に「アイビス」フォルダを作る<br>
+            　②「💾 いつもの保存先を設定」を押すと案内が表示されます → OKでファイル選択画面が開きます<br>
+            　③ OneDrive の「ドキュメント」＞「アイビス」を開く<br>
+            　④ ファイル名は自動で入ります →「保存」で完了<br>
+            【予備の保存先】① C ドライブの「ドキュメント」の中に「アイビス」フォルダを作る<br>
+            　②「📋 予備の保存先を指定」を押して、そのフォルダを開いて「保存」で完了<br>
+            【まるごと引っ越しファイル】OneDrive の「ドキュメント」＞「アイビス」の中に「引っ越しファイル」フォルダを作り、作ったファイル（ふつうはダウンロードフォルダに入ります）をそこへ移します。新しい2つを残し、古いものは消してください
+          </div>
+          <div class="setup-guide-danger" style="padding:10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.8">
+            <strong style="color:#c53030">⚠ 大切なデータです</strong><br>
+            いつもの保存先のファイルにあなたの全カードデータが入っています。<br>
+            <strong>絶対に削除しないでください。</strong><br>
+            予備の保存先も設定し、写真まで守るために「📦 まるごと引っ越しファイル」もときどき作ることを強くお勧めします。
+          </div>
+        </div>
+      </details>
       </div><!-- /setupSavePC -->
       <div id="setupSaveMob" style="display:none"></div>
     </div>
     </div><!-- /setupColA --><div class="setup-col" id="setupColB">
     <div class="sec" id="fullBackupSection">
       <div class="stitle">■ まるごと引っ越しファイル（旧名：フルバックアップ）</div>
-      <div style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:10px">
+      <div class="setup-eq" style="padding:10px;background:#ebf4ff;border-left:3px solid #2c5282;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:10px">
         <strong style="color:#2c5282">💡 カード・写真・営業の記録をまとめて1つのファイルにします（PCを替えるときなどに使います）</strong><br>
         一覧の「📥 読込」（カードのみ）とは別の機能です。<strong>ファイルから戻す操作はPCでできます（戻す前に、今のデータの控えを自動で作ります）。</strong>
       </div>
@@ -2967,7 +2990,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.50";
+var APP_VERSION = "v11.51";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -8126,7 +8149,7 @@ function showList() {
     // PC版は保存先両方必須
     if(hasFSA){
       if(!fHandle && !copyHandle){
-        aibisAlert('PC版はいつもの保存先と予備の保存先の両方を設定してからね！<br><br>下の「💾 いつもの保存先を設定」と「📋 予備の保存先を指定」を押して設定しよう😊');
+        aibisAlert('PC版はいつもの保存先と予備の保存先の両方を設定してからね！<br><br>「💾 いつもの保存先を設定」と「📋 予備の保存先を指定」を押して設定しよう😊');
         return;
       }
       if(!fHandle){
@@ -12845,15 +12868,15 @@ function saveSetup() {
   // PC版で保存先未設定チェック
   if (hasFSA && !isMob) {
     if (!fHandle && !copyHandle) {
-      aibisAlert('いつもの保存先と予備の保存先の両方を設定してからね！<br><br>上の「💾 いつもの保存先を設定」と「📋 予備の保存先を指定」を押して設定しよう😊');
+      aibisAlert('いつもの保存先と予備の保存先の両方を設定してからね！<br><br>「💾 いつもの保存先を設定」と「📋 予備の保存先を指定」を押して設定しよう😊');
       return;
     }
     if (!fHandle) {
-      aibisAlert('いつもの保存先がまだ設定されていないよ！<br>上の「💾 いつもの保存先を設定」ボタンから設定してね😊');
+      aibisAlert('いつもの保存先がまだ設定されていないよ！<br>「💾 いつもの保存先を設定」ボタンから設定してね😊');
       return;
     }
     if (!copyHandle) {
-      aibisAlert('予備の保存先がまだ設定されていないよ！<br>上の「📋 予備の保存先を指定」ボタンから設定してね😊');
+      aibisAlert('予備の保存先がまだ設定されていないよ！<br>「📋 予備の保存先を指定」ボタンから設定してね😊');
       return;
     }
   }
@@ -12955,6 +12978,9 @@ function devGenHash(){
   sha256hex(v).then(function(h){ oe.innerHTML='MGR_HASH = <b style="color:#553c9a">'+h+'</b>'; }).catch(function(){ oe.textContent='生成失敗（https環境で開いてください）'; });
 }
 window.onRoleChange=onRoleChange; window.devGenHash=devGenHash; window.isMgrUnlocked=isMgrUnlocked;
+// T5 初期設定の画面（2026-10-11 高田さん承認）: ヘッダーの「💾 保存して開始」は id で受ける（inline onclick は最下部の1つだけ）。
+// どちらから押しても同じ saveSetup()。setup_view.html は index.template.html でこの script より前に読まれる（DAN201 の setupSaveDiagOpenBtn と同じ前提）。
+(function(){ var b=document.getElementById('setupHeaderSaveBtn'); if(b) b.addEventListener('click', function(){ saveSetup(); }); })();
 function openSelfDash(){ var p=document.getElementById('selfDashPanel'); if(!p) return; if(typeof _zOpen!=='undefined') _zOpen={selfState:true}; p.style.display='block'; if(window.renderSelfDash) renderSelfDash(); var sc=document.getElementById('selfDashContent'); if(sc) sc.scrollTop=0; }
 function closeSelfDash(){ var p=document.getElementById('selfDashPanel'); if(p) p.style.display='none'; }
 function dashOverlayClick(ev){ var id=(ev&&ev.target)?ev.target.id:''; if(id==='selfDashPanel'){ closeSelfDash(); } else if(id==='analysisPanel'){ if(window.closeAnalysis) closeAnalysis(); } }
@@ -25037,7 +25063,7 @@ function updateSetupFileDisp(){
   if(!hasFSA){ el.style.display='none'; return; }
   var mainTxt = fHandle
     ? '💾 <span style="color:#38a169;font-weight:600">いつもの保存先：'+e(fHandle.name)+'</span>　→　保存のたびに自動書き込み'
-    : '⚠️ <span style="color:#c53030;font-weight:600">いつもの保存先が未設定です</span>　← 下のボタンで設定してください';
+    : '⚠️ <span style="color:#c53030;font-weight:600">いつもの保存先が未設定です</span>　→　「💾 いつもの保存先を設定」を押してください';
   var copyTxt = copyHandle
     ? '<br>📋 <span style="color:#2c5282;font-weight:600">予備の保存先：'+e(copyHandle.name)+'</span>　→　一覧の「💾 保存」を押したときに書き込み'
     : '<br>📋 <span style="color:#718096">予備の保存先：未設定</span>　（任意）';
