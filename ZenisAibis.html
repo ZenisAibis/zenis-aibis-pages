@@ -1700,6 +1700,70 @@ body.is-mob .mob-menu{display:inline-block}
   #editView:has(#saveCardBtn.needsave) #zConfirmCard[data-zcc-state="pending"]:not([data-zcc-conflict="1"]) .zcc-badge{animation:none}
   @media (prefers-reduced-motion:reduce){ #zConfirmCard,#zConfirmCard *,#zConfirmCard *::before,#zConfirmCard *::after{animation:none!important;transition:none!important} }
 }
+/* ===== T3 カード上部の帯（2026-10-13 高田さん承認）：#zTopRow（帯 #zStratStrip と 📊 カード進捗ボタンの入れ物 #zAxisStrip を1行に）・帯の聞くボタン・案1 ミニゲージ・カード進捗モーダルの上の窓。screen限定＝印刷には効かない（no-print は維持） =====
+   色は --za-* の変数。金は 6/6（達成）の縁だけ（--za-gold／--za-win-sh）。直書きは透明度つきの光（6/6 の光 rgba(255,244,214,.85)・把握のマスの上辺 rgba(255,255,255,.3)）だけ。
+   PC/スマホの分岐は幅だけ（min-width:769px）。ただし「あと1」の掛け方だけは .tabs の固定の条件（max-width:768px and pointer:coarse）にそろえる（隠れないため）。段階1b・T5・T2 の塊には足さない。data-lv は 0=未着手・1=断片・2=把握 */
+@media screen{
+  #zTopRow{display:flex;align-items:stretch}
+  #zStratStrip{flex:1 1 auto;min-width:0;align-items:center;gap:6px;padding:3px 4px 3px 12px;cursor:pointer;background:var(--za-card-soft);border-bottom:1px solid var(--za-line)}
+  #zStratStrip:active{background:var(--za-surface-hover)}
+  #zStratStrip:focus-visible{outline:2px solid var(--za-focus);outline-offset:-2px}
+  #zStratStrip .zk-dot{flex:0 0 auto;font-size:13px;line-height:1}
+  #zStratStrip .zk-st-l{flex:0 .25 auto;min-width:3em;font-size:var(--za-fs-xs);font-weight:700;color:var(--za-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #zStratStrip .zk-ask{flex:0 1 auto;min-width:0;display:inline-flex;align-items:center;gap:3px;height:30px;padding:0 6px;border:1px solid var(--za-amber-line);border-radius:var(--za-r-s);font-size:var(--za-fs-s);font-weight:700;line-height:1;color:var(--za-amber-ink);background:var(--za-amber-soft);box-shadow:var(--za-hl),var(--za-sh-1)}
+  #zStratStrip .zk-ask .ic{flex:0 0 auto;font-size:13px}
+  #zStratStrip .zk-ask .tx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #zStratStrip .zk-ask .n{flex:0 0 auto;font-size:var(--za-fs-xs);font-weight:800}
+  #zStratStrip .zk-ask.done{flex-shrink:0;color:var(--za-green-lo);background:var(--za-green-soft);border-color:var(--za-green-line)}
+  #zStratStrip .zk-ask.done .ic{font-size:var(--za-fs-s);font-weight:900}
+  #zStratStrip:active .zk-ask{box-shadow:var(--za-sh-press)}
+  #zStratStrip .zk-opt{flex:0 1 auto;min-width:0;font-size:10px;color:var(--za-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #zAxisStrip{flex:0 0 auto;align-items:center;padding:1px 8px 1px 0;background:var(--za-card-soft);border-bottom:1px solid var(--za-line)}
+  #zAxisStrip .zax{position:relative;flex:0 0 auto;display:inline-grid;grid-template-areas:"ic g" "lb lb";align-items:center;justify-items:center;align-content:center;column-gap:3px;row-gap:4px;height:36px;min-height:36px;padding:0 7px;border:1px solid var(--za-sec-line);border-radius:var(--za-r-s);background:var(--za-sec);color:var(--za-sec-ink);box-shadow:var(--za-sec-sh);font:inherit;line-height:1;cursor:pointer;touch-action:manipulation}
+  #zAxisStrip .zax:active{opacity:1;background:var(--za-sec-press);box-shadow:var(--za-sh-press)}
+  #zAxisStrip .zax:focus-visible{outline:2px solid var(--za-focus);outline-offset:2px}
+  #zAxisStrip .zax-ic{grid-area:ic;font-size:11px;line-height:1}
+  #zAxisStrip .zax-lb{grid-area:lb;font-size:var(--za-fs-xs);font-weight:800;line-height:1;white-space:nowrap;letter-spacing:.02em}
+  #zAxisStrip .zax-chev{grid-area:chev;display:none}
+  .zax-g{grid-area:g;display:flex;gap:2px}
+  .zax-c{display:block;width:6px;height:10px;border-radius:1px;background:var(--za-surface);box-shadow:inset 0 0 0 1px var(--za-line-strong)}
+  .zax-c[data-lv="1"]{background:linear-gradient(to top,var(--za-amber) 0 50%,var(--za-surface) 50% 100%);box-shadow:inset 0 0 0 1px var(--za-amber)}
+  .zax-c[data-lv="2"]{background:var(--za-green);box-shadow:inset 0 1px 0 rgba(255,255,255,.3)}
+  #zAxisStrip .zax[data-zax-all="1"]{border-color:var(--za-gold);box-shadow:var(--za-hl),var(--za-win-sh)}
+  /* 段階4：あと1（琥珀・動かない）。ふだんはボタンの中（grid の near の欄）。下に掛けるのは本物のスマホ（.tabs が画面の下に固定される条件）だけ。
+     マウス操作の狭い窓では .tabs（sticky z-index:49）が帯のすぐ下にあり、下に掛けると隠れるため（上は #cardNav の sticky z-index:48 に隠れる） */
+  #zAxisStrip .zax[data-zax-near="1"]{grid-template-areas:"ic g near" "lb lb near"}
+  #zAxisStrip .zax-near{grid-area:near;pointer-events:none;padding:0 4px;border-radius:4px;font-size:var(--za-fs-xs);font-weight:800;line-height:14px;white-space:nowrap;color:var(--za-amber-ink);background:var(--za-amber-soft);box-shadow:inset 0 0 0 1px var(--za-amber),var(--za-sh-1)}
+  @media (max-width:768px) and (pointer:coarse){
+    #zAxisStrip .zax[data-zax-near="1"]{grid-template-areas:"ic g" "lb lb"}
+    #zAxisStrip .zax-near{position:absolute;right:-6px;bottom:-9px;z-index:1;grid-area:auto}
+  }
+  /* 段階4：お祝い①。6/6 になった瞬間の光は1回・＋N が減った瞬間のぽんは1回（描くたびには付けない＝JS のメモで判定） */
+  #zAxisStrip .zax.zk-win-now::before{content:"";position:absolute;inset:0;border-radius:var(--za-r-s);pointer-events:none;background:linear-gradient(110deg,transparent 35%,rgba(255,244,214,.85) 50%,transparent 65%);background-size:260% 100%;background-position:120% 0;opacity:0;animation:zk-shine 1.4s ease-out .15s 1 both}
+  #zStratStrip .zk-bump{animation:zk-bump var(--za-dur-once) cubic-bezier(.2,.9,.3,1.35) 1 both}
+  /* カード進捗モーダルの上の窓：ボタンと同じマス（大きい） */
+  #kcvOverlay .kcv-gauge{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;padding:6px;margin-bottom:10px;border-radius:var(--za-r-m);background:var(--za-card-soft);box-shadow:inset 0 0 0 1px var(--za-line),var(--za-sh-1)}
+  #kcvOverlay .kcv-gauge[data-zax-all="1"]{box-shadow:inset 0 0 0 1px var(--za-gold),0 0 0 2px var(--za-gold-glow),var(--za-sh-1)}
+  #kcvOverlay .kcv-gauge-c{display:flex;flex-direction:column;align-items:center;gap:5px;min-height:46px;padding:5px 0 4px;font-size:var(--za-fs-xs);font-weight:800;color:var(--za-navy)}
+  #kcvOverlay .kcv-gauge .zax-c{width:14px;height:22px;border-radius:2px;box-shadow:inset 0 0 0 2px var(--za-line-strong)}
+  #kcvOverlay .kcv-gauge .zax-c[data-lv="1"]{box-shadow:inset 0 0 0 2px var(--za-amber)}
+  #kcvOverlay .kcv-gauge .zax-c[data-lv="2"]{box-shadow:inset 0 2px 0 rgba(255,255,255,.3)}
+  @keyframes zk-shine{0%{background-position:120% 0;opacity:1}100%{background-position:-20% 0;opacity:0}}
+  @keyframes zk-bump{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}
+  @media (prefers-reduced-motion:reduce){ #zTopRow *,#zTopRow *::before,#zTopRow *::after{animation:none!important;transition:none!important} }
+}
+@media screen and (min-width:769px){
+  #zStratStrip{padding-left:14px}
+  #zAxisStrip{padding-right:12px}
+  #zAxisStrip .zax{grid-template-areas:"ic lb g chev";row-gap:0;column-gap:7px;padding:0 10px 0 11px}
+  #zAxisStrip .zax[data-zax-near="1"]{grid-template-areas:"ic lb g near chev"}
+  #zAxisStrip .zax-ic{font-size:13px;margin-right:-3px}
+  #zAxisStrip .zax-lb{font-size:var(--za-fs-s)}
+  #zAxisStrip .zax-c{width:7px;height:12px}
+  #zAxisStrip .zax-chev{display:block;width:6px;height:6px;margin-left:-2px;border-right:2px solid var(--za-sub);border-top:2px solid var(--za-sub);transform:rotate(45deg)}
+  /* PC は「あと1」をボタンの中（マスと › の間）に置く。右上は #cardNav（sticky 48）、右下は .tabs（sticky 49）に隠れるため */
+  #zAxisStrip .zax-near{grid-area:near;position:static;right:auto;bottom:auto}
+}
 
 </style>
 </head>
@@ -2453,7 +2517,7 @@ body.is-mob .mob-menu{display:inline-block}
             <b>入るもの</b><br>
             ・カード（ショットガンの設定を含む）<br>
             ・写真（インボックスと迷子写真を含む全部）<br>
-            ・営業の記録（戦略協議で貼り付けたAIの回答、ステージなどの変化の記録、現状ナレッジで付けた確認の印。現状ナレッジ・顧客ストーリーは、カードとこの記録から作られます）<br><br>
+            ・営業の記録（戦略協議で貼り付けたAIの回答、ステージなどの変化の記録、カード進捗で付けた確認の印。カード進捗・聞いてきてほしいこと・顧客ストーリーは、カードとこの記録から作られます）<br><br>
             <b>入らないもの</b><br>
             ・初期設定（名前・メールアドレス・保存先）、ジョブの到達記録、予定表 など<br><br>
             <b>作る目安</b><br>
@@ -3069,7 +3133,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.52";
+var APP_VERSION = "v11.53";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -10437,15 +10501,18 @@ if(document.readyState === 'loading'){
     if (_kcvKeydownHandler) { document.removeEventListener('keydown', _kcvKeydownHandler); _kcvKeydownHandler = null; }
   }
 
-  function _kcvBuildShell(title) {
+  // T3: view は 'progress'（📊 カード進捗）か 'ask'（📝 聞いてきてほしいこと）。badgeText があれば見出しの横に小札を出す。
+  function _kcvBuildShell(title, badgeText, view) {
     _kcvCloseOverlay();
     var overlay = _kcvEl('div', {
-      attrs: { id: 'kcvOverlay' },
+      attrs: { id: 'kcvOverlay', 'data-kcv-view': view },
       style: { position: 'fixed', left: '0', top: '0', right: '0', bottom: '0', background: 'rgba(0,0,0,0.45)', zIndex: '9999', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }
     });
     var card = _kcvEl('div', { style: { background: 'white', borderRadius: '10px', maxWidth: '560px', width: '100%', maxHeight: '88vh', overflowY: 'auto', padding: '14px', boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontFamily: 'inherit' } });
     var head = _kcvEl('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } });
-    head.appendChild(_kcvEl('div', { text: title, style: { fontSize: '15px', fontWeight: '700', color: '#2d3748' } }));
+    var titleEl = _kcvEl('div', { text: title, style: { fontSize: '15px', fontWeight: '700', color: '#2d3748' } });
+    if (badgeText) titleEl.appendChild(_kcvEl('span', { text: badgeText, style: { marginLeft: '8px', fontSize: '11px', fontWeight: '700', color: '#7A4F0E', background: '#FBF3DC', borderRadius: '10px', padding: '1px 8px', verticalAlign: 'middle' } }));
+    head.appendChild(titleEl);
     head.appendChild(_kcvEl('button', { text: '\u2715', attrs: { type: 'button', 'aria-label': '閉じる' }, style: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#718096' }, onclick: _kcvCloseOverlay }));
     card.appendChild(head);
     var body = _kcvEl('div', {});
@@ -10506,13 +10573,16 @@ if(document.readyState === 'loading'){
 
     var detail = _kcvEl('div', { style: { display: 'none', padding: '10px', borderTop: '1px solid #e2e8f0' } });
     var expanded = false;
-    headRow.addEventListener('click', function () {
+    function toggle() {
       expanded = !expanded;
       detail.style.display = expanded ? 'block' : 'none';
       if (expanded && detail.childNodes.length === 0) _kcvFillAxisDetail(detail, axisResult, ctx);
-    });
+    }
+    headRow.addEventListener('click', toggle);
     wrap.appendChild(detail);
     container.appendChild(wrap);
+    // T3: 開くときに指定された項目（5/6 の残りなど）は、詳細を開いた状態で出す。
+    if (ctx && ctx.openAxisKey && ctx.openAxisKey === axisResult.key) toggle();
   }
 
   function _kcvSectionLabel(text) {
@@ -10911,19 +10981,19 @@ if(document.readyState === 'loading'){
     });
   }
 
-  // 第256弾: 「📝 次に聞いてきてほしいこと」。「把握」以外の軸の足りないものを軸の順に並べる。
+  // 第256弾／T3: 「📝 聞いてきてほしいこと」（モーダル）の行。「把握」以外の軸の足りないものを軸の順に並べる。
   // 行頭は6軸の略称（card_axis_strip.jsと同じ）。障害・矛盾の文はここでは繰り返さない。
   var KCV_AXIS_ABBR = { contact: '接触', family: '家族', asset: '資産', motivation: '動機', proposal: '提案', nextaction: '次回' };
+  // T3: 行の並びは knowledge_display_labels.js の zKnowAskItems で数える（帯・ボタンと同じ数え方）。無ければ空。
+  function _kcvAskItems(axes, card) {
+    if (typeof zKnowAskItems !== 'function') return [];
+    return zKnowAskItems(axes).map(function (it) { return { abbr: KCV_AXIS_ABBR[it.key] || it.key, a: _kcvMissingAsk(it.missing), t: _kcvAskTarget(it.missing, card) }; });
+  }
   // T4: cardは開いたときのカードの写し（ctx.cardSnapshot）。飛び先と案内文をカードの状態で決める。
   function _kcvRenderAskPanel(container, axes, card) {
-    var items = [];
-    (axes || []).forEach(function (ax) {
-      if (!ax || ax.level === '\u628a\u63e1' || !Array.isArray(ax.missing)) return;
-      ax.missing.forEach(function (m) { items.push({ abbr: KCV_AXIS_ABBR[ax.key] || ax.label, a: _kcvMissingAsk(m), t: _kcvAskTarget(m, card) }); });
-    });
+    var items = _kcvAskItems(axes, card);
     if (items.length === 0) return;
     var box = _kcvEl('div', { attrs: { id: 'kcvAskPanel' }, style: { background: '#fffbeb', border: '1px solid #f6e05e', borderRadius: '8px', padding: '8px 10px', marginBottom: '10px' } });
-    box.appendChild(_kcvEl('div', { text: '\ud83d\udcdd 次に聞いてきてほしいこと', style: { fontSize: '13px', fontWeight: '700', color: '#744210', marginBottom: '4px' } }));
     items.forEach(function (it) {
       var row = _kcvEl('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '6px', flexWrap: 'wrap', fontSize: '12px', color: '#4a5568', padding: '3px 0', borderTop: '1px dashed #faf089' } });
       row.appendChild(_kcvEl('span', { text: it.abbr, style: { flexShrink: '0', fontWeight: '700', fontSize: '11px', color: '#975a16', background: '#fefcbf', borderRadius: '8px', padding: '0 6px' } }));
@@ -10958,17 +11028,13 @@ if(document.readyState === 'loading'){
     var parts = [];
     order.forEach(function (lv) { if (seen[lv] && zKnowLevelHint(lv)) parts.push(lv + '（' + zKnowLevelHint(lv) + '）'); });
     if (parts.length === 0) return;
-    container.appendChild(_kcvEl('div', { attrs: { id: 'kcvLevelLegend' }, text: '段階の見方：' + parts.join('・'), style: { fontSize: '11px', color: '#718096', marginBottom: '6px' } }));
+    container.appendChild(_kcvEl('div', { attrs: { id: 'kcvLevelLegend' }, text: '進み具合：' + parts.join('・'), style: { fontSize: '11px', color: '#718096', marginBottom: '6px' } }));
   }
 
-  function _kcvRenderMain() {
+  // T3: 2つのモーダル（📊 カード進捗・📝 聞いてきてほしいこと）が同じ読み方をする。顧客カードが無ければ customerId は null。
+  function _kcvLoadContext() {
     var customerId = _kcvCurrentCustomerId();
-    var body = _kcvBuildShell('\ud83e\udded 現状ナレッジ');
-
-    if (!customerId) {
-      body.appendChild(_kcvEl('div', { text: '顧客カードを開いてからご利用ください。', style: { padding: '10px 2px', fontSize: '13px', color: '#718096' } }));
-      return;
-    }
+    if (!customerId) return { customerId: null, ctx: null, readResult: null, deriveResult: null };
 
     var ctx = {
       customerId: customerId,
@@ -10978,10 +11044,6 @@ if(document.readyState === 'loading'){
       confirmUi: _kcvConfirmUiEnabled(), // 第256弾: 確認済みの表示・操作は開発者／管理職モードだけ
       entryIdMap: Object.create(null) // M3: open context内のentryId→entry map（localStorage再読取0のため）
     };
-
-    if (ctx.dirtyAtOpen) {
-      body.appendChild(_kcvEl('div', { text: '\u26a0 未保存の変更を含みます。', style: { fontSize: '12px', color: '#d69e2e', background: '#fffaf0', border: '1px solid #feebc8', borderRadius: '6px', padding: '6px 8px', marginBottom: '10px' } }));
-    }
 
     var readResult, deriveResult;
     try {
@@ -11003,19 +11065,46 @@ if(document.readyState === 'loading'){
         : { ok: false, code: 'module_unavailable', axes: [], obstacles: [], recentChanges: [] };
     } catch (_eDerive) { deriveResult = { ok: false, code: 'module_unavailable', axes: [], obstacles: [], recentChanges: [] }; }
 
+    return { customerId: customerId, ctx: ctx, readResult: readResult, deriveResult: deriveResult };
+  }
+
+  function _kcvRenderNoCustomer(body) {
+    body.appendChild(_kcvEl('div', { text: '顧客カードを開いてからご利用ください。', style: { padding: '10px 2px', fontSize: '13px', color: '#718096' } }));
+  }
+  function _kcvRenderDirtyNote(body) {
+    body.appendChild(_kcvEl('div', { text: '\u26a0 未保存の変更を含みます。', style: { fontSize: '12px', color: '#d69e2e', background: '#fffaf0', border: '1px solid #feebc8', borderRadius: '6px', padding: '6px 8px', marginBottom: '10px' } }));
+  }
+  // what は 'カード進捗'／'聞いてきてほしいこと'（どちらのモーダルの表示に失敗したか）。
+  function _kcvRenderFailure(body, deriveResult, what) {
+    var readFailCodes = { invalid_store: 1, storage_read_failed: 1, duplicate_entry_id: 1, derived_cycle: 1, invalid_argument: 1 };
+    var msg = (deriveResult && deriveResult.code === 'invalid_now') ? '表示基準時刻を確認できないため、' + what + 'を表示できません。'
+      : (deriveResult && readFailCodes[deriveResult.code]) ? '知識ログを読み取れませんでした。貼付履歴の訂正が必要な可能性があります。'
+      : what + 'を表示できませんでした。';
+    body.appendChild(_kcvEl('div', { text: msg, style: { padding: '10px 2px', fontSize: '13px', color: '#c53030' } }));
+    if (deriveResult && Array.isArray(deriveResult.obstacles) && deriveResult.obstacles.length > 0) {
+      _kcvRenderObstacles(body, deriveResult.obstacles);
+    }
+  }
+
+  // 📊 カード進捗：6項目・障害・最近の変化。opts.openAxisKey の項目は詳細を開いた状態で出す。
+  function _kcvRenderMain(opts) {
+    var lc = _kcvLoadContext();
+    var body = _kcvBuildShell('\ud83d\udcca カード進捗', '', 'progress');
+
+    if (!lc.customerId) { _kcvRenderNoCustomer(body); return; }
+
+    var ctx = lc.ctx, deriveResult = lc.deriveResult;
+    ctx.openAxisKey = (opts && opts.openAxisKey) ? String(opts.openAxisKey) : '';
+
+    if (ctx.dirtyAtOpen) _kcvRenderDirtyNote(body);
+
     if (!deriveResult || deriveResult.ok !== true) {
-      var readFailCodes = { invalid_store: 1, storage_read_failed: 1, duplicate_entry_id: 1, derived_cycle: 1, invalid_argument: 1 };
-      var msg = (deriveResult && deriveResult.code === 'invalid_now') ? '表示基準時刻を確認できないため、現状ナレッジを表示できません。'
-        : (deriveResult && readFailCodes[deriveResult.code]) ? '知識ログを読み取れませんでした。貼付履歴の訂正が必要な可能性があります。'
-        : '現状ナレッジを表示できませんでした。';
-      body.appendChild(_kcvEl('div', { text: msg, style: { padding: '10px 2px', fontSize: '13px', color: '#c53030' } }));
-      if (deriveResult && Array.isArray(deriveResult.obstacles) && deriveResult.obstacles.length > 0) {
-        _kcvRenderObstacles(body, deriveResult.obstacles);
-      }
+      _kcvRenderFailure(body, deriveResult, 'カード進捗');
       return;
     }
 
-    _kcvRenderAskPanel(body, deriveResult.axes, ctx.cardSnapshot);
+    // T3: 上の窓（6項目のマス。カード進捗ボタンと同じマスを大きく。押せない飾り）。card_axis_strip.js が無ければ出さない。
+    if (typeof zAxisBuildGauge === 'function') body.appendChild(zAxisBuildGauge(deriveResult.axes, { labels: true }));
     _kcvRenderLevelLegend(body, deriveResult.axes);
     var axesBox = _kcvEl('div', { style: { marginBottom: '6px' } });
     deriveResult.axes.forEach(function (ax) { _kcvRenderAxisChip(axesBox, ax, ctx); });
@@ -11032,7 +11121,39 @@ if(document.readyState === 'loading'){
     body.appendChild(_kcvEl('div', { text: '\u203b 当日の訪問記録は翌日から接触実績に反映されます。', style: { fontSize: '10px', color: '#cbd5e0', marginTop: '2px' } }));
   }
 
-  function _kcvOnButtonClick() { _kcvRenderMain(); }
+  // 📝 聞いてきてほしいこと：6項目のうち把握でない項目の聞くこと（数え方は zKnowAskItems）。
+  function _kcvRenderAskMain() {
+    var lc = _kcvLoadContext();
+    if (!lc.customerId) { _kcvRenderNoCustomer(_kcvBuildShell('\ud83d\udcdd 聞いてきてほしいこと', '', 'ask')); return; }
+
+    var ctx = lc.ctx, deriveResult = lc.deriveResult;
+    var items = _kcvAskItems(deriveResult ? deriveResult.axes : [], ctx.cardSnapshot);
+    var body = _kcvBuildShell('\ud83d\udcdd 聞いてきてほしいこと', items.length > 0 ? items.length + '件' : '', 'ask');
+
+    if (ctx.dirtyAtOpen) _kcvRenderDirtyNote(body);
+
+    if (!deriveResult || deriveResult.ok !== true) {
+      _kcvRenderFailure(body, deriveResult, '聞いてきてほしいこと');
+      return;
+    }
+
+    _kcvRenderAskPanel(body, deriveResult.axes, ctx.cardSnapshot);
+    if (items.length === 0) {
+      body.appendChild(_kcvEl('div', { attrs: { id: 'kcvAskNone' }, text: 'いま聞いてきてほしいことはありません', style: { padding: '10px 2px', fontSize: '13px', color: '#718096' } }));
+    }
+  }
+
+  // T3: 呼ぶ側（帯・カード進捗ボタン）が直前に置いた data-kcv-view／data-kcv-axis を読み、すぐ消す。
+  // 'ask' なら 📝 聞いてきてほしいこと、それ以外（⋮ から・属性なし）は 📊 カード進捗。
+  function _kcvOnButtonClick() {
+    var btn = document.getElementById(KCV_BTN_ID);
+    var view = btn ? btn.getAttribute('data-kcv-view') : null;
+    var axisKey = btn ? btn.getAttribute('data-kcv-axis') : null;
+    if (btn && view !== null) btn.setAttribute('data-kcv-view', '');
+    if (btn && axisKey !== null) btn.setAttribute('data-kcv-axis', '');
+    if (view === 'ask') _kcvRenderAskMain();
+    else _kcvRenderMain({ openAxisKey: axisKey || '' });
+  }
   function _kcvBindButton() {
     if (_kcvBound) return;
     var btn = document.getElementById(KCV_BTN_ID);
@@ -11047,8 +11168,8 @@ if(document.readyState === 'loading'){
   }
 })();
 
-// ===== 第256弾: knowledge-plain-labels（現状ナレッジの表示をわかりやすくする・表示だけ） =====
-// 目的：🧭 現状ナレッジ・カード上の6軸の帯・「次に聞く」の帯に出ている内部の名前
+// ===== 第256弾: knowledge-plain-labels（カード進捗／聞いてきてほしいことの表示をわかりやすくする・表示だけ） =====
+// 目的：📊 カード進捗・📝 聞いてきてほしいこと・カード上の6軸の帯・「次に聞く」の帯に出ている内部の名前
 // （保存項目の英字名・テーマ名・段階の数字・修正番号など）を、担当者が読んで分かる言葉へ置き換える。
 // 本ファイルは「文字の置き換え表と、その表を引く関数」だけを持つ。
 // - card_axis_strip.js／strategy_current_nav.js と同じく即時関数で包まず、関数をそのまま置く
@@ -11267,6 +11388,26 @@ function zKnowMissingAsk(s){
     .replace(/\s+/g, ' ').trim();
   if(!cleaned) cleaned = 'この項目を確かめてください';
   return { ask: cleaned, short: cleaned.length > 16 ? cleaned.slice(0, 16) : cleaned, nav: null };
+}
+
+// T3: 6項目の進み具合と「聞いてきてほしいこと」の数え方。帯の「＋N」・カード進捗ボタン・2つのモーダルは必ずここで数える（第二の数え方を作らない）
+var ZKNOW_AXIS_TOTAL = 6;
+// 把握でない項目の「聞くこと」を、派生の axes の順に並べる。戻り値 [{ key, missing }]
+function zKnowAskItems(axes){
+  var items = [];
+  (Array.isArray(axes) ? axes : []).forEach(function(ax){
+    if(!ax || ax.level === '把握' || !Array.isArray(ax.missing)) return;
+    ax.missing.forEach(function(m){ items.push({ key: ax.key, missing: m }); });
+  });
+  return items;
+}
+// 把握の数・6/6・あと1（残りの項目の key）
+function zKnowProgressCount(axes){
+  var list = Array.isArray(axes) ? axes : [];
+  var full = 0, rest = null;
+  list.forEach(function(ax){ if(ax && ax.level === '把握') full++; else if(ax && rest === null) rest = ax.key; });
+  var six = list.length === ZKNOW_AXIS_TOTAL;
+  return { full: full, total: list.length, allFull: six && full === ZKNOW_AXIS_TOTAL, restKey: (six && full === ZKNOW_AXIS_TOTAL - 1) ? rest : null };
 }
 
 // 確認済み（確認ピン）の操作・表示を出してよいか。開発者モードか管理職モードのときだけtrue。
@@ -12374,9 +12515,52 @@ function _zStratEl(tag, opts){
   return el;
 }
 
+// T3: 帯の聞くボタン（1つ）。items は zKnowAskItems(d.axes)、pc は zKnowProgressCount(d.axes)。
+// 件数があれば「📝 先頭の短い言葉 ＋N」（N は件数−1。1件なら＋N は出さない）。0件なら 6/6 は「✓ 聞き取り完了」、
+// それ以外は「✓ いま聞くことなし」。見た目は main.css の T3 の塊（長い文字は…で切れ、＋N は残る）。
+// T3 段階4：fx.bump なら「ぽん」（zk-bump）を1回付ける。＋N があれば＋N、1件なら札、0件なら「✓」の札。
+function _zStratBuildAskEl(items, pc, fx){
+  var list = Array.isArray(items) ? items : [];
+  var bump = !!(fx && fx.bump === true);
+  var el;
+  if(list.length > 0){
+    el = _zStratEl('span', { className: (bump && list.length === 1) ? 'zk-ask zk-bump' : 'zk-ask' });
+    var first = list[0] ? list[0].missing : '';
+    var tx = String(first == null ? '' : first);
+    // 第256弾: 内部の文ではなく、現場で聞く短い言葉を出す（knowledge_display_labels.js）。
+    if(typeof zKnowMissingAsk === 'function'){ try{ var a256 = zKnowMissingAsk(first); if(a256 && a256.short) tx = a256.short; }catch(_e256){} }
+    el.appendChild(_zStratEl('span', { className:'ic', text:'📝' }));
+    el.appendChild(_zStratEl('span', { className:'tx', text: tx }));
+    if(list.length > 1) el.appendChild(_zStratEl('span', { className: bump ? 'n zk-bump' : 'n', text:'＋' + (list.length - 1) }));
+  } else {
+    el = _zStratEl('span', { className: bump ? 'zk-ask done zk-bump' : 'zk-ask done' });
+    el.appendChild(_zStratEl('span', { className:'ic', text:'✓' }));
+    el.appendChild(_zStratEl('span', { className:'tx', text: (pc && pc.allFull === true) ? '聞き取り完了' : 'いま聞くことなし' }));
+  }
+  return el;
+}
+
+// T3 段階4：お祝い①のメモ。メモリだけ（保存しない）。同じカード id のときだけ前回の「聞くことの件数」と
+// 「6/6 かどうか」と比べる。メモを捨てるのは、カード無しで zStratStripRender が呼ばれたときと、別のカードを描いたときだけ
+// （一覧へ戻る showList では捨てない。同じカードを開き直したときに減っていれば光る／ぽんする）。
+var _zStratFxMemo = null;
+// 戻り値 { bump, win }。bump＝聞くことの件数（＋N）が減った瞬間だけ true。win＝6/6 になった瞬間だけ true。
+// 描くたびに前回の値へ更新するので、同じ値で描き直しても付かない（初回・別カードの最初も付かない）。
+function _zStratProgressFx(cardId, askCount, allFull){
+  var fx = { bump:false, win:false };
+  var prev = _zStratFxMemo;
+  if(prev && prev.id === cardId){
+    fx.bump = askCount < prev.count;
+    fx.win = allFull === true && prev.allFull !== true;
+  }
+  _zStratFxMemo = { id: cardId, count: askCount, allFull: allFull === true };
+  return fx;
+}
+
 function zStratStripRender(card){
   var box = document.getElementById('zStratStrip');
   if(!card || !card.id){
+    _zStratFxMemo = null;
     if(box){ box.style.display = 'none'; }
     var emptyBox = document.getElementById('onepassCandidateBox');
     if(emptyBox) emptyBox.style.display = 'none';
@@ -12401,56 +12585,50 @@ function zStratStripRender(card){
   } // fail-closed: 非表示
 
   var st = ZSTRAT_STATE_STYLE[d.state];
+  // T3: 並び・間隔・カーソルは main.css の T3 の塊。ここは表示の切り替えだけ。
   box.style.display = 'flex';
-  box.style.alignItems = 'center';
-  box.style.gap = '6px';
-  box.style.cursor = 'pointer';
   box.setAttribute('role','button');
-  box.setAttribute('aria-label','現状ナレッジを開く');
+  box.setAttribute('aria-label','聞いてきてほしいことを開く');
+  box.tabIndex = 0;
 
-  box.appendChild(_zStratEl('span', { text: st.dot, style:{ fontSize:'13px', flexShrink:'0' } }));
-  var labelWrap = _zStratEl('span', { style:{ fontSize:'11px', fontWeight:'700', color:'#4a5568', whiteSpace:'nowrap' } });
-  labelWrap.textContent = st.label;
-  box.appendChild(labelWrap);
+  box.appendChild(_zStratEl('span', { className:'zk-dot', text: st.dot }));
+  box.appendChild(_zStratEl('span', { className:'zk-st-l', text: st.label }));
 
-  if(d.state === 'A' && Array.isArray(d.missing) && d.missing.length){
-    var head = d.missing.slice(0,2);
-    var rest = d.missing.length - head.length;
-    head.forEach(function(m0){
-      // 第256弾: 内部の文ではなく、現場で聞く短い言葉（16字以内）を出す（knowledge_display_labels.js）。
-      var m = m0;
-      if(typeof zKnowMissingAsk === 'function'){ try{ var a256 = zKnowMissingAsk(m0); if(a256 && a256.short) m = a256.short; }catch(_e256){} }
-      box.appendChild(_zStratEl('span', {
-        text: '次に聞く: ' + (m.length>16 ? m.slice(0,16)+'…' : m),
-        style:{ fontSize:'10px', color:'#975a16', background:'#fffbeb', border:'1px solid #f6e05e', borderRadius:'10px', padding:'2px 8px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'40vw' }
-      }));
-    });
-    if(rest>0) box.appendChild(_zStratEl('span', { text:'ほか'+rest, style:{ fontSize:'10px', color:'#a0aec0' } }));
+  // T3: 聞くボタン1つ。数え方は knowledge_display_labels.js の zKnowAskItems／zKnowProgressCount（帯の「＋N」・
+  // カード進捗ボタン・2つのモーダルで同じ）。状態 A〜D どれでも出す。無ければ出さない。
+  // 段階4：同じカードで「＋N が減った」「6/6 になった」瞬間だけ fx が立つ（_zStratProgressFx）。ボタン側へも同じ fx を渡す。
+  var fx = null;
+  if(typeof zKnowAskItems === 'function' && typeof zKnowProgressCount === 'function'){
+    try{
+      var askItems = zKnowAskItems(d.axes);
+      var askPc = zKnowProgressCount(d.axes);
+      fx = _zStratProgressFx(card.id, askItems.length, askPc.allFull === true);
+      box.appendChild(_zStratBuildAskEl(askItems, askPc, fx));
+    }catch(_eAsk){}
   }
 
-  if((d.state === 'C' || d.state === 'D') && (d.optionLine || d.dateMD)){
-    if(d.optionLine){
-      box.appendChild(_zStratEl('span', {
-        text: '有力候補（AI）: ' + d.optionLine,
-        style:{ fontSize:'10px', color:'#4a5568', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'45vw' }
-      }));
-    }
-    if(d.dateMD){
-      box.appendChild(_zStratEl('span', { text:'協議 '+d.dateMD, style:{ fontSize:'10px', color:'#a0aec0', flexShrink:'0' } }));
-    }
-  }
-
+  // T3: 帯からは「📝 聞いてきてほしいこと」を開く（kcv が data-kcv-view を読んですぐ消す）。Enter／Space でも開く。
   box.onclick = function(){
     var btn = document.getElementById('kcvOpenBtn');
-    if(btn) btn.click();
+    if(btn){ btn.setAttribute('data-kcv-view','ask'); btn.click(); }
+  };
+  box.onkeydown = function(ev){
+    if(ev && (ev.key === 'Enter' || ev.key === ' ')){ if(typeof ev.preventDefault === 'function') ev.preventDefault(); box.onclick(); }
   };
 
   // 第206弾: card-six-axis-nav-strip-readonly。本描画末尾でのみ、同一d（同一derive結果）を
   // card_axis_strip.jsへ渡す。typeofガード＋try/catchの二重保護（新規window export無し）。
-  if(typeof zAxisStripRender==='function'){ try{ zAxisStripRender(card, d); }catch(_eAxis){} }
+  if(typeof zAxisStripRender==='function'){ try{ zAxisStripRender(card, d, fx); }catch(_eAxis){} }
   // 第207弾: confirm-card-mode-a-readonly-shell。本描画末尾でのみ、同一d（同一derive結果）を
   // confirm_card_view.jsへ渡す。typeofガード＋try/catchの二重保護（新規window export無し）。
   if(typeof zConfirmCardRender==='function'){ try{ zConfirmCardRender(card, d); }catch(_eConfirm){} }
+
+  // T3: 確認カードが出ているときは帯に有力候補を出さない（同じことを2か所に出さない）。協議日は帯に出さない。
+  var cc = document.getElementById('zConfirmCard');
+  var confirmShown = !!(cc && cc.style && cc.style.display === 'block');
+  if((d.state==='C'||d.state==='D') && !confirmShown && d.optionLine){
+    box.appendChild(_zStratEl('span', { className:'zk-opt', text: '有力候補（AI）: ' + d.optionLine }));
+  }
 }
 
 // ===== 第206弾: 個別カード6軸ナビストリップ（card-six-axis-nav-strip-readonly） =====
@@ -12466,12 +12644,11 @@ function zStratStripRender(card){
 //   再呼出ししない（第二の真実源を作らない）。
 // - 永続化状態を書き換える保存系・確認pin系の関数群を一切呼ばない。read系の新規呼出も行わない
 //   （具体名は tools/check.js 第206弾block の禁止参照リストで機械的に0件を検査する）。
-// - チップtapは既存「現状ナレッジ」モーダル（knowledge_card_view.js・byte不変）を開いて該当軸へ
-//   誘導するナビゲーションであり、進捗値やconfirmation状態を変更しない。
+// - T3: 「📊 カード進捗」ボタンは「📊 カード進捗」モーダル（knowledge_card_view.js）を開く
+//   ナビゲーションであり、進捗値やconfirmation状態を変更しない。
 
-// kcv（knowledge_card_view.js）内のLEVEL_COLORと意図的に同値を二重定義する（kcvはIIFE private
-// スコープのため本ファイルから参照不可）。値の同期はtools/check.js第206弾blockで機械検査する。
-var ZAXIS_LEVEL_COLOR = { '未着手': '#a0aec0', '断片': '#d69e2e', '把握': '#2f855a' };
+// T3: マスの塗りは data-lv（0=未着手・1=断片・2=把握）で main.css の T3 の塊が決める（ここに色を書かない）。
+var ZAXIS_LV = { '未着手': '0', '断片': '1', '把握': '2' };
 
 // 6軸の固定順・略称2字。key／labelはknowledge_derive.js::deriveCardKnowledgeV1の実契約に従う
 // （contact→family→asset→motivation→proposal→nextaction。推測でlabelや順序を作らない）。
@@ -12494,8 +12671,8 @@ function _zAxisEl(tag, opts){
   return el;
 }
 
-// aria-label全文（正式軸名＋段階＋確認状態）を組み立てる。視覚チップは略称2字のみで、
-// スクリーンリーダー等へは全文を伝える。
+// aria-label全文（正式軸名＋段階＋確認状態）を組み立てる。T3: 6項目は「📊 カード進捗」ボタン1つのマスで、
+// スクリーンリーダー等へは、このボタンの aria-label で6項目の全文を伝える。
 // 第256弾: 確認済み（確認ピン）の記号・読み上げは開発者モード／管理職モードのときだけ出す
 // （knowledge_display_labels.js::zKnowConfirmationUiEnabled。無い・例外のときは出さない）。
 function _zAxisConfirmUiEnabled(){
@@ -12518,35 +12695,53 @@ function _zAxisShouldHide(card, d){
   return false;
 }
 
-// #kcvOverlay内の該当軸行（div[role="button"]、知識card view既存契約）を検索してclickする。
-// 同期DOM契約のみを使用（新規timer／observer無し）。label一致に失敗した場合は
-// 「モーダルが開くだけ」の無害degradeとする。例外は一切外へ投げない（throw 0）。
-function zAxisNavigateToAxis(label){
+// T3: 6項目の把握の数・6/6・あと1は knowledge_display_labels.js の zKnowProgressCount で数える（第二の数え方を作らない）。
+// 無ければ 6/6 でも 5/6 でもない扱いにする。
+function _zAxisProgressCount(axes){
+  try{ if(typeof zKnowProgressCount === 'function') return zKnowProgressCount(axes); }catch(_eCount){}
+  return { allFull: false, restKey: null, full: 0 };
+}
+
+// T3: 6項目のマス（ZAXIS_ORDER の順・data-lv）。ボタンの中は span.zax-g、opts.labels なら
+// カード進捗モーダルの上の窓（div.kcv-gauge・略称つき・押せない飾り）。下の6項目の行と同じ中身なので読み上げない。
+function zAxisBuildGauge(axes, opts){
+  var labels = !!(opts && opts.labels);
+  var byKey = {};
+  (Array.isArray(axes) ? axes : []).forEach(function(ax){ if(ax && ax.key) byKey[ax.key] = ax; });
+  var g = _zAxisEl(labels ? 'div' : 'span', { className: labels ? 'kcv-gauge' : 'zax-g', attrs: { 'aria-hidden': 'true' } });
+  if(labels && _zAxisProgressCount(axes).allFull) g.setAttribute('data-zax-all', '1');
+  ZAXIS_ORDER.forEach(function(def){
+    var ax = byKey[def.key];
+    var cell = _zAxisEl('span', { className: 'zax-c', attrs: { 'data-lv': (ax && ZAXIS_LV[ax.level]) || '0' } });
+    if(!labels){ g.appendChild(cell); return; }
+    var wrap = _zAxisEl('div', { className: 'kcv-gauge-c' });
+    wrap.appendChild(cell);
+    wrap.appendChild(_zAxisEl('span', { text: def.abbr }));
+    g.appendChild(wrap);
+  });
+  return g;
+}
+
+// T3: 「📊 カード進捗」を開く。#kcvOpenBtn に data-kcv-view／data-kcv-axis を置いてから click する
+// （kcv が読んですぐ消す。新しい window 公開・DOM イベントは足さない）。axisKey の項目は詳細を開いた状態で出る。
+// 例外は一切外へ投げない（throw 0）。
+function zAxisOpenProgress(axisKey){
   try{
     var openBtn = document.getElementById('kcvOpenBtn');
     if(!openBtn || typeof openBtn.click !== 'function') return;
-    openBtn.click(); // 既存#kcvOpenBtnクリック契約（DAN205裁定§10-L1と同一手法の延長）
-    var overlay = document.getElementById('kcvOverlay');
-    if(!overlay || typeof overlay.querySelectorAll !== 'function') return;
-    var rows = overlay.querySelectorAll('div[role="button"]');
-    for(var i=0;i<rows.length;i++){
-      var row = rows[i];
-      if(row && typeof row.textContent === 'string' && row.textContent.indexOf(label) !== -1){
-        if(typeof row.click === 'function') row.click();
-        if(typeof row.scrollIntoView === 'function'){
-          try{ row.scrollIntoView({ block: 'center' }); }catch(_eScroll){}
-        }
-        return;
-      }
-    }
-    // label一致失敗: モーダルは既に開いているため、これ以上は何もしない（無害degrade）。
-  }catch(_eNav){ /* throw 0 */ }
+    openBtn.setAttribute('data-kcv-view', 'progress');
+    openBtn.setAttribute('data-kcv-axis', axisKey ? String(axisKey) : '');
+    openBtn.click();
+  }catch(_eOpen){ /* throw 0 */ }
 }
 
-// L1 axis strip render（トップレベル・window export 0）。edit_shell.htmlの#zStratStrip直下
+// L1 axis strip render（トップレベル・window export 0）。edit_shell.htmlの#zTopRow内（#zStratStripの右）
 // #zAxisStripコンテナへ描画する。card/dはstrategy_current_nav.js::zStratStripRenderが渡す
 // 既存card／同一d（zStratDeriveStateの戻り値）をそのまま使う。ここで独自にderiveしない。
-function zAxisStripRender(card, d){
+// T3: 中身は「📊 カード進捗」ボタン1つ（案1 ミニゲージ）。見た目は main.css の T3 の塊、ここは表示の切り替えだけ。
+// T3 段階4：fx（{ bump, win }。strategy_current_nav.js の _zStratProgressFx）の win が立っていて 6/6 のときだけ、
+// ボタンに zk-win-now（光が1回走る）を付ける。5/6 のときは「あと1」の札（zax-near・動かない）を付ける。
+function zAxisStripRender(card, d, fx){
   var box = document.getElementById('zAxisStrip');
   if(!box) return;
   try{
@@ -12555,51 +12750,29 @@ function zAxisStripRender(card, d){
     if(_zAxisShouldHide(card, d)){ box.style.display = 'none'; return; }
 
     box.style.display = 'flex';
-    box.style.alignItems = 'center';
-    box.style.flexWrap = 'nowrap';
-    // 360px実測（E2E必須ゲート）で14pxの内部横overflowを検出したため、gapのみ純粋レイアウト
-    // 調整で圧縮する（情報量・略称・確認記号・折返しなし・タップ領域は無変更。実測寸法は
-    // 実装報告書へ記録）。
-    box.style.gap = '4px';
 
     var byKey = {};
     d.axes.forEach(function(ax){ if(ax && ax.key) byKey[ax.key] = ax; });
+    // 読み上げは6項目の正式名＋段階の全文（開発者・管理職モードなら確認済／再確認も）。
+    var parts = [];
+    ZAXIS_ORDER.forEach(function(def){ if(byKey[def.key]) parts.push(_zAxisAriaLabel(byKey[def.key])); });
 
-    ZAXIS_ORDER.forEach(function(def){
-      var axisResult = byKey[def.key];
-      if(!axisResult) return; // 契約外の欠落は個別チップを描かないだけに留める（非throw）
-
-      var chip = _zAxisEl('button', {
-        attrs: { type: 'button', 'aria-label': _zAxisAriaLabel(axisResult) },
-        style: {
-          display: 'inline-flex', alignItems: 'center', gap: '3px',
-          padding: '4px 6px', minHeight: '28px', boxSizing: 'border-box',
-          fontSize: '11px', fontFamily: 'inherit', lineHeight: '1.2',
-          color: '#4a5568', background: '#ffffff',
-          border: '1px solid #e2e8f0', borderRadius: '12px',
-          cursor: 'pointer', flexShrink: '0'
-        }
-      });
-
-      chip.appendChild(_zAxisEl('span', {
-        style: {
-          display: 'inline-block', width: '7px', height: '7px', borderRadius: '7px',
-          background: ZAXIS_LEVEL_COLOR[axisResult.level] || '#a0aec0', flexShrink: '0'
-        }
-      }));
-      chip.appendChild(_zAxisEl('span', { text: def.abbr, style: { fontWeight: '700' } }));
-
-      if(axisResult.confirmation && _zAxisConfirmUiEnabled()){
-        var confirmed = axisResult.confirmation.state === 'confirmed';
-        chip.appendChild(_zAxisEl('span', {
-          text: confirmed ? '\u2713' : '\u26a0',
-          style: { fontWeight: '700', color: confirmed ? '#2f855a' : '#c53030' }
-        }));
-      }
-
-      chip.addEventListener('click', function(){ zAxisNavigateToAxis(axisResult.label); });
-      box.appendChild(chip);
+    var pc = _zAxisProgressCount(d.axes);
+    var btn = _zAxisEl('button', {
+      className: (pc.allFull && fx && fx.win === true) ? 'zax zk-win-now' : 'zax',
+      attrs: { id: 'zAxisProgressBtn', type: 'button', 'aria-label': 'カード進捗を開く（' + parts.join('、') + '）' }
     });
+    if(pc.allFull) btn.setAttribute('data-zax-all', '1');
+    else if(pc.restKey) btn.setAttribute('data-zax-near', '1');
+    btn.appendChild(_zAxisEl('span', { className: 'zax-ic', text: '📊', attrs: { 'aria-hidden': 'true' } }));
+    btn.appendChild(zAxisBuildGauge(d.axes));
+    btn.appendChild(_zAxisEl('span', { className: 'zax-lb', text: 'カード進捗' }));
+    btn.appendChild(_zAxisEl('span', { className: 'zax-chev', attrs: { 'aria-hidden': 'true' } }));
+    if(!pc.allFull && pc.restKey) btn.appendChild(_zAxisEl('span', { className: 'zax-near', text: 'あと1', attrs: { 'aria-hidden': 'true' } }));
+    // 5/6 なら残りの項目の行を開いた状態で出す（それ以外は '' ＝どの行も開かない）。
+    var restKey = pc.restKey || '';
+    btn.addEventListener('click', function(){ zAxisOpenProgress(restKey); });
+    box.appendChild(btn);
   }catch(_eAll){
     // fail-closed: 想定外の例外でも非表示側へ倒す（throw 0）。
     try{ box.style.display = 'none'; }catch(_e2){}
@@ -35176,7 +35349,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
             <button onclick="closeCardMenu();showSetup()">⚙ 初期設定</button>
             <button onclick="closeCardMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル</button>
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-            <button id="kcvOpenBtn" onclick="closeCardMenu()">🧭 現状ナレッジ</button>
+            <button id="kcvOpenBtn" onclick="closeCardMenu()">📊 カード進捗</button>
             <button onclick="closeCardMenu();openCustomerStory()">🧭 顧客ストーリー</button>
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
             <button id="cardDelMenuBtn" disabled onclick="closeCardMenu();if(typeof curId!=='undefined'&&curId&&cards.some(function(c){return c&&c.id===curId;})){delCard(curId);}" style="color:#c53030">🗑 このカードを削除</button>
@@ -35192,8 +35365,10 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       <span id="cardNavPos" style="font-size:12px;font-weight:700;color:#5a6b85;white-space:nowrap">- / -</span>
       <button id="cardNavNext" onclick="navCard(1)" style="background:#fff;border:1px solid #b9cce8;color:#2c5282;border-radius:8px;font-size:13px;font-weight:700;padding:8px 18px;min-height:38px;cursor:pointer;font-family:inherit">次 ›</button>
     </div>
-    <div id="zStratStrip" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
-    <div id="zAxisStrip" class="no-print" style="display:none;padding:3px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></div>
+    <div id="zTopRow" class="no-print">
+      <div id="zStratStrip" class="no-print" style="display:none;"></div>
+      <div id="zAxisStrip" class="no-print" style="display:none;"></div>
+    </div>
     <details id="zConfirmCard" class="no-print" style="display:none;padding:5px 12px;background:rgba(247,250,252,.9);border-bottom:1px solid rgba(216,226,240,.5)"></details>
   <div class="tabs no-print">
     <div class="tab active" data-tab="ti" onclick="clickCardTab('ti')" style="color:#2c5282;font-size:15px;font-weight:700"><span class="ic">📋</span>初訪</div>
@@ -37008,7 +37183,7 @@ window.updateRyokuchiBtn=function(){var btn=document.getElementById("ryokuchiBtn
   .isend{margin:2px 0 8px}
   .istore{text-align:center;color:#a0aec0;font-size:12px;padding:14px 0 6px}
   @media (min-width:769px),(pointer:fine),(pointer:none){
-    #inboxBody{max-width:1120px}
+    #inboxView .ih,#inboxBody{max-width:var(--pc-list-width);box-sizing:border-box}
     #inboxBody .igrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;align-items:start;margin-bottom:9px}
     #inboxBody .igrid>.irow2,#inboxBody .igrid>.irow{margin-bottom:0;min-width:0}
   }
