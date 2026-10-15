@@ -1646,7 +1646,7 @@ body.is-mob .mob-menu{display:inline-block}
   #zConfirmCard[data-zcc-state="reject"] .zcc-badge{background:var(--za-mute);color:var(--za-surface)}
   #zConfirmCard[data-zcc-state="reject"] .zcc-badge::before{content:"\2715"}
   #zConfirmCard[data-zcc-state="hold"] .zcc-badge{background:var(--za-amber-soft);color:var(--za-amber-ink)}
-  #zConfirmCard[data-zcc-state="hold"] .zcc-badge::before{content:"\2016"}
+  #zConfirmCard[data-zcc-state="hold"]:not([data-zcc-conflict="1"]) .zcc-badge::before{content:"";flex:0 0 auto;box-sizing:border-box;width:6px;height:8px;border-left:2px solid currentColor;border-right:2px solid currentColor}
   #zConfirmCard[data-zcc-conflict="1"] .zcc-badge{background:var(--za-warn);color:var(--za-surface);animation:zcc-blink 1s steps(1,end) var(--za-blink-n)}
   #zConfirmCard[data-zcc-conflict="1"] .zcc-badge::before{content:"!"}
   #zConfirmCard .zcc-ttl{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--za-fs-base);font-weight:800;color:var(--za-navy)}
@@ -1654,7 +1654,7 @@ body.is-mob .mob-menu{display:inline-block}
   #zConfirmCard .zcc-chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:var(--za-r-pill);font-size:var(--za-fs-xs);font-weight:800;line-height:1;white-space:nowrap;color:var(--zcc-st);background:var(--zcc-st-soft);box-shadow:inset 0 0 0 1px var(--zcc-st-line)}
   #zConfirmCard[data-zcc-state="adopt"] .zcc-chip::before{content:"\2713";font-weight:900}
   #zConfirmCard[data-zcc-state="reject"] .zcc-chip::before{content:"\2715";font-weight:900}
-  #zConfirmCard[data-zcc-state="hold"] .zcc-chip::before{content:"\2016";font-weight:900}
+  #zConfirmCard[data-zcc-state="hold"]:not([data-zcc-conflict="1"]) .zcc-chip::before{content:"";flex:0 0 auto;box-sizing:border-box;width:6px;height:8px;border-left:2px solid currentColor;border-right:2px solid currentColor}
   #zConfirmCard[data-zcc-conflict="1"] .zcc-chip::before{content:"\26A0"}
   #zConfirmCard .zcc-dot{flex:0 0 auto;width:8px;height:8px;border-radius:var(--za-r-pill);background:var(--za-ai);box-shadow:0 0 0 2px var(--za-ai-line)}
   #zConfirmCard .zcc-date{flex:0 0 auto;white-space:nowrap;color:var(--za-sub);font-size:var(--za-fs-xs)}
@@ -1683,7 +1683,7 @@ body.is-mob .mob-menu{display:inline-block}
   #zConfirmCard>.zcc-acts>button::before{display:inline-block;font-size:var(--za-fs-m);font-weight:900;line-height:1}
   #zConfirmCard>.zcc-acts>button[data-zcc-act="adopt"]::before{content:"\2713";color:var(--za-green-lo)}
   #zConfirmCard>.zcc-acts>button[data-zcc-act="reject"]::before{content:"\2715";color:var(--za-mute)}
-  #zConfirmCard>.zcc-acts>button[data-zcc-act="hold"]::before{content:"\2016";color:var(--za-amber-ink)}
+  #zConfirmCard>.zcc-acts>button[data-zcc-act="hold"]::before{content:"";flex:0 0 auto;box-sizing:border-box;width:7px;height:10px;border-left:2px solid currentColor;border-right:2px solid currentColor;color:var(--za-amber-ink)}
   #zConfirmCard>.zcc-acts>button:active{background:var(--za-sec-press);box-shadow:var(--za-sh-press)}
   #zConfirmCard>.zcc-acts>button:focus-visible{outline:2px solid var(--za-focus);outline-offset:2px}
   #zConfirmCard>.zcc-acts>button[aria-pressed="true"]{color:var(--za-surface);background:var(--za-sel);border-color:var(--za-navy);box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
@@ -2502,6 +2502,13 @@ body.is-mob .mob-menu{display:inline-block}
           </div>
         </div>
         <div class="msub">
+          <div class="msubttl" onclick="mtoggle(this)" style="color:#2c5282">地図アプリから戻るとき <span class="marr">▶</span></div>
+          <div class="msubbdy" style="display:none">
+            地図アプリから戻るときは、最近使ったアプリ（四角のボタン、または下から上へスワイプして止める）で Chrome を選びます。地図のタブが前に出たときは、そのタブを閉じると Aibis に戻ります。<br>
+            Chrome が Aibis を読み直したときも、開いていたカードに戻ります（新しいページとして開いたときは一覧から始まります）。
+          </div>
+        </div>
+        <div class="msub">
           <div class="msubttl" onclick="mtoggle(this)" style="color:#276749">置き場所の案内（PC） <span class="marr">▶</span></div>
           <div class="msubbdy" style="display:none">
             先にエクスプローラーでフォルダを作ってから、初期設定で保存先を選んでください。<br>
@@ -3133,7 +3140,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.53";
+var APP_VERSION = "v11.54";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -35284,6 +35291,83 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
 
   document.addEventListener('DOMContentLoaded', function () {
     try { atShow(); } catch (exTitle) {}
+  });
+})();
+
+// ===== 起動したときに、開いていたカードを開き直す（fix/maps-return-card・2026-10-14 高田さん承認） =====
+// 目的：Android で見込みカードから地図アプリへ飛んで戻ると、Chrome がページを読み直して一覧から始まっていた。
+// 読み直しても履歴の状態（history.state）は残るので、{zv:'edit', id} ならそのカードを開き直す（PC の読み直しも同じ）。
+//
+// 契約：
+// ・即時関数。windowへの公開0。新しい保存のキーは作らない（localStorage・sessionStorage・カードの項目・バックアップに書き込まない。
+//   読むのは光速入力のカメラから戻る印 aibis_qa_return があるかだけ）。
+// ・起動（bootDone）を待ち、次がすべてそろったときだけ開く：history.state が {zv:'edit', id}（光速入力の qa は除く）／
+//   そのカードが cards にある／URL に card・inbox が無い（inbox.js に任せる。inbox.js が後で消すので読み込み時に控える）／
+//   aibis_qa_return が無い（光速入力のカメラから戻るとき。quick_add.js が load 時に消すので読み込み時に控える。title_screen.js と同じ）／
+//   一覧が出ていて editView はまだ出ていない／下書き（getDraft()）が残っていない。
+// ・開くときは _navReplaceNext を立ててから openCard する（_navGo が replace になり、履歴は増えない。card_nav.js と同じ）。
+// ・下書きが残っているときは、起動時の下書きの確認（list_screen_boot.js の 300ms 後の maybeRestoreDraft）が済んでから
+//   もう一度だけ見る。保存済みと同じ下書きはそこで消えるので開き直し、案内が出たとき（下書きが残る）は案内を優先して開かない。
+// ・地図の開き方（別タブ）は変えない。
+(function () {
+  'use strict';
+
+  var BRV_POLL_MS = 100;       // 起動を待つ間隔
+  var BRV_POLL_MAX = 120;      // 起動を待つ回数（約12秒。超えたら何もしない）
+  var BRV_AFTER_DRAFT_MS = 300; // 下書きの確認（list_screen_boot.js の setTimeout 300ms）の後に見る
+
+  // 読み込み時に控える（URLの?card／?inboxはinbox.jsが約300ms後に消す）
+  var brvUrlSkip = false;
+  try {
+    var brvSp = new URLSearchParams(location.search || '');
+    if (brvSp.has('card') || brvSp.has('inbox')) brvUrlSkip = true;
+  } catch (exSp) {}
+  // 光速入力のカメラから戻るとき（aibis_qa_returnはquick_add.jsがload時に消す）は開き直さない
+  var brvQaReturn = false;
+  try { if (localStorage.getItem('aibis_qa_return')) brvQaReturn = true; } catch (exQa) {}
+
+  // 開き直すカードのid（条件がそろわなければ null）
+  function brvTarget() {
+    if (brvUrlSkip) return null;
+    if (brvQaReturn) return null;
+    var st = null;
+    try { st = history.state; } catch (exSt) { return null; }
+    if (!st || st.zv !== 'edit' || !st.id || st.qa) return null;
+    var id = st.id;
+    if (!Array.isArray(cards) || !cards.some(function (c) { return c && c.id === id; })) return null;
+    var lv = document.getElementById('listView'), ev = document.getElementById('editView');
+    if (!lv || lv.style.display === 'none' || !ev || ev.style.display !== 'none') return null;
+    return id;
+  }
+
+  function brvOpen(id) {
+    try {
+      _navReplaceNext = true;
+      openCard(id);
+    } catch (exOpen) {}
+    _navReplaceNext = false;
+  }
+
+  function brvDecide(isRecheck) {
+    var id = brvTarget();
+    if (!id) return;
+    if (getDraft()) {
+      if (!isRecheck) setTimeout(function () { try { brvDecide(true); } catch (exRe) {} }, BRV_AFTER_DRAFT_MS);
+      return;
+    }
+    brvOpen(id);
+  }
+
+  var brvTries = 0;
+  function brvWaitBoot() {
+    if (bootDone) { brvDecide(false); return; }
+    brvTries++;
+    if (brvTries >= BRV_POLL_MAX) return;
+    setTimeout(function () { try { brvWaitBoot(); } catch (exW) {} }, BRV_POLL_MS);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    try { brvWaitBoot(); } catch (exBoot) {}
   });
 })();
 
