@@ -76,9 +76,14 @@ html{-webkit-text-size-adjust:100%}
   --za-surface:#FFFFFF; --za-surface-lo:#F4F7FB; --za-surface-hover:#EEF3F9; --za-gray-soft:#EDF2F7;
   /* 赤・注意・AI */
   --za-red:#C53030; --za-red-lo:#A52A2A; --za-red-soft:#FFF5F5; --za-red-line:#FEB2B2;
+  --za-red-edge:#D99A9A;      /* 削除の一段目の縁（段階2a 案A）。--za-red-line は白の上で薄すぎる（1.72） */
   --za-warn:#9C4221; --za-warn-soft:#FFF5EB; --za-warn-line:#F6AD55;
   --za-ai:#553C9A; --za-ai-soft:#F4F0FC; --za-ai-line:#D6CCF0;
   --za-violet:#6B46C1; --za-cyan:#34E3D0;
+  /* ヘッダー（段階4a）：地は紺→紺の明るい方（今の半透明 .82/.76 を .96/.94 に）。紺の上のガラスのボタン（今の ⋮ と同じ値）。ロゴの金は見本の3段（#F3E4BE→#D9BE84→#C8A55E。終点はアプリの金 --za-gold） */
+  --za-hdr:linear-gradient(135deg,rgba(26,54,93,.96),rgba(36,73,122,.94));
+  --za-glass:rgba(255,255,255,.15); --za-glass-line:rgba(255,255,255,.30); --za-glass-press:rgba(255,255,255,.24);
+  --za-logo-hi:#F3E4BE; --za-logo-mid:#D9BE84; --za-logo-lo:var(--za-gold);
   /* 影・光 */
   --za-sh-1:0 1px 2px rgba(15,23,42,.08),0 3px 8px -5px rgba(26,54,93,.26);
   --za-sh-2:0 24px 48px -16px rgba(15,23,42,.55),0 0 0 1px rgba(26,54,93,.08);
@@ -1764,6 +1769,175 @@ body.is-mob .mob-menu{display:inline-block}
   /* PC は「あと1」をボタンの中（マスと › の間）に置く。右上は #cardNav（sticky 48）、右下は .tabs（sticky 49）に隠れるため */
   #zAxisStrip .zax-near{grid-area:near;position:static;right:auto;bottom:auto}
 }
+/* ===== UIの統一 T1 段階2a（2026-10-15 高田さん承認）：確認の小窓（aibisAlert／aibisConfirm）のボタンと、削除の一段目「次へ」の色だけ。並び・大きさは変えない（screen限定＝印刷には効かない） =====
+   進めるは .bp（段階1b の主ボタン）か、インラインの背景を外した妖精の OK（段階1b のまま）。やめるは白の面に内側の縁（インラインの border:none でも縁が出るよう影で描く）。
+   削除の一段目（案A）は白っぽい赤の地に赤い文字と縁 --za-red-edge。二段目の「削除する」と aibisConfirm の「はい」は .bd と同じ赤の塗り。
+   強さは段階1b の妖精の OK と同じ（.zfa-card ＋ class ＋ :not([style*="background"])）にして、その後ろに書く（やめるが紺にならないため）。インラインで背景を持つボタンには当てない。段階1b・T5・T2・T3 の塊には足さない */
+@media screen{
+  .zfa-card .za-dlg-no:not([style*="background"]){color:var(--za-sec-ink);background:var(--za-sec);box-shadow:inset 0 0 0 1px var(--za-sec-line),var(--za-hl),var(--za-sh-1);text-shadow:none}
+  .zfa-card .za-dlg-no:not([style*="background"]):active{background:var(--za-sec-press);box-shadow:inset 0 0 0 1px var(--za-sec-line),var(--za-sh-press)}
+  .zfa-card .za-dlg-danger:not([style*="background"]){color:#fff;background:var(--za-danger);box-shadow:var(--za-hl-dark),var(--za-sh-1);text-shadow:var(--za-ts)}
+  .zfa-card .za-dlg-danger:not([style*="background"]):active{background:var(--za-danger-press);box-shadow:var(--za-sh-press)}
+  /* 案A 削除の一段目：「進むが、まだ消えない」。押したときの地は --za-red-line（#FEB2B2）を薄く重ねる */
+  .zfa-card .za-dlg-step:not([style*="background"]){color:var(--za-red);background:var(--za-red-soft);box-shadow:inset 0 0 0 1px var(--za-red-edge),var(--za-hl),var(--za-sh-1);text-shadow:none}
+  .zfa-card .za-dlg-step:not([style*="background"]):active{background:linear-gradient(0deg,rgba(254,178,178,.35),rgba(254,178,178,.35)),var(--za-red-soft);box-shadow:inset 0 0 0 1px var(--za-red-edge),var(--za-sh-press)}
+  /* 保存（記録ファイルを保存）は .bs と同じ保存の緑。金の縁は付けない（2026-10-15 金の範囲：危険・保存のボタンには付けない） */
+  .zfa-card .za-dlg-save:not([style*="background"]){color:#fff;background:var(--za-save);box-shadow:var(--za-hl-dark),var(--za-sh-1);text-shadow:var(--za-ts)}
+  .zfa-card .za-dlg-save:not([style*="background"]):active{background:var(--za-save-press);box-shadow:var(--za-sh-press)}
+  .zfa-card :is(.za-dlg-no,.za-dlg-danger,.za-dlg-step,.za-dlg-save):focus-visible{outline:2px solid var(--za-focus);outline-offset:2px}
+}
+/* ===== UIの統一 T1 段階3a（2026-10-16 高田さん承認）：並べ替えのチップ（.sbtn）を丸く、選択の部品を段階1の「紺と金の縁」にそろえる。色と角の形だけ。並び・大きさは変えない（screen限定＝印刷には効かない） =====
+   チップ（案A 丸 --za-r-pill）と ‹ ›：未選択は文字 --za-mute・面 --za-sec・縁 --za-line-chip。選択中のチップは段階1b のまま（押したときの面は選択中には当てない＝:not(.active)）。
+   選択系（.pbtn・.pl-tab・利き手）：選択中は --za-sel／--za-sel-sh（紺に金の内縁）、未選択は --za-sec に --za-line-chip の縁。縁の太さは変えない（.pl-tab は縁が無いので内側の影で描く）。.ci・.addbtn は未選択の面と縁だけ（選択の印は中のチェック・JS のまま）。
+   家族の「保存」・地図の「この位置で保存」は保存のボタンなので .bs と同じ保存の緑（金の縁は付けない）。意味の色（ステージ・ジャッジ・下の帯・済のタブ）と、光速入力の段階・インボックスのチップ（段階3b）は触らない。段階1b・T5・T2・T3・2a の塊には足さない */
+@media screen{
+  .sbtn{color:var(--za-mute);background:var(--za-sec);border-color:var(--za-line-chip);box-shadow:var(--za-sec-sh);border-radius:var(--za-r-pill)}
+  .sbtn:not(.active):active{background:var(--za-sec-press);box-shadow:var(--za-sh-press)}
+  .sortbar-nav{color:var(--za-mute);background:var(--za-sec);border-color:var(--za-line-chip);box-shadow:var(--za-sec-sh);border-radius:var(--za-r-pill)}
+  .pbtn{color:var(--za-ink);background:var(--za-sec);border-color:var(--za-line-chip);box-shadow:var(--za-sec-sh);border-radius:var(--za-r-s)}
+  .pbtn.active{color:var(--za-surface);background:var(--za-sel);border-color:var(--za-navy);box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
+  .pl-tab{color:var(--za-mute);background:var(--za-sec);box-shadow:inset 0 0 0 1px var(--za-line-chip),var(--za-sh-1)}
+  .pl-tab.pl-on{color:var(--za-surface);background:var(--za-sel);box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
+  .hand-seg{border-color:var(--za-line-chip);box-shadow:var(--za-sh-1)}
+  .hand-seg .hand-opt{color:var(--za-mute);background:var(--za-sec)}
+  .hand-seg .hand-opt+.hand-opt{border-left-color:var(--za-line-chip)}
+  .hand-seg .hand-opt.active{color:var(--za-surface);background:var(--za-sel);box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
+  .ci{background:var(--za-sec);border-color:var(--za-line-chip)}
+  .addbtn{background:var(--za-sec);border-color:var(--za-line-chip)}
+  /* 保存（家族の保存・地図のこの位置で保存）は .bs と同じ保存の緑。金の縁は付けない（2026-10-15 金の範囲：危険・保存のボタンには付けない） */
+  .fam-save,.gm-save{color:var(--za-surface);background:var(--za-save);box-shadow:var(--za-hl-dark),var(--za-sh-1);text-shadow:var(--za-ts)}
+  .gm-save{border-color:var(--za-green-lo)}
+  .fam-save:active,.gm-save:active{background:var(--za-save-press);box-shadow:var(--za-sh-press)}
+}
+/* ===== UIの統一 T1 段階3b（2026-10-17 高田さん承認）：光速入力の段階・会話ボタンと、カードの「📷 計画地写真」の ①②③ のチップ（.cps-chip）の選択中を、段階1の「紺と金の縁」にそろえる。色だけ。並び・大きさ・縁の太さは変えない（screen限定＝印刷には効かない）
+   光速入力（quick_add.js の qaRender）はインラインで色を書くので、JS は触らず、選択中（インラインの紺 #2c5282・会話は緑 #276749）だけを上から塗る。インラインに勝つため color・background・border-color だけ !important。未選択・土地ボタン・ロック中の opacity はインラインのまま。
+   計画地写真のチップは inbox_style.html（main.css より後に読まれる）の #cardPhotoBody .cps-chip より強いセレクタで書く。未選択は面 --za-sec・縁 --za-line-chip、選択中は --za-sel／--za-sel-sh。角は 8px のまま。段階1b・T5・T2・T3・2a・3a の塊には足さない */
+@media screen{
+  #qaStage>button[style*="#2c5282"]{color:var(--za-surface)!important;background:var(--za-sel)!important;border-color:var(--za-navy)!important;box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
+  #qaKaiwa>button[style*="#276749"]{color:var(--za-surface)!important;background:var(--za-sel)!important;border-color:var(--za-navy)!important;box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
+  #cardPhotoBody .cps-chips .cps-chip{background:var(--za-sec);border-color:var(--za-line-chip)}
+  #cardPhotoBody .cps-chips .cps-chip.on{color:var(--za-surface);background:var(--za-sel);border-color:var(--za-navy);box-shadow:var(--za-sel-sh);text-shadow:var(--za-ts)}
+}
+/* ===== UIの統一 T1 段階3c（2026-10-17 高田さん承認）：分析ダッシュボードの白地の版（課分析 .zdash-mgr／自己分析 .zdash-rep）で、白の上で読めない小さな文字だけを --za-* の色に借り、薄い灰の文字（--z-dim）を --za-sub に。色だけ。並び・大きさ・縁の太さ・角は変えない（screen限定＝印刷には効かない）
+   案A（ゲームの HUD の色）のまま：輪・バー・ヒーロー・チップの数字・バッジの面は前のまま。暗い地の版（.zdash だけ）には効かないよう .zdash-rep・.zdash-mgr から書く。
+   JS がインラインで書く色は直らない（!important は使わない）。段階1b・T5・T2・T3・2a・3a・3b の塊には足さない */
+@media screen{
+  .zdash-rep,.zdash-mgr{--z-dim:var(--za-sub)}
+  .zdash-rep .z-delta.up,.zdash-mgr .z-delta.up{color:var(--za-green-lo);background:var(--za-green-soft)}
+  .zdash-rep .z-delta.dn,.zdash-mgr .z-delta.dn{color:var(--za-red);background:var(--za-red-soft)}
+  .zdash-rep .z-xpl b,.zdash-mgr .z-xpl b{color:var(--za-navy2)}
+  .zdash-rep .z-lv,.zdash-mgr .z-lv{color:var(--za-navy2)}
+  .zdash-rep .z-ptemp,.zdash-mgr .z-ptemp,.zdash-rep .z-bw,.zdash-mgr .z-bw{color:var(--za-amber-ink)}
+  .zdash-rep .z-axk-t,.zdash-mgr .z-axk-t{color:var(--za-amber-ink)}
+  .zdash-rep .z-lrank.top,.zdash-mgr .z-lrank.top{color:var(--za-gold-ink)}
+}
+/* ===== UIの統一 T1 段階4a（2026-10-17 高田さん承認）：ヘッダーの地とロゴの金。色だけ。並び・大きさ・縁の太さ・角・すりガラスは変えない（screen限定＝印刷には効かない。印刷ではヘッダーごと出さない）
+   地は5つの header（一覧の PC・スマホ・カード・マニュアル・初期設定）と、インボックスの .ih（inbox_style.html が main.css より後に読まれるので #inboxView div.ih で強さを上げる。inbox_style.html は書き換えない）。
+   ロゴの金は HTML のインラインの stop-color を書き換えず、ここで上から塗る（!important はロゴの stop-color の3つだけ）。段階1b・T5・T2・T3・2a・3a・3b・3c の塊には足さない */
+@media screen{
+  header{background:var(--za-hdr)}
+  #inboxView div.ih{background:var(--za-hdr)}
+  header svg linearGradient stop:nth-of-type(1){stop-color:var(--za-logo-hi)!important}
+  header svg linearGradient stop:nth-of-type(2){stop-color:var(--za-logo-mid)!important}
+  header svg linearGradient stop:nth-of-type(3){stop-color:var(--za-logo-lo)!important}
+  /* ヘッダーのボタン（案Z）：道具（印刷・インボックス）はガラス、ゲームと AI（ショットガン・アイビス）は琥珀（課長へ .bw と同じ塗り）。HTML はインラインの background・color だけを外して class を付けた（角・大きさ・縁はインラインのまま）。
+     縁はインセットの影なので大きさは変わらない。開発版の紫（body.is-dev の !important）は今までどおり上に勝つ */
+  .za-hbtn-glass{color:var(--za-surface);background:var(--za-glass);box-shadow:inset 0 0 0 1px var(--za-glass-line)}
+  .za-hbtn-glass:active{background:var(--za-glass-press)}
+  .za-hbtn-amber{color:var(--za-navy);background:var(--za-amber-fill);box-shadow:var(--za-amber-sh)}
+  .za-hbtn-amber:active{box-shadow:var(--za-sh-press)}
+  /* 開発版の紫の地の上では、アイビスの文字（版数も）を前と同じ白に戻す */
+  body.is-dev .za-hbtn-amber[onclick="openAibisChat()"]{color:var(--za-surface)}
+}
+/* ===== T7 ヘッダーの整理（2026-10-17 高田さん承認「案2」）：一覧の PC のヘッダーを、絵＋短い言葉のボタンで1段に（新規・読込・保存｜🖨 印刷・🗃 写真｜🎯 作戦｜⋮ その他・🧚 アイビス）。並び・大きさも変える（配置系）
+   ボタンの高さは --za-hdr-btn-h、角は --za-r-s、組の間に細い線（--za-hdr-rule）。インボックスの件数の札はボタンの中（右 2px）。版数は 🧚 から ⋮ の最下段へ。
+   絵のボタンはインラインの大きさを HTML から外して class に移した（橋渡しをヘッダーのボタンに限って大きさにも広げる）。新規・読込・保存は HTML を変えずに、ここで高さをそろえる。
+   書くのは #listHeaderPC と（S4）#listHeaderMob・（S5）#editView header・（S7）#setupView header から。狭い PC の窓（幅 831px 以下＝中身 800px 未満）では言葉を隠して絵だけにする。screen 限定（印刷ではヘッダーごと出さない）。段階1b〜4a の塊には足さない */
+@media screen{
+  :root{--za-hdr-btn-h:40px;--za-hdr-rule:rgba(255,255,255,.22)}
+  #listHeaderPC > div > button,#listHeaderPC .mob-menu > button{box-sizing:border-box;height:var(--za-hdr-btn-h);min-height:0;flex:0 0 auto;border-radius:var(--za-r-s);white-space:nowrap}
+  #listHeaderPC > div > button:not(.za-hbtn-icon){padding:0 12px;font-size:13px;font-weight:700}
+  #listHeaderPC .za-hbtn-icon{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:48px;padding:0;font-size:12px;line-height:1}
+  #listHeaderPC .za-hbtn-w4{width:60px}
+  #listHeaderPC .za-hbtn-i{display:block;font-size:16px;line-height:18px}
+  #listHeaderPC .za-hbtn-l{display:block;font-size:11px;line-height:13px;font-weight:700;letter-spacing:.02em}
+  /* 組の始まりのボタンの左に細い線（区切りの span は置かない。第161弾-2 の「インボックスの直後にショットガン」を守るため） */
+  #listHeaderPC .za-hbtn-gs{margin-left:13px}
+  #listHeaderPC .za-hbtn-gs::before{content:"";position:absolute;left:-10px;top:7px;bottom:7px;width:0;border-left:1px solid var(--za-hdr-rule);pointer-events:none}
+  /* 件数の札：ボタンの右の縁から外へ出さない（上へだけ 6px 出す）。色は HTML のインラインの琥珀のまま。出し入れは inbox.js がインラインの display で行う */
+  #listHeaderPC .za-hbtn-badge{position:absolute;top:-6px;right:2px;min-width:17px;padding:0 5px;border-radius:9px;font-size:11px;font-weight:800;line-height:17px;text-align:center;box-shadow:0 0 0 1.5px var(--za-navy)}
+  /* ⋮ の最下段の版数（白の上なので --za-sub の文字） */
+  #listHeaderPC .za-hbtn-ver{padding:8px 14px;font-size:11px;color:var(--za-sub);text-align:right;border-top:1px solid var(--za-line)}
+  /* S5 カード：右の組は ● 保存｜🖨 印刷・⋮ その他｜🧚 アイビス（高さ --za-hdr-btn-h）。いつも1段（.ha は折り返さず、左の組は縮んでよい・名前は …）。版数は ⋮ の最下段。
+     左の組の幅の上限 30% はインラインから外してここで（520px 以下の Phase6 の 64% は前のまま効く）。右の組の div は前のまま。スマホは組の線を出さない。
+     狭い窓とスマホで言葉を隠す規則は下の @media の中（この後ろに書いて勝たせる） */
+  #editView header .ha{flex-wrap:nowrap}
+  #editView header .ehdr-l{flex:0 1 auto;min-width:0;max-width:30%}
+  #editView header #editTitle{min-width:0}
+  #editView header .ha > div:last-child > button,#editView header .mob-menu > button{box-sizing:border-box;height:var(--za-hdr-btn-h);min-height:0;flex:0 0 auto;border-radius:var(--za-r-s);white-space:nowrap}
+  #editView header #saveCardBtn{padding:0 10px;font-size:13px;font-weight:700}
+  #editView header .za-hbtn-icon{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:48px;padding:0;font-size:12px;line-height:1}
+  #editView header .za-hbtn-w4{width:60px}
+  #editView header .za-hbtn-i{display:block;font-size:16px;line-height:18px}
+  #editView header .za-hbtn-l{display:block;font-size:11px;line-height:13px;font-weight:700;letter-spacing:.02em}
+  #editView header .za-hbtn-gs{margin-left:13px}
+  #editView header .za-hbtn-gs::before{content:"";position:absolute;left:-10px;top:7px;bottom:7px;width:0;border-left:1px solid var(--za-hdr-rule);pointer-events:none}
+  #editView header .za-hbtn-ver{padding:8px 14px;font-size:11px;color:var(--za-sub);text-align:right;border-top:1px solid var(--za-line)}
+  body.is-mob #editView header .za-hbtn-gs{margin-left:0}
+  body.is-mob #editView header .za-hbtn-gs::before{content:none}
+  /* S7 初期設定：🧚 は 60×40 の絵＋「アイビス」（一覧・カードと同じ形）。版数は題「⚙ 初期設定」の後ろに薄く。💾 保存して開始は前のまま。狭い窓とスマホでは下の @media で絵だけ */
+  #setupView header .za-hbtn-icon{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;box-sizing:border-box;width:60px;height:var(--za-hdr-btn-h);min-height:0;padding:0;flex:0 0 auto;border-radius:var(--za-r-s);font-size:12px;line-height:1;white-space:nowrap}
+  #setupView header .za-hbtn-i{display:block;font-size:16px;line-height:18px}
+  #setupView header .za-hbtn-l{display:block;font-size:11px;line-height:13px;font-weight:700;letter-spacing:.02em}
+  #setupView header .aibisVer{font-size:11px;opacity:.8}
+  /* S6 メニュー（一覧の PC・スマホ・カードの ⋮）：組の見出し（消す操作は赤）と、行の高さ 44 以上。一行の説明はスマホだけ各行の下に出す（PC は title だけ） */
+  #pcDropdown button,#mobDropdown button,#cardDropdown button{min-height:44px}
+  #pcDropdown .za-mm-h,#mobDropdown .za-mm-h,#cardDropdown .za-mm-h{padding:6px 14px 2px;font-size:11px;font-weight:700;color:var(--za-sub)}
+  #pcDropdown .za-mm-danger,#mobDropdown .za-mm-danger,#cardDropdown .za-mm-danger{color:var(--za-red)}
+  #mobDropdown .za-mm-d,#cardDropdown .za-mm-d{display:block;margin-top:2px;font-size:11px;font-weight:400;line-height:1.4;color:var(--za-sub)}
+  #cardDropdown .za-mm-d{display:none}
+  body.is-mob #cardDropdown .za-mm-d{display:block}
+  /* 最後の項目（🗑）の下の線は消す（最下段が版数の行なので .mob-dropdown button:last-child が当たらない。版数の行の上の線は残る） */
+  #cardDropdown button:last-of-type,#mobDropdown button:last-of-type{border-bottom:none}
+  /* スマホの ⋮（一覧・カード）は画面の高さまでに抑え、収まらないときはメニューの中だけ縦にスクロール（2026-10-18 高田さん決定 A）。下に 8px 空ける。dvh が使えないときは前の vh が効く。横は .mob-dropdown の overflow:hidden のまま。
+     メニューの上端はヘッダー（sticky top:0）の中の位置で決まり、ページを送っても変わらない。カードは --hdrTop（fitTabsTop が測るカードのヘッダーの高さ）を引く（上端は実測でヘッダーの下端より 11px 上なので必ず収まり、ヘッダーの高さが変わってもついてくる）。
+     一覧のスマホには --hdrTop が無く、CSS から上端を読めないので、実測の上端 113px（上の余白 14・上の段 44・間 3・格子の段 48・間 4）を引く。一覧のヘッダーの高さを変えたらここも直す（e2e が下端を測る） */
+  #listHeaderMob #mobDropdown{max-height:calc(100vh - 113px - 8px);max-height:calc(100dvh - 113px - 8px);overflow-y:auto}
+  body.is-mob #editView header #cardDropdown{max-height:calc(100vh - var(--hdrTop,66px) - 8px);max-height:calc(100dvh - var(--hdrTop,66px) - 8px);overflow-y:auto}
+  @media (max-width:831px){
+    #listHeaderPC .za-hbtn-icon,#listHeaderPC .za-hbtn-w4{width:40px}
+    #listHeaderPC .za-hbtn-l{display:none}
+    #listHeaderPC .za-hbtn-i{font-size:18px;line-height:20px}
+    #listHeaderPC > div > button:not(.za-hbtn-icon){padding:0 10px}
+    /* S5 カード：狭い窓とスマホでは言葉を隠して絵だけの正方形 */
+    #editView header .za-hbtn-icon,#editView header .za-hbtn-w4{width:40px}
+    #editView header .za-hbtn-l{display:none}
+    #editView header .za-hbtn-i{font-size:18px;line-height:20px}
+    /* S7 初期設定：カードと同じく、狭い窓とスマホでは 🧚 を絵だけの 40×40（スマホ 360 で行がはみ出さないため） */
+    #setupView header .za-hbtn-icon{width:40px}
+    #setupView header .za-hbtn-l{display:none}
+    #setupView header .za-hbtn-i{font-size:18px;line-height:20px}
+  }
+  /* スマホ（body.is-mob）は窓の幅によらず、カードの 🖨・⋮・🧚 と初期設定の 🧚 を絵だけの 40×40（S5・S7「スマホは絵だけ」。幅 832px 以上のスマホでも言葉を出さない） */
+  body.is-mob #editView header .za-hbtn-icon,body.is-mob #editView header .za-hbtn-w4{width:40px}
+  body.is-mob #editView header .za-hbtn-l{display:none}
+  body.is-mob #editView header .za-hbtn-i{font-size:18px;line-height:20px}
+  body.is-mob #setupView header .za-hbtn-icon{width:40px}
+  body.is-mob #setupView header .za-hbtn-l{display:none}
+  body.is-mob #setupView header .za-hbtn-i{font-size:18px;line-height:20px}
+  /* S4 スマホの一覧：上の段は ⚡ 光速・ロゴ・🧚 アイビスの3列（ボタンは 60×40、ロゴはまん中）、下の段の格子は高さ --za-hdr-btn-h-mob。
+     上の段と格子の間は前と同じ 3px（ヘッダーは格子の分だけ高くなる＝承認 H の約 +8px）。新規・読込・保存は高さ・角・太さをここで（インラインの大きさは外した）。🗃 写真・⋮ その他も絵＋短い言葉で、⋮ は .mob-more-btn の色のまま。版数は ⋮ の最下段（#mobVersion）のまま */
+  :root{--za-hdr-btn-h-mob:44px}
+  #listHeaderMob h1{display:grid;grid-template-columns:60px 1fr 60px;align-items:center;gap:4px}
+  #listHeaderMob h1 svg{justify-self:center}
+  #listHeaderMob .ha{margin-top:3px}
+  #listHeaderMob .ha > div > button:not(.za-hbtn-icon),#listHeaderMob .ha > div > label{box-sizing:border-box;height:var(--za-hdr-btn-h-mob);min-height:0;padding:0 4px;font-size:13px;font-weight:700;border-radius:var(--za-r-s);white-space:nowrap}
+  #listHeaderMob .za-hbtn-icon,#listHeaderMob .mob-more-btn{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;box-sizing:border-box;width:52px;height:var(--za-hdr-btn-h-mob);min-height:0;padding:0;border-radius:var(--za-r-s);font-size:12px;line-height:1;white-space:nowrap}
+  #listHeaderMob h1 .za-hbtn-icon{width:60px;height:var(--za-hdr-btn-h)}
+  #listHeaderMob .za-hbtn-i{display:block;font-size:16px;line-height:18px}
+  #listHeaderMob .za-hbtn-l{display:block;font-size:11px;line-height:13px;font-weight:700;letter-spacing:.02em}
+  #listHeaderMob .za-hbtn-badge{position:absolute;top:-6px;right:2px;min-width:17px;padding:0 5px;border-radius:9px;font-size:11px;font-weight:800;line-height:17px;text-align:center;box-shadow:0 0 0 1.5px var(--za-navy)}
+}
 
 </style>
 </head>
@@ -1795,65 +1969,73 @@ body.is-mob .mob-menu{display:inline-block}
       </svg>
     </h1>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:nowrap">
-      <button onclick="newCard()" style="background:#c53030;color:white;border:none;border-radius:6px;padding:7px 12px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:600">＋ 新規</button>
-      <button class="bp" onclick="loadFile()" style="background:#3182ce">📥 読込</button>
+      <button onclick="newCard()" style="background:#c53030;color:white;border:none;padding:7px 12px;font-size:13px;cursor:pointer;font-family:inherit" title="新しいお客様カードを作る">＋ 新規</button>
+      <button class="bp" onclick="loadFile()">📥 読込</button>
       <button class="bs" onclick="saveAll()">💾 保存</button>
-      <button onclick="openInbox()" id="inboxBtnPC" title="インボックス" style="background:#5a67d8;color:white;border:none;border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px;position:relative">🗃<span id="inbBadgePC" style="display:none;position:absolute;top:-6px;right:-6px;background:#f59e0b;color:#1a1300;border-radius:9px;font-size:10px;font-weight:800;padding:0 5px;min-width:16px;text-align:center;line-height:16px">0</span></button>
-      <button onclick="sggOpen()" title="ショットガン（営業作戦グループ）" style="background:#d69e2e;color:#1a1300;border:none;border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">🎯</button>
+      <button onclick="openListPrintMenu()" title="印刷（リスト／個別カード）" class="za-hbtn-glass za-hbtn-icon za-hbtn-gs" style="border:1px solid rgba(255,255,255,0.25)"><span class="za-hbtn-i">🖨&#xFE0F;</span><span class="za-hbtn-l">印刷</span></button>
+      <button onclick="openInbox()" id="inboxBtnPC" title="インボックス" class="za-hbtn-glass za-hbtn-icon"><span class="za-hbtn-i">🗃&#xFE0F;</span><span class="za-hbtn-l">写真</span><span id="inbBadgePC" class="za-hbtn-badge" style="display:none;background:#f59e0b;color:#1a1300">0</span></button>
+      <button onclick="sggOpen()" title="ショットガン（営業作戦グループ）" class="za-hbtn-amber za-hbtn-icon za-hbtn-gs"><span class="za-hbtn-i">🎯</span><span class="za-hbtn-l">作戦</span></button>
+      <button onclick="openPlannerFromSelected()" title="本日の予定表（選んだカードがあれば入れて開く）" class="za-hbtn-amber za-hbtn-icon pc-only-btn"><span class="za-hbtn-i">📅</span><span class="za-hbtn-l">予定</span></button>
       <div class="mob-menu" style="position:relative">
-        <button onclick="togglePcMenu(event)" style="background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">⋮</button>
+        <button onclick="togglePcMenu(event)" title="その他（1つ前に戻す・初期設定・マニュアルなど）" class="za-hbtn-glass za-hbtn-icon za-hbtn-gs"><span class="za-hbtn-i">⋮</span><span class="za-hbtn-l">その他</span></button>
         <div class="mob-dropdown" id="pcDropdown" style="right:0;left:auto;min-width:170px">
-          <div style="padding:6px 14px 2px;font-size:10px;font-weight:700;color:#718096">データを守る</div>
-          <button onclick="closePcMenu();restoreBackup()">⏪ 1つ前に戻す</button>
-          <button onclick="closePcMenu();bulkOpsUndo()">↩ 直前の一括削除を取り消す</button>
+          <div class="za-mm-h">データを守る</div>
+          <button onclick="closePcMenu();restoreBackup()" title="全カードを1つ前の保存状態に戻します">⏪ 1つ前に戻す</button>
+          <button onclick="closePcMenu();bulkOpsUndo()" title="まとめて消したカードを元に戻します">↩ 直前の一括削除を取り消す</button>
           <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-          <button onclick="closePcMenu();showSetup()">⚙ 初期設定</button>
-          <button onclick="closePcMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル</button>
-          <button data-ztg-open="1" onclick="closePcMenu()">🩺 困ったとき（自己診断）</button>
-          <button onclick="closePcMenu();openBook()">📕 みんなへ</button>
+          <div class="za-mm-h">設定と使い方</div>
+          <button onclick="closePcMenu();showSetup()" title="名前・所属・保存先などを設定します">⚙&#xFE0F; 初期設定</button>
+          <button onclick="closePcMenu();setTimeout(function(){showHelp();},50)" title="使い方の説明を読みます">📖 マニュアル</button>
+          <button data-ztg-open="1" onclick="closePcMenu()" title="保存・写真などの困りごとを調べます">🩺 困ったとき（自己診断）</button>
+          <button onclick="closePcMenu();openBook()" title="z.Aibis に込めた想いを読みます">📕 みんなへ</button>
           <div id="pcMenuClearSection" style="display:none">
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-            <button onclick="closePcMenu();clearAllCards()" style="color:#c53030;font-weight:600">🗑 全データをクリア</button>
+            <div class="za-mm-h za-mm-danger">消す操作</div>
+            <button onclick="closePcMenu();clearAllCards()" style="color:#c53030;font-weight:600" title="全カードと写真を消します（保存先も空に）">🗑&#xFE0F; 全データをクリア</button>
           </div>
+          <div class="za-hbtn-ver">z.Aibis <span class="aibisVer">v3.3</span></div>
         </div>
       </div>
-      <button onclick="openListPrintMenu()" title="印刷（リスト／個別カード）" style="background:#0d9488;color:white;border:1px solid rgba(255,255,255,0.25);border-radius:6px;font-size:15px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">🖨</button>
-      <button onclick="openAibisChat()" style="background:#d97706;color:white;border:none;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.2">🧚<br><span class="aibisVer" style="font-size:8px;opacity:0.8;font-weight:700">v3.3</span></button>
+      <button onclick="openAibisChat()" title="アイビス（妖精）に聞く・相談する" class="za-hbtn-amber za-hbtn-icon za-hbtn-w4"><span class="za-hbtn-i">🧚</span><span class="za-hbtn-l">アイビス</span></button>
     </div>
   </header>
   <!-- スマホ版ヘッダー -->
   <header id="listHeaderMob" class="mob-only">
     <h1 style="margin:0;line-height:1;position:relative;flex-shrink:0">
+      <button type="button" onclick="openQuickAdd()" class="za-hbtn-glass za-hbtn-icon"><span class="za-hbtn-i">⚡</span><span class="za-hbtn-l">光速</span></button>
       <svg width="140" height="44" viewBox="0 0 140 44" xmlns="http://www.w3.org/2000/svg" onclick="openQuickAdd()" style="cursor:pointer">
         <defs><linearGradient id="tgm" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ffffff"/><stop offset="60%" style="stop-color:#e0e7ff"/><stop offset="100%" style="stop-color:#c7d2fe"/></linearGradient></defs>
         <text x="4" y="36" font-family="'Dancing Script','Brush Script MT','Comic Sans MS',cursive" font-size="34" font-weight="700" fill="url(#tgm)" filter="drop-shadow(0 1px 2px rgba(0,0,0,0.4))">z.Aibis</text>
       </svg>
-      <button onclick="openAibisChat()" style="position:absolute;top:0;right:0;background:#d97706;color:white;border:none;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.2">🧚<br><span class="aibisVer" style="font-size:8px;opacity:0.8;font-weight:700">v3.3</span></button>
+      <button onclick="openAibisChat()" class="za-hbtn-amber za-hbtn-icon"><span class="za-hbtn-i">🧚</span><span class="za-hbtn-l">アイビス</span></button>
     </h1>
     <div class="ha" style="width:100%">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto auto;gap:4px;width:100%">
-        <button onclick="newCard()" style="background:#c53030;color:white;border:none;border-radius:6px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;height:36px">＋ 新規</button>
-        <label for="fileInputMob" style="background:#3182ce;color:white;border-radius:6px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;height:36px;display:flex;align-items:center;justify-content:center">📥 読込</label>
+        <button onclick="newCard()" style="background:#c53030;color:white;border:none;font-family:inherit;cursor:pointer">＋ 新規</button>
+        <label for="fileInputMob" class="bp" style="font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center">📥 読込</label>
         <input type="file" id="fileInputMob" accept=".json,.txt,application/json,text/plain" multiple style="display:none" onchange="onFileImport(event)">
-        <button onclick="saveAll()" style="background:#38a169;color:white;border:none;border-radius:6px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;height:36px">💾 保存</button>
-        <button onclick="openInbox()" title="インボックス" style="position:relative;background:#5a67d8;color:white;border:none;border-radius:6px;font-size:16px;font-family:inherit;cursor:pointer;height:36px;padding:0 9px">🗃<span id="inbBadgeMob" style="display:none;position:absolute;top:-5px;right:-5px;background:#f59e0b;color:#1a1300;border-radius:9px;font-size:9px;font-weight:800;padding:0 4px;min-width:14px;text-align:center;line-height:14px">0</span></button>
+        <button onclick="saveAll()" class="bs" style="border:none;font-family:inherit;cursor:pointer">💾 保存</button>
+        <button onclick="openInbox()" title="インボックス" class="za-hbtn-glass za-hbtn-icon"><span class="za-hbtn-i">🗃&#xFE0F;</span><span class="za-hbtn-l">写真</span><span id="inbBadgeMob" class="za-hbtn-badge" style="display:none;background:#f59e0b;color:#1a1300">0</span></button>
         <div class="mob-menu" style="position:relative">
-          <button class="mob-more-btn" onclick="toggleMobMenu(event)" style="width:100%;height:36px;font-size:11px;padding:0">⋮ その他</button>
+          <button class="mob-more-btn" onclick="toggleMobMenu(event)"><span class="za-hbtn-i">⋮</span><span class="za-hbtn-l">その他</span></button>
           <div class="mob-dropdown" id="mobDropdown">
-            <div style="padding:6px 14px 2px;font-size:10px;font-weight:700;color:#718096">データを守る</div>
-            <button onclick="closeMobMenu();restoreBackup()">⏪ 1つ前に戻す</button>
-            <button onclick="closeMobMenu();bulkOpsUndo()">↩ 直前の一括削除を取り消す</button>
+            <div class="za-mm-h">データを守る</div>
+            <button onclick="closeMobMenu();restoreBackup()">⏪ 1つ前に戻す<span class="za-mm-d">全カードを1つ前の保存状態に戻します</span></button>
+            <button onclick="closeMobMenu();bulkOpsUndo()">↩ 直前の一括削除を取り消す<span class="za-mm-d">まとめて消したカードを元に戻します</span></button>
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-            <button onclick="closeMobMenu();showSetup()">⚙ 初期設定</button>
-            <button onclick="closeMobMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル</button>
-            <button data-ztg-open="1" onclick="closeMobMenu()">🩺 困ったとき（自己診断）</button>
-            <button onclick="closeMobMenu();openBook()">📕 みんなへ</button>
+            <div class="za-mm-h">設定と使い方</div>
+            <button onclick="closeMobMenu();showSetup()">⚙&#xFE0F; 初期設定<span class="za-mm-d">名前・所属・保存先などを設定します</span></button>
+            <button onclick="closeMobMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル<span class="za-mm-d">使い方の説明を読みます</span></button>
+            <button data-ztg-open="1" onclick="closeMobMenu()">🩺 困ったとき（自己診断）<span class="za-mm-d">保存・写真などの困りごとを調べます</span></button>
+            <button onclick="closeMobMenu();openBook()">📕 みんなへ<span class="za-mm-d">z.Aibis に込めた想いを読みます</span></button>
             <div id="mobMgrPrint" style="display:none">
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-            <button onclick="closeMobMenu();openListPrintMenu()">🖨 印刷（リスト／個別カード）</button>
+            <div class="za-mm-h">印刷</div>
+            <button onclick="closeMobMenu();openListPrintMenu()">🖨&#xFE0F; 印刷（リスト／個別カード）<span class="za-mm-d">リストと選んだカードを印刷します</span></button>
             </div>
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-            <button onclick="closeMobMenu();resetSmartphone()" style="color:#c53030;font-size:11px">🗑 スマホをリセット</button>
+            <div class="za-mm-h za-mm-danger">消す操作</div>
+            <button onclick="closeMobMenu();resetSmartphone()" style="color:#c53030;font-size:11px">🗑&#xFE0F; スマホをリセット<span class="za-mm-d">カードと写真を消します（先に控えを）</span></button>
             <div style="padding:8px 14px;font-size:11px;color:#a0aec0;text-align:right;border-top:1px solid #f0f2f5" id="mobVersion"></div>
           </div>
         </div>
@@ -1887,7 +2069,6 @@ body.is-mob .mob-menu{display:inline-block}
     <div style="display:flex;gap:4px;flex-wrap:wrap;flex:1;justify-content:flex-end">
       <button onclick="selectAll()" class="bc" style="font-size:11px;padding:5px 8px">全選択</button>
       <button onclick="selectNone()" class="bc" style="font-size:11px;padding:5px 8px">全解除</button>
-      <button onclick="openPlannerFromSelected()" class="bp pc-only-btn" style="font-size:11px;padding:5px 8px;background:#319795">📅 本日の予定表</button>
       <button onclick="mailSelectedToSelf()" class="bp" style="font-size:11px;padding:5px 8px" id="btnSendSelf">📧 スマホへ</button>
       <button onclick="mailSelectedToStaff()" class="bp" style="font-size:11px;padding:5px 8px;background:#553c9a;display:none" id="btnSendStaff"><span class="bic">📧 </span>担当<span style="font-size:.8em;opacity:.85">へ</span></button>
       <button onclick="mailSelectedToManager()" class="bw" style="font-size:11px;padding:5px 8px"><span class="bic">📧 </span>課長<span style="font-size:.8em;opacity:.85">へ</span></button>
@@ -1906,7 +2087,7 @@ body.is-mob .mob-menu{display:inline-block}
     <span id="bulkPersistentUndoMsg" style="font-size:12px;color:#2d3748"></span>
     <!-- DAN254: 「元に戻す」と「×」を1つにまとめ、帯のspace-betweenを保つ。×は帯を隠すだけ（取り消し権は残る）。 -->
     <span style="display:inline-flex;align-items:center;gap:6px">
-      <button id="bulkPersistentUndoBtn" onclick="bulkOpsUndo()" style="font-size:11px;padding:5px 10px;background:#2c5282;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">↩ 元に戻す</button>
+      <button id="bulkPersistentUndoBtn" onclick="bulkOpsUndo()" class="bp" style="font-size:11px;padding:5px 10px;border:none;border-radius:6px;cursor:pointer;font-family:inherit">↩ 元に戻す</button>
       <button id="bulkPersistentUndoClose" onclick="bulkOpsDismissUndoBar()" aria-label="閉じる" title="閉じる" style="font-size:14px;line-height:1;padding:4px 8px;background:transparent;color:#4a5568;border:1px solid #cbd5e0;border-radius:6px;cursor:pointer;font-family:inherit">×</button>
     </span>
   </div>
@@ -2104,7 +2285,7 @@ body.is-mob .mob-menu{display:inline-block}
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
       <button onclick="sggClose()" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">← 戻る</button>
-      <button onclick="sggOpenNewPick()" style="margin-left:auto;background:#3182ce;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 新しいショットガン</button>
+      <button onclick="sggOpenNewPick()" class="bp" style="margin-left:auto;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">＋ 新しいショットガン</button>
     </div>
     <div id="shotgunViewBody"></div>
   </div>
@@ -2380,7 +2561,7 @@ body.is-mob .mob-menu{display:inline-block}
     <div class="msec">
       <div class="mttl" onclick="mtoggle(this)">🩺 保存できないとき／自己診断 <span class="marr">▶</span></div>
       <div class="mbdy" style="display:none">
-        <button type="button" data-zsd-open="1" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#2c5282;color:#fff;border:none;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 保存トラブル自己診断を開く</button>
+        <button type="button" data-zsd-open="1" class="bp" style="display:block;width:100%;box-sizing:border-box;text-align:center;border:none;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 保存トラブル自己診断を開く</button>
         <b style="color:#2c5282">PC保存の基本構造</b><br>
         PC版は「① ブラウザ内（この端末）」と「② OneDriveなどいつもの保存先のファイル」の
         <b>2か所</b>に保存します。💾保存を押すと、まずブラウザ内へ保存し、続けていつもの保存先のファイルへの
@@ -2434,7 +2615,7 @@ body.is-mob .mob-menu{display:inline-block}
     <div class="msec">
       <div class="mttl" onclick="mtoggle(this)">🆘 困ったとき <span class="marr">▶</span></div>
       <div class="mbdy" style="display:none">
-        <button type="button" data-ztg-open="1" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#2c5282;border:1px solid #2c5282;color:#fff;border-radius:6px;padding:9px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:10px">🆘 質問に答えて、することを確かめる（困ったとき診断）</button>
+        <button type="button" data-ztg-open="1" class="bp" style="display:block;width:100%;box-sizing:border-box;text-align:center;border:1px solid #2c5282;border-radius:6px;padding:9px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:10px">🆘 質問に答えて、することを確かめる（困ったとき診断）</button>
         よくある困りごとと、その直し方です。当てはまる見出しを開いてください。保存がうまくいかないときは、上の「🩺 保存できないとき／自己診断」も見てください。
         <div class="msub">
           <div class="msubttl" onclick="mtoggle(this)" style="color:#c53030">保存先を間違えた <span class="marr">▶</span></div>
@@ -2579,11 +2760,11 @@ body.is-mob .mob-menu{display:inline-block}
     <div style="width:100%;display:flex;justify-content:space-between;align-items:center;position:relative">
       <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
         <button class="bg" id="setupBack" onclick="showList()" style="flex-shrink:0">← 一覧</button>
-        <div style="font-size:12px;color:rgba(255,255,255,0.75);white-space:nowrap">⚙ 初期設定</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.75);white-space:nowrap">⚙&#xFE0F; 初期設定 <span class="aibisVer">v3.3</span></div>
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0;align-items:center">
         <button type="button" class="bs setup-save-top" id="setupHeaderSaveBtn">💾 保存して開始</button>
-        <button onclick="openAibisChat()" style="background:#d97706;color:white;border:none;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.2;flex:0 0 auto">🧚<br><span class="aibisVer" style="font-size:8px;opacity:0.8;font-weight:700">v3.3</span></button>
+        <button onclick="openAibisChat()" title="アイビス（妖精）に聞く・相談する" class="za-hbtn-amber za-hbtn-icon za-hbtn-w4"><span class="za-hbtn-i">🧚</span><span class="za-hbtn-l">アイビス</span></button>
       </div>
     </div>
   </header>
@@ -2724,7 +2905,7 @@ body.is-mob .mob-menu{display:inline-block}
         </div>
         <div class="ht" style="margin:0">ブラウザのデータを消した・PCを替えたときは、「📂 前のナレッジファイルを使う」で前のファイルを選び直してください（ファイルにある記録をこの端末に戻します）。書き込みの許可を求められたら「許可」を押してください。</div>
       </div>
-      <button type="button" id="setupSaveDiagOpenBtn" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#2c5282;border:1px solid #2c5282;color:#fff;border-radius:6px;padding:9px 12px;font-size:12px;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 困ったとき（保存・データの自己診断）</button>
+      <button type="button" id="setupSaveDiagOpenBtn" class="bp" style="display:block;width:100%;box-sizing:border-box;text-align:center;border:1px solid #2c5282;border-radius:6px;padding:9px 12px;font-size:12px;cursor:pointer;font-family:inherit;margin-bottom:10px">🩺 困ったとき（保存・データの自己診断）</button>
       <details class="setup-acc setup-guide" id="setupGuideAcc">
         <summary><span class="setup-guide-ttl">初めての方へ（先にフォルダを作ります）</span><span class="setup-acc-badge setup-guide-warn">⚠ 大切なデータです</span><span class="setup-acc-arrow">▾</span></summary>
         <div class="setup-acc-body">
@@ -3140,7 +3321,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.54";
+var APP_VERSION = "v11.55";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -8375,7 +8556,7 @@ var AIBIS_FAQ=[
   {q:'保存できないときは？',a:function(){
     return isMob
       ? 'スマホ・タブレットではPCの保存先の設定は対象外だよ。データは端末内（ブラウザ）に保存されるから、定期的に「📧 PCへ」でPCに控えを取っておいてね😊'
-      : 'いつもの保存先への書き込みがうまくいかないときは、下のボタンから自己診断できるよ！原因の可能性を確認して、再設定などの復旧操作にそのまま進めるよ🩺<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 自己診断を開く</button>';
+      : 'いつもの保存先への書き込みがうまくいかないときは、下のボタンから自己診断できるよ！原因の可能性を確認して、再設定などの復旧操作にそのまま進めるよ🩺<br><br><button data-zsd-open="1" class="bp" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 自己診断を開く</button>';
   }},
   {q:'データが消えた！',a:'落ち着いて！まず確認してみてね😊<br><br>【まず試す】⋮その他→⏪1つ前に戻す　で直前の保存状態に復元できるよ！<br><br>【PC版】OneDriveのz-aibis_氏名.jsonが残っていないか確認。予備の保存先も確認してみて。<br>【スマホ版】PCに送った控え（📧 PCへ）が残っていないか確認。<br><br>これからはPC版で予備の保存先も設定しておくと二重に守れるよ！'},
   {q:'1つ前に戻すって何？',a:'⏪1つ前に戻すは、直前の保存状態に復元する機能だよ！<br><br>保存するたびに、その直前のデータの控えが自動で取られてるよ。<br><br>誤ってカードを消した・上書きしてしまった・読み込みミスをした、そんなときに⋮その他→⏪1つ前に戻すで復活できるよ😊<br><br>※もう一度押すと、戻す前の状態に戻せるよ（行ったり来たり）。ただし2つ前より前には戻れないから注意してね！'},
@@ -8460,7 +8641,7 @@ var AIBIS_FAQ=[
     var s='困ったときは、マニュアルの「🆘 困ったとき」を見てね📖<br>⋮その他→📖マニュアル→「🆘 困ったとき」を開くと、<br>・保存先を間違えた／ファイルが空になった<br>・写真が届かない・紐付かない<br>・機種変更／ブラウザのデータを消した<br>・画面が2つ開いている<br>などの直し方が載っているよ😊';
     return isMob
       ? s
-      : s+'<br><br>保存がうまくいかないときは、下のボタンから自己診断もできるよ🩺<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 自己診断を開く</button>';
+      : s+'<br><br>保存がうまくいかないときは、下のボタンから自己診断もできるよ🩺<br><br><button data-zsd-open="1" class="bp" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 自己診断を開く</button>';
   }},
   {q:'予備の保存先って何？',a:'PC版で、いつもの保存先とは別に控えを書き込むファイルだよ📋<br><br>一覧の「💾 保存」を押したときに、いつもの保存先と同じ内容が書き込まれるよ（カードを開いて押す保存では書き込まれないよ）。<br><br>置き場所は C ドライブの「ドキュメント」＞「アイビス」フォルダがおすすめ。初期設定の「📋 予備の保存先を指定」から設定してね！'},
   {q:'まるごと引っ越しファイルって何？',a:'カード・写真・営業の記録を1つにまとめたファイルだよ📦<br><br>初期設定の「📦 まるごと引っ越しファイルを作成」で作れるよ。PCを替えるときや、ブラウザのデータが消えたときに、写真と営業の記録まで戻せるのはこのファイルだけ。<br><br>入らないもの：初期設定（名前・メールアドレス・保存先）、ジョブの到達記録、予定表など。<br><br>作ったファイルは OneDrive の「ドキュメント」＞「アイビス」＞「引っ越しファイル」フォルダに置いて、新しい2つを残してね。メールで送ったり共有フォルダに置いたりしないでね！'},
@@ -17436,8 +17617,8 @@ function bulkAssignManagerPrompt(){
   aibisAlert('選択したカードの担当を変更するよ👤<br>新しい担当者名を入力してね。<br><br>'
     + '<input id="bulkAssignInput" type="text" placeholder="新しい担当者名" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;font-family:inherit;margin-bottom:8px">'
     + '<div style="display:flex;gap:8px">'
-    + '<button onclick="bulkAssignManagerConfirm()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">次へ</button>'
-    + '<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    + '<button onclick="bulkAssignManagerConfirm()" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">次へ</button>'
+    + '<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     + '</div>');
 }
 function bulkAssignManagerConfirm(){
@@ -18133,7 +18314,7 @@ function _bulkTidyEsc246(s){ return (typeof e === 'function') ? e(String(s)) : S
 // （新規window APIを増やさない）。「閉じる」＝何も実行しない。
 function _bulkTidyDialog246(html, buttons){
   var btnHtml = (buttons || []).map(function(b){
-    return '<button type="button" id="' + b.id + '" class="zfa-ok" style="' + (b.style || '') + '"' + (b.plainClose ? ' onclick="closeAibisAlert()"' : '') + '>' + _bulkTidyEsc246(b.label) + '</button>';
+    return '<button type="button" id="' + b.id + '" class="zfa-ok' + (b.cls ? ' ' + b.cls : '') + '" style="' + (b.style || '') + '"' + (b.plainClose ? ' onclick="closeAibisAlert()"' : '') + '>' + _bulkTidyEsc246(b.label) + '</button>';
   }).join('');
   try { aibisAlert(html + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px">' + btnHtml + '</div>'); } catch (_eA) { return; }
   (buttons || []).forEach(function(b){
@@ -18187,8 +18368,8 @@ function _bulkOfferJournalTidyB(){
         : '判定：記録の整理はできません。理由：' + _bulkTidyEsc246(_bulkTidyReasonText246(reason, m))) + '</div>' +
       '<span style="font-size:12px;color:#718096">このままでは新しい一括操作は停止したままです。保存診断・端末初期化・バックアップの再取込では、この記録は修復されません。</span>';
     var btns = [];
-    if (eligible) btns.push({ id: 'bulkTidyProceedBtn', label: '記録の整理へ進む', style: 'background:#2c5282', fn: function(){ _bulkTidyBegin246(pre.token); } });
-    btns.push({ id: 'bulkTidyDiagCloseBtn', label: '閉じる', style: 'background:#e2e8f0;color:#2d3748', plainClose: true });
+    if (eligible) btns.push({ id: 'bulkTidyProceedBtn', label: '記録の整理へ進む', fn: function(){ _bulkTidyBegin246(pre.token); } });
+    btns.push({ id: 'bulkTidyDiagCloseBtn', label: '閉じる', cls: 'za-dlg-no', plainClose: true });
     _bulkTidyDialog246(html, btns);
     return { ok: eligible, reason: reason, measure: m, preToken: pre ? pre.token : null };
   });
@@ -18323,11 +18504,11 @@ function _bulkTidyShowEvidenceDialog246(sess){
     '① 下のボタンで、記録ファイルを端末へ保存してください。<br>' +
     '<span style="font-size:12px">ファイル名：' + _bulkTidyEsc246(ev.name) + '（' + ev.size + ' bytes）</span><br>' +
     '<span style="font-size:12px;color:#c53030">このファイルには一括操作記録の原文が含まれ、個人情報が含まれている可能性があります。第三者へ送らず、端末内で保管してください。</span><br>' +
-    '<button type="button" id="bulkTidyDlBtn" class="zfa-ok" style="background:#2c5282;margin:6px 0">📥 記録ファイルを保存</button><br>' +
+    '<button type="button" id="bulkTidyDlBtn" class="zfa-ok za-dlg-save" style="margin:6px 0">📥 記録ファイルを保存</button><br>' +
     '② 保存したファイルを選び直してください（保存した内容と一致した場合だけ次へ進めます）。<br>' +
     '<input type="file" id="bulkTidyFileInp" accept=".json,application/json" disabled style="margin:6px 0;max-width:100%"><br>' +
     '<span id="bulkTidyStatus" style="font-size:12px;color:#4a5568"></span></div>';
-  _bulkTidyDialog246(html, [{ id: 'bulkTidyEvCancelBtn', label: 'やめる', style: 'background:#e2e8f0;color:#2d3748', fn: function(){ _bulkTidyCancel246(tok); } }]);
+  _bulkTidyDialog246(html, [{ id: 'bulkTidyEvCancelBtn', label: 'やめる', cls: 'za-dlg-no', fn: function(){ _bulkTidyCancel246(tok); } }]);
   try {
     var dl = document.getElementById('bulkTidyDlBtn');
     if (dl && typeof dl.addEventListener === 'function') dl.addEventListener('click', function(){ _bulkTidyDownload246(tok); });
@@ -18405,8 +18586,8 @@ function _bulkTidyShowConsent1246(sess){
     '・過去の削除が完了したことは<b>証明しません</b>。<br>' +
     '・今回行うのは一括操作記録<b>1件の整理のみ</b>です。カードと写真は変更しません。<br>' +
     '・記録を整理すると、新しい一括操作が可能になる場合があります。</div>',
-    [{ id: 'bulkTidyC1No', label: 'やめる', style: 'background:#e2e8f0;color:#2d3748', fn: function(){ _bulkTidyCancel246(tok); } },
-     { id: 'bulkTidyC1Yes', label: '理解して次へ', style: 'background:#2c5282', fn: function(){ _bulkTidyConsent1Yes246(tok); } }]);
+    [{ id: 'bulkTidyC1No', label: 'やめる', cls: 'za-dlg-no', fn: function(){ _bulkTidyCancel246(tok); } },
+     { id: 'bulkTidyC1Yes', label: '理解して次へ', cls: 'za-dlg-step', fn: function(){ _bulkTidyConsent1Yes246(tok); } }]);
 }
 function _bulkTidyConsent1Yes246(token){
   var sess = _bulkTidyCurrent246(token);
@@ -18415,8 +18596,8 @@ function _bulkTidyConsent1Yes246(token){
   sess.stage = 'consent2';
   var tok = sess.token;
   _bulkTidyDialog246('<b>最終確認（2/2）</b><br>一括操作記録1件を整理します。<b>元に戻せません</b>。<br>カードと写真は変更しません。実行しますか？',
-    [{ id: 'bulkTidyC2No', label: 'やめる', style: 'background:#e2e8f0;color:#2d3748', fn: function(){ _bulkTidyCancel246(tok); } },
-     { id: 'bulkTidyC2Yes', label: '記録を整理する', style: 'background:#e53e3e', fn: function(){ _bulkTidyFinal246(tok); } }]);
+    [{ id: 'bulkTidyC2No', label: 'やめる', cls: 'za-dlg-no', fn: function(){ _bulkTidyCancel246(tok); } },
+     { id: 'bulkTidyC2Yes', label: '記録を整理する', cls: 'za-dlg-danger', fn: function(){ _bulkTidyFinal246(tok); } }]);
   return true;
 }
 // 最終：二段階同意後にさらにowner/raw/RP空/SK・media条件を再照合してから、journal 1キーだけclear。
@@ -18552,7 +18733,7 @@ function _bulkRestoreInterruptedOnBoot263(j){
   var mob = (typeof isMob !== 'undefined' && isMob);
   var html = _bulkRestoreGuideHtml263(j)
     + (mob ? '<div style="font-size:12px;color:#c05621">戻す操作はPCで行ってください。</div>'
-           : '<div style="margin-top:8px"><button type="button" id="bulkRestoreOpenBtn263" class="zfa-ok" style="background:#2c5282">📦 まるごと引っ越しファイルから戻す（初期設定を開く）</button></div>');
+           : '<div style="margin-top:8px"><button type="button" id="bulkRestoreOpenBtn263" class="zfa-ok">📦 まるごと引っ越しファイルから戻す（初期設定を開く）</button></div>');
   try { aibisAlert(html); } catch (_eA) {}
   if (!mob) {
     try {
@@ -19076,8 +19257,8 @@ function delCard(id) {
   var name = c ? (c.name || '') : '';
   aibisAlert('「'+e(name)+'」を見込みから外す？⚠<br><span style="font-size:12px;color:#718096">訪問記録・家族構成・判定もすべて削除されます。</span><br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();_delCardFinal(this.getAttribute(\'data-id\'))" style="flex:1;padding:8px;background:#dd6b20;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">次へ</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();_delCardFinal(this.getAttribute(\'data-id\'))" class="za-dlg-step" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">次へ</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 function _delCardFinal(id){
@@ -19086,8 +19267,8 @@ function _delCardFinal(id){
   var name = c ? (c.name || '') : '';
   aibisAlert('<div style="text-align:center"><div style="font-size:11.5px;color:#718096">最終確認</div><div style="font-size:17px;font-weight:800;margin:6px 0;color:#c53030">'+e(name)+'</div>保存済みのカード・訪問記録・家族情報・判定・紐付け写真を削除します。<br>未保存の入力は復元の対象外です。<br><span style="font-size:11.5px;color:#718096">完了後、「↩ 元に戻す」表示中は復元できます</span></div>'
     +'<div style="display:flex;gap:8px;margin-top:10px">'
-    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();doDelCard(this.getAttribute(\'data-id\'))" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">削除する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();doDelCard(this.getAttribute(\'data-id\'))" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">削除する</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 window._delCardFinal=_delCardFinal;
@@ -19937,8 +20118,8 @@ function _mgrTermRequestOn241(id){
   var nm=gate.card.name||'';
   aibisAlert('<div style="text-align:center">'+e(nm)+'様を追客打ち切り（X）にします。カードは削除されません。よろしいですか？</div>'
     +'<div style="display:flex;gap:8px;margin-top:10px">'
-    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmed\')" style="flex:1;padding:8px;background:#2d3748;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">打ち切る</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmed\')" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">打ち切る</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 function _mgrTermRequestOff241(id){
@@ -19948,8 +20129,8 @@ function _mgrTermRequestOff241(id){
   var destText=gate.prev.pj?('ランク「'+e(gate.prev.pj)+'」へ戻します'):'未判定へ戻します';
   aibisAlert('<div style="text-align:center">'+e(nm)+'様の追客打ち切りを解除します。'+destText+'。よろしいですか？</div>'
     +'<div style="display:flex;gap:8px;margin-top:10px">'
-    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmedOff\')" style="flex:1;padding:8px;background:#2d3748;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">解除する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmedOff\')" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">解除する</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 function _mgrTermConfirmedOn241(id){
@@ -20021,8 +20202,8 @@ function _mgrTermRequestRecover241(id){
   var nm=gate.card.name||'';
   aibisAlert('<div style="text-align:center">'+e(nm)+'様の打ち切り状態に不整合があります。保存されている元のJudgment内容へ復元しますか？</div>'
     +'<div style="display:flex;gap:8px;margin-top:10px">'
-    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmedRecover\')" style="flex:1;padding:8px;background:#2d3748;color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">復元する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button data-id="'+e(id)+'" onclick="closeAibisAlert();mgrTermToggle(this.getAttribute(\'data-id\'),\'confirmedRecover\')" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">復元する</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 // confirmedRecoverは確認ダイアログの「復元する」ボタンからだけでなく、direct/programmatic
@@ -21467,7 +21648,7 @@ window.rusuReset0=rusuReset0;
 function showRusuAdvice(){ var msgs=['もう訪問するのは、やめた方がいいかもね…😔','5回連続でお留守。そろそろ引き際かもしれないね🚪','ここまで留守が続くなら、深追いは禁物かも💦','脈は薄いサインかも。力は他のお客様へ回そう！🔄','5連続留守…潔く撤退も、立派な戦略だよ🫡','これ以上は時間がもったいないかも。次の見込みへ切り替えよう！🏃']; var m=msgs[Math.floor(Math.random()*msgs.length)]; aibisAlert('<div style="font-size:19px;font-weight:800;line-height:1.5;color:#c92a2a">⚠️ 連続留守 5回</div><div style="font-size:17px;font-weight:700;line-height:1.6;margin-top:10px;color:#2d3748">'+m+'</div>'); }
 function onRusuChange(){ if(!cur) return; var rv=document.querySelector('input[name="rusu"]:checked'); var val=rv?rv.value:'0'; cur.rusu=val; if(+val>=1){ cur.rusu_date=todayStr(); } else { cur.rusu_date=''; } paintRusuDate(); paintRusuButtons(); if(+val===5){ showRusuAdvice(); } if(typeof setDirty==='function') setDirty(true); }
 window.onRusuChange=onRusuChange; window.paintRusuButtons=paintRusuButtons;
-function aibisConfirm(msg,onYes,yesLabel,noLabel){ window._aibisConfirmYes=function(){ if(typeof closeAibisAlert==='function') closeAibisAlert(); try{ onYes&&onYes(); }catch(e){} }; var btns='<div style="display:flex;gap:10px;justify-content:center;margin-top:4px"><button class="zfa-ok" style="background:#e2e8f0;color:#2d3748" onclick="closeAibisAlert()">'+(noLabel||'やめる')+'</button><button class="zfa-ok" style="background:#e53e3e" onclick="_aibisConfirmYes()">'+(yesLabel||'削除する')+'</button></div>'; aibisAlert(msg+btns); }
+function aibisConfirm(msg,onYes,yesLabel,noLabel){ window._aibisConfirmYes=function(){ if(typeof closeAibisAlert==='function') closeAibisAlert(); try{ onYes&&onYes(); }catch(e){} }; var btns='<div style="display:flex;gap:10px;justify-content:center;margin-top:4px"><button class="zfa-ok za-dlg-no" onclick="closeAibisAlert()">'+(noLabel||'やめる')+'</button><button class="zfa-ok za-dlg-danger" onclick="_aibisConfirmYes()">'+(yesLabel||'削除する')+'</button></div>'; aibisAlert(msg+btns); }
 function confirmRemPursuit(i){ aibisConfirm('この追撃記録を削除する？🗑<br><span style="font-size:12.5px;color:#718096">入力した内容は元に戻せないよ。</span>', function(){ remPursuit(i); }); }
 window.toggleVisitDoukou=toggleVisitDoukou; window.paintVisitDoukou=paintVisitDoukou; window.aibisConfirm=aibisConfirm; window.confirmRemPursuit=confirmRemPursuit;
 function renderRevisits(){
@@ -21693,15 +21874,15 @@ function maybeRestoreDraft(){
   if(savedNewer){
     aibisAlert('\u524d\u56de\u306e<b>\u672a\u4fdd\u5b58\u306e\u5165\u529b</b>\u306e\u63a7\u3048\u304c\u898b\u3064\u304b\u3063\u305f\u3088\ud83d\udcdd<br>'+nm+'\u3000'+when+'<br><br>\u3067\u3082\u3001<b>\u4fdd\u5b58\u6e08\u307f\u306e\u5185\u5bb9\u306e\u65b9\u304c\u65b0\u3057\u3044</b>\u3088\u3002\u63a7\u3048\u3092\u958b\u304f\u3068\u3001\u65b0\u3057\u3044\u4fdd\u5b58\u3092\u53e4\u3044\u5185\u5bb9\u3067\u4e0a\u66f8\u304d\u3057\u3066\u3057\u307e\u3046\u304b\u3082\u3002<br>\u63a7\u3048\u306f\u7834\u68c4\u3059\u308b\u306e\u304c\u304a\u3059\u3059\u3081\u3002<br><br>'
       +'<div style="display:flex;gap:8px;margin-top:8px">'
-      +'<button onclick="closeAibisAlert();_discardDraft()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u7834\u68c4\u3059\u308b</button>'
-      +'<button onclick="closeAibisAlert();_restoreDraft()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u305d\u308c\u3067\u3082\u63a7\u3048\u306e\u5185\u5bb9\u3092\u958b\u304f</button>'
+      +'<button onclick="closeAibisAlert();_discardDraft()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u7834\u68c4\u3059\u308b</button>'
+      +'<button onclick="closeAibisAlert();_restoreDraft()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u305d\u308c\u3067\u3082\u63a7\u3048\u306e\u5185\u5bb9\u3092\u958b\u304f</button>'
       +'</div>');
     return;
   }
   aibisAlert('\u524d\u56de\u306e<b>\u672a\u4fdd\u5b58\u306e\u5165\u529b</b>\u304c\u898b\u3064\u304b\u3063\u305f\u3088\ud83d\udcdd<br>'+nm+'\u3000'+when+'<br><br>\u958b\u3044\u3066\u7d9a\u3051\u308b\uff1f<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();_restoreDraft()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u958b\u3044\u3066\u7d9a\u3051\u308b</button>'
-    +'<button onclick="closeAibisAlert();_discardDraft()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u7834\u68c4\u3059\u308b</button>'
+    +'<button onclick="closeAibisAlert();_restoreDraft()" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u958b\u3044\u3066\u7d9a\u3051\u308b</button>'
+    +'<button onclick="closeAibisAlert();_discardDraft()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">\u7834\u68c4\u3059\u308b</button>'
     +'</div>');
 }
 function _restoreDraft(){
@@ -21973,8 +22154,8 @@ function confirmImport(imp){
   }
   msg+='<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:4px">'
-    +'<button onclick="closeAibisAlert();doMerge(window._pendingImport)" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">はい、読み込む</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button onclick="closeAibisAlert();doMerge(window._pendingImport)" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">はい、読み込む</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>';
   window._pendingImport=imp;
   aibisAlert(msg);
@@ -21992,11 +22173,11 @@ function askMergeMode(imp){
   return new Promise(function(resolve){
     var msg='読み込みモードを選んでね😊<br><br>'
       +'担当：'+nameStr+'（'+imp.length+'件）<br><br>'
-      +'<button onclick="closeAibisAlert();window._importResolve(\'merge\')" style="width:100%;padding:10px;margin-bottom:8px;background:#ebf4ff;border:2px solid #3182ce;border-radius:8px;cursor:pointer;font-family:inherit;text-align:left">'
+      +'<button onclick="closeAibisAlert();window._importResolve(\'merge\')" class="bc za-dlg-no" style="width:100%;padding:10px;margin-bottom:8px;border:2px solid #3182ce;border-radius:8px;cursor:pointer;font-family:inherit;text-align:left">'
       +'<div style="font-size:13px;font-weight:700;color:#2c5282">📋 マージ</div>'
       +'<div style="font-size:11px;color:#4a5568;margin-top:2px">新規追加・更新のみ。削除は反映しない</div>'
       +'</button>'
-      +'<button onclick="closeAibisAlert();window._importResolve(\'overwrite\')" style="width:100%;padding:10px;background:#fff5f5;border:2px solid #c53030;border-radius:8px;cursor:pointer;font-family:inherit;text-align:left">'
+      +'<button onclick="closeAibisAlert();window._importResolve(\'overwrite\')" class="za-dlg-step" style="width:100%;padding:10px;border:2px solid #c53030;border-radius:8px;cursor:pointer;font-family:inherit;text-align:left">'
       +'<div style="font-size:13px;font-weight:700;color:#c53030">🔄 上書き</div>'
       +'<div style="font-size:11px;color:#4a5568;margin-top:2px">'+nameStr+'のデータを完全置換</div>'
       +'</button>';
@@ -22025,8 +22206,8 @@ async function doMerge(imp, onDone){
           +'差分の'+(existCount-imp.length)+'件は消えます。<br><br>'
           +'これは「全件ファイル」ですか？朝の数枚など<b>部分ファイルなら必ずマージ</b>を使ってね。<br><br>'
           +'<div style="display:flex;gap:8px;margin-top:8px">'
-          +'<button onclick="closeAibisAlert();window._owResolve(true)" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">全件なので上書き</button>'
-          +'<button onclick="closeAibisAlert();window._owResolve(false)" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+          +'<button onclick="closeAibisAlert();window._owResolve(true)" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">全件なので上書き</button>'
+          +'<button onclick="closeAibisAlert();window._owResolve(false)" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
           +'</div>');
         window._owResolve=resolve;
       });
@@ -22174,8 +22355,8 @@ function chooseSave(){
   if(fHandle){
     aibisAlert('現在の保存先：「'+fHandle.name+'」<br><br>新しいファイルに変更する？<br>変更すると今後の保存先が切り替わるよ⚠<br><br>'
       +'<div style="display:flex;gap:8px;margin-top:8px">'
-      +'<button onclick="closeAibisAlert();doChooseSave()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">変更する</button>'
-      +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+      +'<button onclick="closeAibisAlert();doChooseSave()" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">変更する</button>'
+      +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
       +'</div>');
     return;
   }
@@ -22188,7 +22369,7 @@ function doChooseSave(){
         fHandle=handle; saveHandle(handle);
         updateFileDisp(); toast('✅ 保存先を設定しました: '+handle.name);
       } else {
-        aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
+        aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" class="bp" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
       }
     });
   }).catch(function(ex){ if(ex.name!=='AbortError') toast('ファイル選択エラー'); });
@@ -24302,8 +24483,8 @@ function copyPrompt(){
       +q.map(function(w){return '・'+w;}).join('<br>')
       +'<br><br>会話の実態や家族構成が詳しいほど、AIの分析精度が上がるよ。このまま抽出する？<br><br>'
       +'<div style="display:flex;gap:8px;margin-top:8px">'
-      +'<button onclick="closeAibisAlert();doCopy(genPrompt(false),\'通常\')" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このまま抽出</button>'
-      +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">入力に戻る</button>'
+      +'<button onclick="closeAibisAlert();doCopy(genPrompt(false),\'通常\')" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このまま抽出</button>'
+      +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">入力に戻る</button>'
       +'</div>');
     return;
   }
@@ -24318,8 +24499,8 @@ function _copyPromptAnonGo(){
       +q.map(function(w){return '・'+w;}).join('<br>')
       +'<br><br>会話の実態や家族構成が詳しいほど、AIの分析精度が上がるよ。このまま抽出する？<br><br>'
       +'<div style="display:flex;gap:8px;margin-top:8px">'
-      +'<button onclick="closeAibisAlert();doCopy(genPrompt(true),\'簡易匿名化\')" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このまま抽出</button>'
-      +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">入力に戻る</button>'
+      +'<button onclick="closeAibisAlert();doCopy(genPrompt(true),\'簡易匿名化\')" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このまま抽出</button>'
+      +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">入力に戻る</button>'
       +'</div>');
     return;
   }
@@ -24338,8 +24519,8 @@ function _askMyJudge(cb){
   var today=_ymd(new Date());
   if(cur.my_judge_at&&String(cur.my_judge_at).slice(0,10)===today){ cb(); return; }
   window._mjCb=cb;
-  var btn=function(r){return '<button onclick="_mjPick(\''+r+'\')" style="flex:1;min-width:36px;padding:9px 0;background:#2c5282;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">'+r+'</button>';};
-  aibisAlert('🎯 <b>あなたの仮判定は？</b><br><span style="font-size:11.5px;color:#718096">AIに聞く前に自分の目で決めよう。AI判定との一致率が「目利き力」として育つよ</span><br><br><div style="display:flex;gap:6px">'+['S','A','B','C','D'].map(btn).join('')+'</div><div style="display:flex;gap:6px;margin-top:6px">'+btn('E')+btn('X')+'<button onclick="_mjPick(\'\')" style="flex:3;padding:9px 0;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">今回はスキップ</button></div>');
+  var btn=function(r){return '<button onclick="_mjPick(\''+r+'\')" class="bc za-dlg-no" style="flex:1;min-width:36px;padding:9px 0;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">'+r+'</button>';};
+  aibisAlert('🎯 <b>あなたの仮判定は？</b><br><span style="font-size:11.5px;color:#718096">AIに聞く前に自分の目で決めよう。AI判定との一致率が「目利き力」として育つよ</span><br><br><div style="display:flex;gap:6px">'+['S','A','B','C','D'].map(btn).join('')+'</div><div style="display:flex;gap:6px;margin-top:6px">'+btn('E')+btn('X')+'<button onclick="_mjPick(\'\')" class="bc za-dlg-no" style="flex:3;padding:9px 0;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">今回はスキップ</button></div>');
  }catch(_e){ cb(); }
 }
 function _mjPick(r){
@@ -24357,8 +24538,8 @@ function _promptFileEntry(){
       +q.map(function(w){return '・'+w;}).join('<br>')
       +'<br><br>会話の実態や家族構成が詳しいほど、AIの分析精度が上がるよ。このままファイル化する？<br><br>'
       +'<div style="display:flex;gap:8px;margin-top:8px">'
-      +'<button onclick="closeAibisAlert();_promptFileGo()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このままファイル化</button>'
-      +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">入力に戻る</button>'
+      +'<button onclick="closeAibisAlert();_promptFileGo()" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このままファイル化</button>'
+      +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">入力に戻る</button>'
       +'</div>');
     return;
   }
@@ -25368,9 +25549,9 @@ function setupChooseSave(){
     ? '<div style="padding:8px 10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:8px"><b style="color:#c53030">⚠ 前に使っていたファイルがある人へ</b><br>ここで同じファイルを選ぶと、中身が消えます。前のファイルは「📂 前のファイルを使う」から選んでください。</div>'
     : '';
   var prevBtn = memEmpty
-    ? '<button onclick="closeAibisAlert();setupUsePrevFile()" style="background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px;margin-left:6px">📂 前のファイルを使う</button>'
+    ? '<button onclick="closeAibisAlert();setupUsePrevFile()" class="bc za-dlg-no" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px;margin-left:6px">📂 前のファイルを使う</button>'
     : '';
-  aibisAlert('【いつもの保存先の設定】<br><br>'+prevNote+'① OKを押すとファイル選択画面が開きます<br>② OneDrive の「ドキュメント」＞「アイビス」フォルダを選んでください<br>③ ファイル名は自動で入ります（変更不要）<br>④「保存」で完了 → 以降は自動書き込み<br><br><button onclick="closeAibisAlert();_doSetupSave()" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">OK・設定する</button>'+prevBtn);
+  aibisAlert('【いつもの保存先の設定】<br><br>'+prevNote+'① OKを押すとファイル選択画面が開きます<br>② OneDrive の「ドキュメント」＞「アイビス」フォルダを選んでください<br>③ ファイル名は自動で入ります（変更不要）<br>④「保存」で完了 → 以降は自動書き込み<br><br><button onclick="closeAibisAlert();_doSetupSave()" class="bp" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">OK・設定する</button>'+prevBtn);
   window._doSetupSave=function(){
     window.showSaveFilePicker({
       suggestedName: suggestedName,
@@ -25382,7 +25563,7 @@ function setupChooseSave(){
           fHandle=handle; saveHandle(handle);
           updateSetupFileDisp(); updateFileDisp(); toast('✅ いつもの保存先設定完了: '+handle.name);
         } else {
-          aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
+          aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" class="bp" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
         }
       });
     }).catch(function(ex){ if(ex.name!=='AbortError') toast('ファイル選択エラー'); });
@@ -25396,7 +25577,7 @@ function setupChooseCopy(){
   var copyNote = _setupMemEmpty()
     ? '<div style="padding:8px 10px;background:#fff5f5;border-left:3px solid #c53030;border-radius:4px;font-size:12px;line-height:1.7;margin-bottom:8px"><b style="color:#c53030">⚠ 今この端末にカードがありません</b><br>前に使っていたファイルがある人は、先にいつもの保存先を「📂 前のファイルを使う」で設定してから、予備の保存先を設定してください（ここで前の予備のファイルを選ぶと、中身が消えます）。</div>'
     : '';
-  aibisAlert('【予備の保存先の指定】<br><br>'+copyNote+'① OKを押すとエクスプローラーが開きます<br>② C ドライブの「ドキュメント」＞「アイビス」フォルダを選んでください<br>③ ファイル名は自動で入ります（変更不要）<br>④「保存」で完了 → 以降は一覧の「💾 保存」を押したときに書き込み<br><br><button onclick="closeAibisAlert();_doSetupCopy()" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">OK・指定する</button>');
+  aibisAlert('【予備の保存先の指定】<br><br>'+copyNote+'① OKを押すとエクスプローラーが開きます<br>② C ドライブの「ドキュメント」＞「アイビス」フォルダを選んでください<br>③ ファイル名は自動で入ります（変更不要）<br>④「保存」で完了 → 以降は一覧の「💾 保存」を押したときに書き込み<br><br><button onclick="closeAibisAlert();_doSetupCopy()" class="bp" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">OK・指定する</button>');
   window._doSetupCopy=function(){
     window.showSaveFilePicker({
       suggestedName: suggestedName,
@@ -25415,7 +25596,7 @@ function setupChooseCopy(){
             }).catch(function(){});
           }
         } else {
-          aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
+          aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" class="bp" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
         }
       });
     }).catch(function(ex){ if(ex.name!=='AbortError') toast('ファイル選択エラー'); });
@@ -25482,7 +25663,7 @@ function setupUsePrevFile(){
                 if(ok){
                   toast('✅ いつもの保存先に前のファイルを使います: '+handle.name);
                 } else {
-                  aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" style="background:#2c5282;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
+                  aibisAlert('書込経路で一時的な競合・同期・ロック等が発生している可能性があります。保存先「'+e(handle.name)+'」への書き込みに失敗しました。<br><br><button data-zsd-open="1" class="bp" style="border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px">🩺 原因を確認して復旧する</button>');
                 }
               });
             };
@@ -25507,8 +25688,8 @@ function setupUsePrevFile(){
         +(data.length ? 'このファイルのカード '+data.length+'件を、この端末に読み込みます。' : '⚠ このファイルにはカードが入っていません（0件）。')
         +'<br>このあと出る画面で、このファイルへの書き込みを「許可」してください。<br><br>'
         +'<div style="display:flex;gap:8px;margin-top:4px">'
-        +'<button onclick="window._doSetupUsePrev();closeAibisAlert()" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">'+(nameNote257 ? 'それでも使う' : 'このファイルを使う')+'</button>'
-        +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+        +'<button onclick="window._doSetupUsePrev();closeAibisAlert()" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">'+(nameNote257 ? 'それでも使う' : 'このファイルを使う')+'</button>'
+        +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
         +'</div>');
     }).catch(function(){ aibisAlert('ファイルを読み込めませんでした。<br>データは変更していません。'); });
   }).catch(function(ex){ if(ex && ex.name!=='AbortError') toast('ファイル選択エラー'); });
@@ -27213,8 +27394,8 @@ function loadAnalysisMemo(){
 function clearAnalysisMemo(){
   aibisAlert('この分析結果を削除するよ。よろしい？<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();doClearAnalysisMemo()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button onclick="closeAibisAlert();doClearAnalysisMemo()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 function doClearAnalysisMemo(){
@@ -27332,7 +27513,7 @@ function copySelfPrompt(){
 function saveSelfMemo(){ var ta=document.getElementById('selfAnalysisMemo'); if(!ta)return; try{localStorage.setItem('analysis_memo_self_v1',ta.value); var at=localStorage.getItem('analysis_memo_self_at_v1')||''; if(!ta.value.trim()) at=''; else if(!at) at=new Date().toISOString(); localStorage.setItem('analysis_memo_self_at_v1',at); var l=document.getElementById('selfMemoAt'); if(l)l.textContent=at?('📌 '+_fmtDateJP(at)):''; }catch(ex){} }
 function loadSelfMemo(){ var ta=document.getElementById('selfAnalysisMemo'); if(!ta)return; try{ta.value=localStorage.getItem('analysis_memo_self_v1')||''; var at=localStorage.getItem('analysis_memo_self_at_v1')||''; var l=document.getElementById('selfMemoAt'); if(l)l.textContent=at?('📌 '+_fmtDateJP(at)):''; }catch(ex){} }
 function printSelfReport(){ var ta=document.getElementById('selfAnalysisMemo'); var memo=ta?ta.value:''; if(!memo.trim()){ toast('貼り付け欄が空です'); return; } printAnalysisReport(memo,(uName||'自分')+' 自己分析レポート'); }
-function clearSelfMemo(){ var ta=document.getElementById('selfAnalysisMemo'); if(!ta)return; if(!ta.value){toast('すでに空です');return;} aibisAlert('この分析結果を削除するよ。よろしい？<br><br><div style="display:flex;gap:8px;margin-top:8px"><button onclick="closeAibisAlert();doClearSelfMemo()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button><button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button></div>'); }
+function clearSelfMemo(){ var ta=document.getElementById('selfAnalysisMemo'); if(!ta)return; if(!ta.value){toast('すでに空です');return;} aibisAlert('この分析結果を削除するよ。よろしい？<br><br><div style="display:flex;gap:8px;margin-top:8px"><button onclick="closeAibisAlert();doClearSelfMemo()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button><button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button></div>'); }
 function doClearSelfMemo(){ var ta=document.getElementById('selfAnalysisMemo'); if(ta)ta.value=''; try{localStorage.removeItem('analysis_memo_self_v1');localStorage.removeItem('analysis_memo_self_at_v1');}catch(ex){} var l=document.getElementById('selfMemoAt'); if(l)l.textContent=''; toast('削除しました'); }
 window.copySelfPrompt=copySelfPrompt; window.saveSelfMemo=saveSelfMemo; window.loadSelfMemo=loadSelfMemo; window.printSelfReport=printSelfReport; window.clearSelfMemo=clearSelfMemo; window.doClearSelfMemo=doClearSelfMemo;
 function openAnalysis(){ var p=document.getElementById('analysisPanel'); if(!p) return; _zOpen={cmd:true}; p.style.display='block'; renderAnalysis(); loadAnalysisMemo(); var sc=document.getElementById('analysisContent'); if(sc) sc.scrollTop=0; }
@@ -29233,8 +29414,8 @@ function _planRouteToPhoneText(){
 function resetPlanner(){ if(!_plan.entries||!_plan.entries.length){ toast('リセットする予定がありません'); return; }
   aibisAlert('本日の予定表（全'+_plan.entries.length+'件）をリセットするよ⚠<br>前回の予定をまとめて消去します。この操作は取り消せません。<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();doResetPlanner()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">リセットする</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button onclick="closeAibisAlert();doResetPlanner()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">リセットする</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>'); }
 function doResetPlanner(){ _plan={entries:[]}; savePlan(); renderPlanner(); toast('予定表をリセットしました'); }
 function planDel(i){
@@ -29409,7 +29590,7 @@ function _sbPaint(){
  ov.innerHTML='<div style="background:#fff;max-width:720px;margin:0 auto;border-radius:12px;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
   +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><b style="font-size:16px;color:#2c5282;flex-shrink:0">\ud83c\udfaf 今日の作戦盤</b><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">'
   /* 第162弾-1: 決定ボタンを上段にも複製（下段と同一ハンドラzSbMake/zSbSkipを呼ぶだけ・ロジック不変） */
-  +'<button onclick="zSbMake()" title="選んだ'+nSel+'件で予定表を作る" style="background:#2c5282;color:#fff;border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\ud83d\udcc5 選択で作成</button>'
+  +'<button onclick="zSbMake()" title="選んだ'+nSel+'件で予定表を作る" class="bp" style="border:none;border-radius:6px;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit;font-weight:700">\ud83d\udcc5 選択で作成</button>'
   /* 第167弾: 作戦盤内の「🎯 ショットガン」ボタンは撤去（予定表側に独立入口が完成済みのため導線重複。
    * Fable5設計レビュー承認・安全寄り方針）。zSbOpenShotgun()関数自体と、ショットガン画面側の
    * 戻り先分岐(sakusen)は今回は削除せず未使用のまま温存する（後続の整理弾で判断）。 */
@@ -29421,7 +29602,7 @@ function _sbPaint(){
   +'<div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 2px"><b style="font-weight:800;color:#2f855a;font-size:13px">\ud83d\udeb6 再訪候補9客（ペース超過・未接触・入力不足）</b><span style="flex-shrink:0;white-space:nowrap"><button onclick="zSbRevAll()" style="border:none;background:none;color:#2c5282;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;margin-left:8px">\u2611 全選択</button><button onclick="zSbRevNone()" style="border:none;background:none;color:#2c5282;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;margin-left:6px">解除</button></span></div>'
   +(window._sbRev.length?window._sbRev.map(function(o){return _sbRowHTML(o,false,0);}).join(''):'<div style="font-size:11px;color:#999;padding:6px 4px">該当なし</div>')
   +'<div style="display:flex;gap:10px;margin-top:16px">'
-  +'<button onclick="zSbMake()" style="flex:2;background:#2c5282;color:#fff;border:none;border-radius:8px;padding:11px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">\ud83d\udcc5 選んだ '+nSel+' 件で予定表を作る</button>'
+  +'<button onclick="zSbMake()" class="bp" style="flex:2;border:none;border-radius:8px;padding:11px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">\ud83d\udcc5 選んだ '+nSel+' 件で予定表を作る</button>'
   +'<button onclick="zSbSkip()" style="flex:1;background:#e2e8f0;color:#2d3748;border:none;border-radius:8px;padding:11px;font-size:12.5px;cursor:pointer;font-family:inherit">\u23e9 選ばずに予定表へ</button>'
   +'</div></div>';
 }
@@ -30045,7 +30226,7 @@ function _sortiePaintPicker(){
     +'<div style="font-size:11.5px;color:#4a5568;font-weight:700;margin:2px 0 4px">'+nSel+'名選択中</div>'
     +'<div id="sortiePickerList" style="max-height:40vh;overflow-y:auto;border-top:1px solid #e2e8f0">'+rows+'</div>'
     +pagingHTML
-    +'<button onclick="_sortieConfirm()" style="width:100%;margin-top:10px;background:#2c5282;color:#fff;border:none;border-radius:9px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📅 選んだ '+nSel+' 件で予定表に入れる</button>'
+    +'<button onclick="_sortieConfirm()" class="bp" style="width:100%;margin-top:10px;border:none;border-radius:9px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit">📅 選んだ '+nSel+' 件で予定表に入れる</button>'
     +'</div>';
   ov.style.display='block';
 }
@@ -30258,8 +30439,8 @@ function clearStrategyField(id){
   if(!el.value){toast('すでに空です');return;}
   aibisAlert((id==='f_analog'?'今の作戦は『前回までの作戦』にしまって、欄を空にするよ。よろしい？<br><br>':'この欄の内容を削除するよ。よろしい？<br><br>')
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();doClearStrategyField(\''+id+'\')" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">'+(id==='f_analog'?'しまう':'削除する')+'</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button onclick="closeAibisAlert();doClearStrategyField(\''+id+'\')" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">'+(id==='f_analog'?'しまう':'削除する')+'</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 function doClearStrategyField(id){
@@ -30797,15 +30978,15 @@ function clearAllCards(){
   if(cards.length===0){toast('削除するカードがありません');return;}
   aibisAlert('全'+cards.length+'件のカードデータを削除するよ⚠<br><span style="font-size:12px;color:#718096">カードと紐付く写真も一緒に削除します（未紐付けの写真は対象外）。削除が完了した場合は「↩ 直前の一括削除を取り消す」から復元できます。</span><br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();clearAllCards2()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button onclick="closeAibisAlert();clearAllCards2()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">削除する</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 function clearAllCards2(){
   aibisAlert('最終確認！本当に全データ（カード＋紐付き写真）を削除してよい？😢<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();doClearAllCards()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">本当に削除する</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button onclick="closeAibisAlert();doClearAllCards()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">本当に削除する</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 // DAN244: cards=[]による危険経路（B-2）を廃止し、bulk_ops.jsの安全核（復元ポイント＋ジャーナル
@@ -30843,8 +31024,8 @@ function resetSmartphone(){
       +'翌日まっさらで始めたいときや、PCで削除したカードを反映したいときに使うよ。<br>'+warn
       +'必ず先に「📧 PCへ」で控えを送ってね！<br><br>控えは送った？<br><br>'
       +'<div style="display:flex;gap:8px;margin-top:8px">'
-      +'<button onclick="closeAibisAlert();resetSmartphone2()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">送った・リセット</button>'
-      +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+      +'<button onclick="closeAibisAlert();resetSmartphone2()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">送った・リセット</button>'
+      +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
       +'</div>');
   };
   if(typeof mAll==='function'){ mAll().then(function(all){ all=all||[]; _go(all, all.filter(function(s){return !s.sent;}).length); }).catch(function(){ _go([],0); }); }
@@ -30853,8 +31034,8 @@ function resetSmartphone(){
 function resetSmartphone2(){
   aibisAlert('最終確認！リセット後はPCから最新データを読み込んでね。<br>本当に実行する？<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="closeAibisAlert();doResetSmartphone()" style="flex:1;padding:8px;background:#c53030;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">リセットする</button>'
-    +'<button onclick="closeAibisAlert()" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'<button onclick="closeAibisAlert();doResetSmartphone()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">リセットする</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
     +'</div>');
 }
 // DAN244: cards=[]先行→mClear()というB-2/M-3型の危険経路（mClear失敗黙殺で写真だけ残存・
@@ -31396,7 +31577,7 @@ function _fr254Cur(tok){ var s=fullRestoreGuarded254._s254; return (s && s.token
 function _fr254Close(){ try{ if(typeof closeAibisAlert==="function") closeAibisAlert(); }catch(_e){} }
 function _fr254Dialog(html, buttons){
   var btnHtml=(buttons||[]).map(function(b){
-    return '<button type="button" id="'+b.id+'" class="zfa-ok" style="'+(b.style||"")+'"'+(b.plainClose?' onclick="closeAibisAlert()"':'')+'>'+_fr254Esc(b.label)+'</button>';
+    return '<button type="button" id="'+b.id+'" class="zfa-ok'+(b.cls?' '+b.cls:'')+'" style="'+(b.style||"")+'"'+(b.plainClose?' onclick="closeAibisAlert()"':'')+'>'+_fr254Esc(b.label)+'</button>';
   }).join("");
   try{ aibisAlert(html+'<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px">'+btnHtml+'</div>'); }catch(_eA){ return; }
   (buttons||[]).forEach(function(b){
@@ -31516,8 +31697,8 @@ function _showFullRestorePreview(data, manifest, futureCards, digestOk, haveStor
       +"<br><br><b style=\"color:#c53030\">この操作は現在のカード・写真データをすべて置き換えます（マージではありません）。</b>"
       +"<br>次へ進むと、戻す前に今のデータの控え（まるごと引っ越しファイル）を自動で作ります。";
     _fr254Dialog(msg, [
-      { id:"fr254PreviewCancel", label:"キャンセル", style:"background:#e2e8f0;color:#2d3748", plainClose:true },
-      { id:"fr254PreviewNext", label:"次へ（今のデータの控えを作る）", style:"background:#2c5282", fn:function(){ fullRestoreGuarded254(data, knowledgeValidation, { manifest:manifest, futureCards:futureCards }); } }
+      { id:"fr254PreviewCancel", label:"キャンセル", cls:"za-dlg-no", plainClose:true },
+      { id:"fr254PreviewNext", label:"次へ（今のデータの控えを作る）", fn:function(){ fullRestoreGuarded254(data, knowledgeValidation, { manifest:manifest, futureCards:futureCards }); } }
     ]);
   });
 }
@@ -31626,11 +31807,11 @@ function _fr254ShowVerifyDialog(tok){
         +(prev263 ? "前回の控え（"+_fr254Esc(prev263)+"）もそのまま残っています。" : "")+"</span><br>" : "")
     +"① 控えのファイル：<span style=\"font-size:12px\">"+_fr254Esc(s.ctl.name)+"（"+s.ctl.size+" bytes）</span><br>"
     +"<span style=\"font-size:12px;color:#c05621\">控えは OneDrive の引っ越しファイル置き場へ移してください（ダウンロードのままだと自動で片付けられることがあります）。</span><br>"
-    +"<button type=\"button\" id=\"fr254RedownloadBtn\" class=\"zfa-ok\" style=\"background:#718096;margin:6px 0\">📥 もう一度保存する</button><br>"
+    +"<button type=\"button\" id=\"fr254RedownloadBtn\" class=\"zfa-ok za-dlg-no\" style=\"margin:6px 0\">📥 もう一度保存する</button><br>"
     +"② 保存した控えのファイルを選んでください（中身が一致したときだけ次へ進みます）。<br>"
     +"<input type=\"file\" id=\"fr254VerifyInput\" accept=\".json,application/json\" style=\"margin:6px 0;max-width:100%\"><br>"
     +"<span id=\"fr254Status\" style=\"font-size:12px;color:#4a5568\"></span></div>";
-  _fr254Dialog(html, [{ id:"fr254VerifyCancel", label:"やめる", style:"background:#e2e8f0;color:#2d3748", fn:function(){ _fr254Abort(tok, "戻すのをやめました。"); } }]);
+  _fr254Dialog(html, [{ id:"fr254VerifyCancel", label:"やめる", cls:"za-dlg-no", fn:function(){ _fr254Abort(tok, "戻すのをやめました。"); } }]);
   try{
     var rd=document.getElementById("fr254RedownloadBtn");
     if(rd && typeof rd.addEventListener==="function") rd.addEventListener("click", function(){ _fr254Download(tok); });
@@ -31696,8 +31877,8 @@ function _fr254ShowFinal(tok){
       +(_fr254PrevCtlName263(s) ? "<br>前回の控え（"+_fr254Esc(_fr254PrevCtlName263(s))+"）もそのまま残っています。" : "")
       +"</div>";
     _fr254Dialog(html, [
-      { id:"fr254FinalCancel", label:"やめる", style:"background:#e2e8f0;color:#2d3748", fn:function(){ _fr254Abort(tok, "戻すのをやめました。"); } },
-      { id:"fr254FinalRun", label:"復元を実行", style:"background:#e53e3e", fn:function(){ _fr254Run(tok); } }
+      { id:"fr254FinalCancel", label:"やめる", cls:"za-dlg-no", fn:function(){ _fr254Abort(tok, "戻すのをやめました。"); } },
+      { id:"fr254FinalRun", label:"復元を実行", cls:"za-dlg-danger", fn:function(){ _fr254Run(tok); } }
     ]);
     return true;
   });
@@ -32265,7 +32446,7 @@ function _showRestoreResultBody263(saveOk, afterManifest, mismatch, knowledgeVal
   }else if(mismatch){
     msg = "<span style=\"color:#c53030\">⚠ 復元後の件数がまるごと引っ越しファイルの内容と一致しませんでした。内容をご確認ください。</span>"
        + "<br>（営業知識ログには触れていません）"
-       + "<br><button class=\"zfa-ok\" style=\"background:#718096\" onclick=\"closeAibisAlert();restorePreRestoreSnapshot()\">⏪ 復元前の状態に戻す（カードのみ）</button>";
+       + "<br><button class=\"zfa-ok za-dlg-no\" onclick=\"closeAibisAlert();restorePreRestoreSnapshot()\">⏪ 復元前の状態に戻す（カードのみ）</button>";
     toastMsg = "⚠ 復元後の件数が一致しませんでした";
   }else{
     // saveOk===true && mismatch===false: cards/mediaは成功確定。knowledgeサブ状態だけで見出しを分岐する。
@@ -33182,8 +33363,8 @@ function _kfgOfferPermission(from){
   try { nm = String(h.name || ''); } catch (_e) {}
   aibisAlert('📘 ナレッジの保存先「' + e(nm) + '」への書き込みの許可が必要です。<br><br>許可すると、ファイルにある記録をこの端末に戻し、これからの記録もファイルで守ります。<br>'
     + '<div style="display:flex;gap:8px;margin-top:10px">'
-    + '<button type="button" id="kfgBootPermGo" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">🔓 許可する</button>'
-    + '<button type="button" id="kfgBootPermLater" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">あとで</button>'
+    + '<button type="button" id="kfgBootPermGo" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">🔓 許可する</button>'
+    + '<button type="button" id="kfgBootPermLater" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">あとで</button>'
     + '</div>');
 }
 function _kfgRequestPermission(which, report){
@@ -33292,8 +33473,8 @@ function kfgUsePrevFile(){
         var d = ins.payload;
         aibisAlert('「' + e(handle.name) + '」を<b>ナレッジの保存先</b>にします。<br><br>このファイルの記録 ' + d.entryCount + '件（お客様 ' + d.customerCount + '人）を、この端末の記録と合わせます（どちらも消しません）。<br>このあと出る画面で、このファイルへの書き込みを「許可」してください。<br>'
           + '<div style="display:flex;gap:8px;margin-top:10px">'
-          + '<button type="button" id="kfgOpenGo" style="flex:1;padding:8px;background:#2c5282;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このファイルを使う</button>'
-          + '<button type="button" id="kfgOpenCancel" style="flex:1;padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+          + '<button type="button" id="kfgOpenGo" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">このファイルを使う</button>'
+          + '<button type="button" id="kfgOpenCancel" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
           + '</div>');
         _kfg.pendingOpen = handle;
       });
@@ -34030,7 +34211,7 @@ function openListPrintMenu(){
     +'<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f0fff4;border:1px solid #c6f6d5;border-radius:6px;font-size:13px;cursor:pointer;color:#2d3748"><input type="checkbox" id="bpChkPhoto" style="width:18px;height:18px;flex-shrink:0">計画地写真（①筆）</label>'
     +'<div style="text-align:left;font-size:11px;color:#718096;line-height:1.5;margin:-2px 2px 0">全部選ぶと1人2枚の両面（見込み／再訪、家族構成／写真）。両面印刷（長辺とじ）で印刷してください。写真が無い人は空の写真ページになります</div>'
     +'<button onclick="_doCheckPrint()" style="padding:10px;background:#276749;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:700">🖨 チェック印刷する</button>'
-    +'<button onclick="closeAibisAlert()" style="padding:8px;background:#e2e8f0;color:#2d3748;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">キャンセル</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">キャンセル</button>'
     +'</div>'
   );
 }
@@ -35410,37 +35591,40 @@ document.addEventListener('DOMContentLoaded', function(){ init(); });
       </div>
       <div class="hand-row qa-tk-actions" style="display:flex;gap:6px;margin-top:6px">
         <button onclick="qaTkKey('clr')" style="padding:12px;border:1px solid #cbd5e0;border-radius:8px;background:#fff5f5;color:#c53030;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">クリア</button>
-        <button class="hb" onclick="qaTkKey('ok')" style="padding:12px;border:none;border-radius:8px;background:#2c5282;color:#fff;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">決定</button>
+        <button class="hb bp" onclick="qaTkKey('ok')" style="padding:12px;border:none;border-radius:8px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">決定</button>
       </div>
     </div>
   </div>
 <div id="editView" style="display:none;position:fixed;inset:0;background:white;z-index:100;overflow-y:auto">
   <header>
     <div class="ha" style="width:100%;display:flex;justify-content:space-between;align-items:center">
-      <div class="ehdr-l" style="display:flex;align-items:center;gap:6px;flex-shrink:0;max-width:30%">
+      <div class="ehdr-l" style="display:flex;align-items:center;gap:6px">
         <button class="bg" id="editBackBtn" onclick="editBack()" style="flex-shrink:0">← 一覧</button>
         <div onclick="editExitToList()" title="タップで一覧に戻る" style="font-size:12px;color:rgba(255,255,255,0.75);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" id="editTitle">-</div>
       </div>
       <svg class="ehdr-logo" onclick="editExitToList()" title="タップで一覧に戻る" width="130" height="40" viewBox="0 0 130 40" xmlns="http://www.w3.org/2000/svg" style="position:absolute;left:50%;transform:translateX(-50%);flex-shrink:0;cursor:pointer"><defs><linearGradient id="tg3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ffffff"/><stop offset="60%" style="stop-color:#e0e7ff"/><stop offset="100%" style="stop-color:#c7d2fe"/></linearGradient></defs><text x="4" y="32" font-family="'Dancing Script','Brush Script MT','Comic Sans MS',cursive" font-size="30" font-weight="700" fill="url(#tg3)" filter="drop-shadow(0 1px 2px rgba(0,0,0,0.4))">z.Aibis</text></svg>
       <div style="display:flex;gap:4px;flex-shrink:0;align-items:center">
         <span id="dirtyDot" style="display:none;width:8px;height:8px;background:#ed8936;border-radius:50%;margin-right:2px" title="未保存"></span>
-        <button id="saveCardBtn" class="bs" onclick="saveCard()" style="font-size:11px;padding:6px 10px">💾 保存</button>
+        <button id="saveCardBtn" class="bs" onclick="saveCard()">💾 保存</button>
+        <button id="cardPrintBtn" onclick="openPrintModal()" title="印刷（カード・家族・戦略を選択）" class="za-hbtn-glass za-hbtn-icon za-hbtn-gs" style="border:1px solid rgba(255,255,255,0.25)"><span class="za-hbtn-i">🖨&#xFE0F;</span><span class="za-hbtn-l">印刷</span></button>
         <div class="mob-menu" style="position:relative">
-          <button onclick="toggleCardMenu(event);if(typeof _syncDelMenuState==='function')_syncDelMenuState()" style="background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:6px;font-size:16px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">⋮</button>
+          <button onclick="toggleCardMenu(event);if(typeof _syncDelMenuState==='function')_syncDelMenuState()" title="その他（1つ前に戻す・カード進捗・削除など）" class="za-hbtn-glass za-hbtn-icon"><span class="za-hbtn-i">⋮</span><span class="za-hbtn-l">その他</span></button>
           <div class="mob-dropdown" id="cardDropdown" style="right:0;left:auto;min-width:150px">
-            <button onclick="closeCardMenu();undoCardEdit()">⏪ 1つ前に戻す</button>
+            <div class="za-mm-h">このカード</div>
+            <button onclick="closeCardMenu();undoCardEdit()" title="開いた時点の状態に戻します">⏪ 1つ前に戻す<span class="za-mm-d">開いた時点の状態に戻します</span></button>
+            <button id="kcvOpenBtn" onclick="closeCardMenu()" title="6項目の進み具合を見ます">📊 カード進捗<span class="za-mm-d">6項目の進み具合を見ます</span></button>
+            <button onclick="closeCardMenu();openCustomerStory()" title="訪問や状態変化の流れを見ます">🧭 顧客ストーリー<span class="za-mm-d">訪問や状態変化の流れを見ます</span></button>
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-            <button onclick="closeCardMenu();showSetup()">⚙ 初期設定</button>
-            <button onclick="closeCardMenu();setTimeout(function(){showHelp();},50)">📖 マニュアル</button>
+            <div class="za-mm-h">設定と使い方</div>
+            <button onclick="closeCardMenu();showSetup()" title="名前・所属・保存先などを設定します">⚙&#xFE0F; 初期設定<span class="za-mm-d">名前・所属・保存先などを設定します</span></button>
+            <button onclick="closeCardMenu();setTimeout(function(){showHelp();},50)" title="使い方の説明を読みます">📖 マニュアル<span class="za-mm-d">使い方の説明を読みます</span></button>
             <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-            <button id="kcvOpenBtn" onclick="closeCardMenu()">📊 カード進捗</button>
-            <button onclick="closeCardMenu();openCustomerStory()">🧭 顧客ストーリー</button>
-            <div style="height:1px;background:#e2e8f0;margin:4px 0"></div>
-            <button id="cardDelMenuBtn" disabled onclick="closeCardMenu();if(typeof curId!=='undefined'&&curId&&cards.some(function(c){return c&&c.id===curId;})){delCard(curId);}" style="color:#c53030">🗑 このカードを削除</button>
+            <div class="za-mm-h za-mm-danger">消す操作</div>
+            <button id="cardDelMenuBtn" disabled onclick="closeCardMenu();if(typeof curId!=='undefined'&&curId&&cards.some(function(c){return c&&c.id===curId;})){delCard(curId);}" style="color:#c53030" title="記録・写真もまとめて消します">🗑&#xFE0F; このカードを削除<span class="za-mm-d">記録・写真もまとめて消します</span></button>
+            <div class="za-hbtn-ver">z.Aibis <span class="aibisVer">v3.3</span></div>
           </div>
         </div>
-        <button id="cardPrintBtn" onclick="openPrintModal()" title="印刷（カード・家族・戦略を選択）" style="background:#0d9488;color:white;border:1px solid rgba(255,255,255,0.25);border-radius:6px;font-size:15px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.6;min-height:36px;width:36px">🖨</button>
-        <button onclick="openAibisChat()" style="background:#d97706;color:white;border:none;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;line-height:1.2">🧚<br><span class="aibisVer" style="font-size:8px;opacity:0.8;font-weight:700">v3.3</span></button>
+        <button onclick="openAibisChat()" title="アイビス（妖精）に聞く・相談する" class="za-hbtn-amber za-hbtn-icon za-hbtn-w4 za-hbtn-gs"><span class="za-hbtn-i">🧚</span><span class="za-hbtn-l">アイビス</span></button>
       </div>
     </div>
   </header>
