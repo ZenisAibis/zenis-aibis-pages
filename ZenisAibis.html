@@ -3321,7 +3321,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.55";
+var APP_VERSION = "v11.56";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -29094,10 +29094,12 @@ function planEntryHTML(en,i){
     +'<input value="'+planEsc(en.note)+'" oninput="planSet('+i+',\'note\',this.value)" placeholder="訪問結果はカードに入力" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;box-sizing:border-box">'
     +(typeof sgPlanCandidatesHTML==='function'?sgPlanCandidatesHTML(en):'')
     +(typeof _planRouteButtonHTML==='function'?_planRouteButtonHTML(en):'')
+    +(typeof _planDayRouteButtonHTML==='function'?_planDayRouteButtonHTML(en):'')
     +'</div>';
 }
 function planSet(i,k,v){ if(!_plan.entries[i])return;
   if(k==='time' && !v && _plan.entries[i].time && _plan.entries[i].kind!=='ev' && planUntimedCount(i)>=PLAN_UNTIMED_MAX){ planUntimedFullWarn(); renderPlanner(); return; }
+  if(k==='time' && typeof _planDayTimeSync==='function' && _planDayTimeSync(i,v)===false) return;
   _plan.entries[i][k]=v; savePlan(); if(k==='time'||k==='kind'){ renderPlanner(); } }
 function planTogglePrio(i){
   var en=_plan.entries[i]; if(!en) return;
@@ -29260,6 +29262,7 @@ function planOpenShotgunPick(){
   var freeU=PLAN_UNTIMED_MAX-planUntimedCount(); if(freeU<0) freeU=0;
   var freeB=SG_PLAN_BLOCK_MAX-_sgPlanBlockKeys().length; if(freeB<0) freeB=0;
   var inPlan={}; ((_plan&&_plan.entries)||[]).forEach(function(x){ if(x&&x.cardId) inPlan[x.cardId]=1; });
+  var inDay=Object.create(null); ((_plan&&_plan.entries)||[]).forEach(function(x){ if(x&&x.cardId&&x.dayGid) inDay[x.cardId]=1; }); /* T6 段階2: その日のショットガンの組に先に入った人（札の文字だけ足す） */
   var inner='<div style="background:#fff;border-radius:12px;max-width:440px;width:100%;max-height:74vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">'
     +'<div style="padding:12px 14px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:14px;font-weight:800;color:#1a202c">🎯 ショットガンから予定に入れる</span><button type="button" onclick="planCloseShotgunPick()" style="border:none;background:none;font-size:18px;color:#a0aec0;cursor:pointer">✕</button></div>'
     +'<div style="flex:1;overflow-y:auto;padding:10px 14px 14px">';
@@ -29277,7 +29280,7 @@ function planOpenShotgunPick(){
         return '<label style="display:flex;align-items:center;gap:7px;padding:3px 2px;font-size:12.5px;color:'+(already?'#a0aec0':'#2d3748')+';cursor:'+(already?'default':'pointer')+'">'
           +'<input type="checkbox" class="sgpk" data-gid="'+g.gid+'" data-id="'+id+'" checked'+(already?' disabled':'')+' style="margin:0;flex-shrink:0">'
           +'<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(isAnchor?'👑':'')+e((c.name||'(無名)'))+'様 <span style="font-size:10px;color:#a0aec0">'+rank+'位'+(city?'・'+e(city):'')+'</span></span>'
-          +(already?'<span style="margin-left:auto;font-size:10px;background:#edf2f7;color:#718096;border-radius:5px;padding:1px 6px;flex-shrink:0">追加済み</span>':'')
+          +(already?'<span style="margin-left:auto;font-size:10px;background:#edf2f7;color:#718096;border-radius:5px;padding:1px 6px;flex-shrink:0">追加済み'+(inDay[id]?'（その日のショットガン）':'')+'</span>':'')
           +'</label>';
       }).join('');
       return '<div style="border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;margin-bottom:8px">'
@@ -29319,12 +29322,14 @@ window.planSgPickApply=planSgPickApply; window.planSgToggleMember=planSgToggleMe
  * 3) 同ブロック内の最小sgRankの行 4) それも無ければentries出現順の先頭
  * （中心客が予定から削除されていても、順路機能自体は落ちないようにする） */
 function _planRouteCenterEntry(blockEntries){
-  for(var i=0;i<blockEntries.length;i++){ if(blockEntries[i].sgRank===1) return blockEntries[i]; }
+  for(var i=0;i<blockEntries.length;i++){ if(blockEntries[i].sgRank===1 || blockEntries[i].dayRank===1) return blockEntries[i]; }
   var anchorId=null;
   for(var j=0;j<blockEntries.length;j++){ if(blockEntries[j].sgAnchorId){ anchorId=blockEntries[j].sgAnchorId; break; } }
   if(anchorId){ for(var k=0;k<blockEntries.length;k++){ if(blockEntries[k].cardId===anchorId) return blockEntries[k]; } }
   var minEn=null;
   blockEntries.forEach(function(en){ if(typeof en.sgRank==='number' && (!minEn || en.sgRank<minEn.sgRank)) minEn=en; });
+  /* T6 段階2: その日のショットガン（dayGid）の組は、中心（dayRank===1）を消したら残りの最小の dayRank が出発点 */
+  if(!minEn) blockEntries.forEach(function(en){ if(typeof en.dayRank==='number' && (!minEn || en.dayRank<minEn.dayRank)) minEn=en; });
   return minEn||blockEntries[0];
 }
 /* 当日の予定表に存在するショットガンブロックを、entries出現順（distinct・重複なし）で返す */
@@ -29340,11 +29345,11 @@ function planShotgunBlocks(){
  * 戻り値 {ok, reason, url, path, members, skipped, blockName}。
  * ok=false（reason='noblock'|'too_few'）のときurlはnull。members/skippedは常に住所判定結果を返す。 */
 function planShotgunRouteBuild(blockId){
-  var blockEntries=((_plan&&_plan.entries)||[]).filter(function(en){ return en&&en.sgBlockId===blockId; });
+  var blockEntries=((_plan&&_plan.entries)||[]).filter(function(en){ return en&&(en.sgBlockId===blockId || (en.dayGid && ('day:'+en.dayGid)===blockId)); }); // T6 段階2: 'day:'+dayGid はその日のショットガンの組
   if(!blockEntries.length) return {ok:false, reason:'noblock', url:null, path:null, members:[], skipped:[], blockName:''};
   var center=_planRouteCenterEntry(blockEntries);
   var rest=blockEntries.filter(function(en){ return en!==center; })
-    .sort(function(a,b){ var ra=(typeof a.sgRank==='number')?a.sgRank:9999, rb=(typeof b.sgRank==='number')?b.sgRank:9999; return ra-rb; });
+    .sort(function(a,b){ var ra=(typeof a.sgRank==='number')?a.sgRank:((typeof a.dayRank==='number')?a.dayRank:9999), rb=(typeof b.sgRank==='number')?b.sgRank:((typeof b.dayRank==='number')?b.dayRank:9999); return ra-rb; });
   var ordered=[center].concat(rest);
   var members=[], skipped=[];
   ordered.forEach(function(en){
@@ -29395,6 +29400,17 @@ function _planRouteButtonHTML(en){
   if(!r.ok) return '';
   return '<div style="margin-top:7px"><button type="button" onclick="planOpenShotgunRoute(\''+en.sgBlockId+'\')" title="このショットガングループのGoogleマップ順路を開く" style="background:#e6fffa;color:#234e52;border:1px solid #81e6d9;border-radius:7px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🗺 順路</button></div>';
 }
+/* T6 段階2: その日のショットガン（dayGid）の組にも、最初に出た行にだけ🗺順路ボタンを添える。
+ * _planRouteShown を共用し、key は 'day:'+dayGid（本物のショットガンの sgBlockId とは別）。住所ありが2名未満の組は出さない。 */
+function _planDayRouteButtonHTML(en){
+  if(!en||!en.dayGid) return '';
+  if(!_planRouteShown) _planRouteShown={};
+  if(_planRouteShown['day:'+en.dayGid]) return '';
+  _planRouteShown['day:'+en.dayGid]=1;
+  var r=planShotgunRouteBuild('day:'+en.dayGid);
+  if(!r.ok) return '';
+  return '<div style="margin-top:7px"><button type="button" onclick="planOpenShotgunRoute(\''+eAttr('day:'+en.dayGid)+'\')" title="その日のショットガンのGoogleマップ順路を開く" style="background:#e6fffa;color:#234e52;border:1px solid #81e6d9;border-radius:7px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🗺 順路</button></div>';
+}
 /* plannerToPhone送信内容（メール本文/共有テキスト）に添える、当日のショットガン順路まとめ。
  * 住所ありメンバー2名未満のブロックは（ボタン非表示と同じ基準で）省略する。
  * スマホ側に新しい編集UIは作らない：本文中のURLをタップして開ける状態にするだけ。 */
@@ -29409,7 +29425,43 @@ function _planRouteToPhoneText(){
     if(r.skipped.length){ lines.push('（住所未登録のため除外：'+r.skipped.map(function(s){return s.name+'様';}).join('・')+'）'); }
     lines.push('');
   });
+  /* T6 段階2: その日のショットガン（dayGid）の組も、本物のショットガンの後ろに同じ基準で添える */
+  var dayIds=[], daySeen=Object.create(null); // 組の番号が 'constructor' などでも取りこぼさない（素の {} を使わない）
+  ((_plan&&_plan.entries)||[]).forEach(function(en){ if(en&&en.dayGid&&!daySeen[en.dayGid]){ daySeen[en.dayGid]=1; dayIds.push(en.dayGid); } });
+  dayIds.forEach(function(dayGid){
+    var r=planShotgunRouteBuild('day:'+dayGid);
+    if(!r.ok) return;
+    var center=_planRouteCenterEntry(((_plan&&_plan.entries)||[]).filter(function(en){ return en&&en.dayGid===dayGid; }));
+    var hit=r.members.concat(r.skipped).filter(function(m){ return m.cardId===center.cardId; })[0];
+    lines.push('🗺 その日のショットガン順路：'+(hit?hit.name:(center.target||''))+'様の組');
+    lines.push(r.url);
+    if(r.skipped.length){ lines.push('（住所未登録のため除外：'+r.skipped.map(function(s){return s.name+'様';}).join('・')+'）'); }
+    lines.push('');
+  });
   return lines.length?lines.join('\n').replace(/\n+$/,''):'';
+}
+/* T6 段階2: その日のショットガンの組（dayGid）の中心の行を返す。中心（dayRank===1）がいればその行、
+ * 中心を消したあとは残りの最小の dayRank の行（順路の出発点と同じ判定＝_planRouteCenterEntry）。組が無ければ null。 */
+function _planDayCenterEntry(dayGid){
+  var es=((_plan&&_plan.entries)||[]).filter(function(x){ return x&&x.dayGid===dayGid; });
+  return es.length?_planRouteCenterEntry(es):null;
+}
+/* T6 段階2: その日のショットガンの中心（dayRank===1。消したあとは残りの最小の dayRank の人）の時刻を変えたら、
+ * 同じ時刻のままの仲間（同じ dayGid）も一緒に動かす。
+ * 違う時刻の仲間は動かさない（仲間を1人ずつ動かすのは自由）。時間未定へ戻すときは、中心＋仲間の全員分で
+ * 時間未定の上限（PLAN_UNTIMED_MAX）を先に判定し、超えるなら知らせて誰も動かさない（false を返す）。
+ * planSet から呼ぶ。仲間を先に動かし、中心は planSet の既存の行で動かす。 */
+function _planDayTimeSync(i,v){
+  var en=_plan.entries[i]; if(!en||!en.dayGid||((typeof _planDayCenterEntry==='function')?_planDayCenterEntry(en.dayGid):(en.dayRank===1?en:null))!==en) return true;
+  var old=en.time||''; v=v||''; if(old===v) return true;
+  var mates=_plan.entries.filter(function(x){ return x&&x!==en&&x.dayGid===en.dayGid&&(x.time||'')===old; });
+  if(!mates.length) return true;
+  if(!v){
+    var n=(en.kind!=='ev'?1:0)+mates.filter(function(x){ return x.kind!=='ev'; }).length;
+    if(planUntimedCount()+n>PLAN_UNTIMED_MAX){ planUntimedFullWarn(); renderPlanner(); return false; }
+  }
+  mates.forEach(function(x){ x.time=v; });
+  return true;
 }
 function resetPlanner(){ if(!_plan.entries||!_plan.entries.length){ toast('リセットする予定がありません'); return; }
   aibisAlert('本日の予定表（全'+_plan.entries.length+'件）をリセットするよ⚠<br>前回の予定をまとめて消去します。この操作は取り消せません。<br><br>'
@@ -29479,17 +29531,20 @@ function _planAddrOf(en){ if(!en||!en.cardId) return ''; var c=cards.filter(func
 function _planChk(){ return '<span style="display:inline-block;width:11px;height:11px;border:1.5px solid #4a5568;border-radius:2px;vertical-align:middle;background:#fff"></span>'; }
 function _planBadge(en){ var k=en.kind; var lb=(k&&PLAN_KIND[k])?PLAN_KIND[k]:''; return '<span class="pbadge pb-'+(k||'k3')+'" style="display:inline-block;width:34px;text-align:center;padding:2px 0;flex-shrink:0">'+lb+'</span>'; }
 function _planHalfRows(sl){
-  var byTime={}; _plan.entries.forEach(function(en){ if(en.time)byTime[en.time]=en; });
+  var byTime={}; _plan.entries.forEach(function(en){ if(en.time)(byTime[en.time]=byTime[en.time]||[]).push(en); });
   return sl.map(function(s){
-    var en=byTime[s]; var hour=s.slice(-2)==='00';
-    if(!en) return '<tr><td class="pti'+(hour?' ph':'')+'">'+s+'</td><td></td><td></td><td class="pc" style="width:38px"></td></tr>';
+    var ens=byTime[s]; var hour=s.slice(-2)==='00';
+    if(!ens) return '<tr><td class="pti'+(hour?' ph':'')+'">'+s+'</td><td></td><td></td><td class="pc" style="width:38px"></td></tr>';
+    var en=((typeof _planDayCenterEntry==='function')?ens.filter(function(x){ return x.dayGid && _planDayCenterEntry(x.dayGid)===x; })[0]:null)||ens[0]; // 同じ時刻は、その日のショットガンの中心（dayRank===1。消したあとは残りの最小の dayRank の人）がいればその行を、いなければ並びの先頭の1件を主にし、残りは下の1行に並べる（T6 段階2）
     var ad=_planAddrOf(en);
     var line2='';
     if(en.kind!=='ev'){
       if(en.cardId) line2='<div style="font-size:10px;color:#4a5568;font-weight:600;margin:1px 0 0 39px;line-height:1.35;overflow-wrap:anywhere;white-space:normal">'+(ad?e(ad):'<span style="color:#a0aec0">（住所未入力）</span>')+'</div>';
       else if(en.sub) line2='<div style="font-size:10px;color:#718096;margin:1px 0 0 39px;line-height:1.35;white-space:normal">'+e(en.sub)+'</div>';
     }
-    return '<tr><td class="pti'+(hour?' ph':'')+'">'+s+'</td><td class="ptt"><div style="display:flex;align-items:center;gap:5px;min-width:0">'+_planBadge(en)+'<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_planDispName(en)+(en.note?'<span style="font-size:9.5px;color:#a0aec0;font-weight:400"> '+e(en.note)+'</span>':'')+'</span></div>'+line2+'</td><td class="pc" style="font-size:11px">'+e(en.purpose)+'</td><td class="pc" style="width:38px">'+(en.kind==='ev'?'':_planChk())+'</td></tr>';
+    var line3='';
+    if(ens.length>1) line3='<div style="font-size:10px;color:#4a5568;font-weight:600;margin:1px 0 0 39px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">＋同じ時間：'+ens.filter(function(x){ return x!==en; }).map(function(x){ return (x.kind==='ev'?'':'□')+_planDispName(x); }).join(' ')+'</div>';
+    return '<tr><td class="pti'+(hour?' ph':'')+'">'+s+'</td><td class="ptt"><div style="display:flex;align-items:center;gap:5px;min-width:0">'+_planBadge(en)+'<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_planDispName(en)+(en.note?'<span style="font-size:9.5px;color:#a0aec0;font-weight:400"> '+e(en.note)+'</span>':'')+'</span></div>'+line2+line3+'</td><td class="pc" style="font-size:11px">'+e(en.purpose)+'</td><td class="pc" style="width:38px">'+(en.kind==='ev'?'':_planChk())+'</td></tr>';
   }).join('');
 }
 function planGrid2HTML(){
@@ -29811,6 +29866,8 @@ var SORTIE_COMMANDS=[
 /* 第172弾: 各コマンドのページサイズ（候補プールの表示window単位）。優先客のみdan168由来の
  * 3名単位を維持し、他は9名単位に統一。 */
 var SORTIE_PAGE_SIZE={priority:3, revisit:9, hearing:9, area:9};
+/* T6 段階3: その日のショットガンで、中心1人に紐づける仲間の上限（同じ町の中心が2人なら合わせて2倍まで・重ならない） */
+var SORTIE_LINK_MAX=3;
 
 /* ---- 第170弾: 抽出条件・並び順の説明（現行ロジックの言語化のみ。ロジック自体は無変更）----
  * 高田様確認済み事項に基づく文言。「優先客を攻める」は"一番濃い客"ではなく
@@ -29820,7 +29877,8 @@ var SORTIE_EXPLAIN={
   priority:{
     extract:'心理3以上・4Eye判定S/A/Bのうち、訪問ペースが遅れている重要客を表示（最大9名・3名ずつページ送り）',
     sort:'ペース超過率 → 既存スコア順',
-    chip:'人数ボタンは、上位N名を初期チェックします。あとから手動で変更できます。'
+    chip:'人数ボタンは、上位N名を初期チェックします。あとから手動で変更できます。',
+    link:'確定の前に、同じ町の遅れているお客様を、1人につき'+SORTIE_LINK_MAX+'人まで今日だけの組にできます。'
   },
   revisit:{
     extract:'優先客を除き、再訪タイミング・接触間隔・情報不足から候補を表示',
@@ -29833,7 +29891,7 @@ var SORTIE_EXPLAIN={
     chip:'人数ボタンは、上位N名を初期チェックします。あとから手動で変更できます。'
   },
   area:{
-    extract:'選択した市区町村に一致する住所あり客を表示',
+    extract:'選択したエリア（市区町村＋町名）に一致する住所あり客を表示',
     sort:'既存スコア順',
     chip:'人数ボタンは、上位N名を初期チェックします。あとから手動で変更できます。'
   }
@@ -29843,7 +29901,8 @@ function _sortieExplainHTML(cmdId){
   return '<div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin:8px 0;font-size:11.5px;line-height:1.6;color:#4a5568">'
     +'<div><b style="color:#2c5282">抽出：</b>'+e(ex.extract)+'</div>'
     +'<div><b style="color:#2c5282">並び順：</b>'+e(ex.sort)+'</div>'
-    +(ex.chip?('<div style="color:#718096">'+e(ex.chip)+'</div>'):'')
+    +(ex.chip?('<div style="color:var(--za-sub)">'+e(ex.chip)+'</div>'):'')
+    +(ex.link?('<div><b style="color:#2c5282">組：</b>'+e(ex.link)+'</div>'):'')
     +'</div>';
 }
 
@@ -29862,7 +29921,7 @@ function _sortieMeterHTML(){
   var color = n>=12?'#e53e3e' : n>=9?'#dd6b20' : n>=6?'#d69e2e' : n>=3?'#2f855a' : '#2b6cb0';
   var label = n>=12?'赤・最大火力（出陣完成）' : n>=9?'橙・攻めの布陣' : n>=6?'黄・標準的な布陣' : n>=3?'緑・動き始めた' : '青・静かな立ち上がり';
   return '<div style="margin:10px 0" data-sortie-meter="1">'
-    +'<div style="display:flex;justify-content:space-between;font-size:11px;color:#718096;margin-bottom:3px">'
+    +'<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--za-sub);margin-bottom:3px">'
     +'<span>訪問メーター</span><span>'+n+(n>=12?'+':'')+'名／12名目安・'+label+'</span></div>'
     +'<div style="height:8px;border-radius:5px;background:#edf2f7;overflow:hidden">'
     +'<div style="height:100%;width:'+pct+'%;background:'+color+';transition:width .3s"></div></div></div>';
@@ -30013,7 +30072,7 @@ function _sortiePaintIntro(){
   var ov=_sortieEnsureOv();
   ov.innerHTML='<div style="background:#fff;max-width:640px;margin:0 auto;border-radius:14px;padding:22px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
     +'<div style="font-size:17px;font-weight:800;color:#2c5282;margin-bottom:4px">\u2694\ufe0f 今日はどう攻める？</div>'
-    +'<div style="font-size:12px;color:#718096;margin-bottom:10px">今日の攻め方を選ぶと、候補を絞り込んで予定表に入れられます。</div>'
+    +'<div style="font-size:12px;color:var(--za-sub);margin-bottom:10px">今日の攻め方を選ぶと、候補を絞り込んで予定表に入れられます。</div>'
     +_sortieMeterHTML()
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0">'
     +SORTIE_COMMANDS.map(function(cmd){
@@ -30057,8 +30116,8 @@ function _sortiePaintAreaPick(){
   ov.innerHTML='<div style="background:#fff;max-width:640px;margin:0 auto;border-radius:14px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
     +'<b style="font-size:15px;color:#2c5282">🧭 エリアで回る</b>'
-    +'<button onclick="_sortiePaintIntro()" style="background:none;border:none;color:#718096;font-size:12px;cursor:pointer;font-family:inherit">← 戻る</button></div>'
-    +'<div style="font-size:12px;color:#718096;margin-bottom:8px">市区町村を選んでください（住所ありのカードのみ対象）</div>'
+    +'<button onclick="_sortiePaintIntro()" style="background:none;border:none;color:var(--za-sub);font-size:12px;cursor:pointer;font-family:inherit">← 戻る</button></div>'
+    +'<div style="font-size:12px;color:var(--za-sub);margin-bottom:8px">エリア（市区町村＋町名）を選んでください（住所ありのカードのみ対象）</div>'
     +(cities.length
       ? ('<div style="display:flex;flex-wrap:wrap;gap:6px">'+cities.map(function(city){
           return '<button onclick="_sortiePickAreaCity(\''+eAttr(city)+'\')" style="background:#f0fff4;color:#276749;border:1px solid #9ae6b4;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">'+e(city)+'</button>';
@@ -30163,6 +30222,7 @@ function _sortiePaintPicker(){
   var st=_sortieState; if(!st) return;
   var cmd=_sortieCmdForState(); if(!cmd) return;
   var ov=_sortieEnsureOv();
+  var foldMap=buildTownFoldMap(); // 候補の住所は町名まで（エリアの選び画面と同じ _sortieEffectiveAreaKey）。1回だけ作る
   var nSel=Object.keys(st.sel).filter(function(k){return st.sel[k];}).length;
   var isPriorityCmd=(st.cmd==='priority'); // 第169弾: ⭐絶対訪問トグルは「優先客を攻める」限定
   var starCount=(isPriorityCmd && st.star)?Object.keys(st.star).length:0;
@@ -30197,8 +30257,8 @@ function _sortiePaintPicker(){
       +(inPlan?'<span style="font-size:10.5px;color:#a0aec0;margin-left:auto">予定済み</span>':'')
       +'</div>'
       +'<div style="font-size:11px;color:#4a5568;margin:2px 0 0 26px">'+e(_sortieRankTag(c))+'　心理'+(+(c.stage||0))+':'+e(_sortieStageLabel(c))+'　入力'+_sortieInputPct(c)+'%</div>'
-      +'<div style="font-size:11px;color:#718096;margin:2px 0 0 26px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">'
-      +'<span style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">'+e(getArea(c.address||'')||'住所未設定')+'</span>'
+      +'<div style="font-size:11px;color:var(--za-sub);margin:2px 0 0 26px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">'
+      +'<span style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">'+e(_sortieEffectiveAreaKey(c,foldMap)||'住所未設定')+'</span>'
       +'<span style="flex-shrink:0">'+e(_sortieProcessTag(c))+'</span>'
       +_sortieReasonChipsHTML(st.cmd,c)
       +'</div>'
@@ -30208,7 +30268,7 @@ function _sortiePaintPicker(){
    * 最終ページではボタン非表示（先頭ループしない・「これ以上ありません」トーストも出さない）。 */
   var posLabel=totalCount>0 ? ((startIdx+1)+'〜'+Math.min(startIdx+pageSize,totalCount)+'位 / 全'+totalCount+'名') : '';
   var pagingHTML=(totalCount>pageSize)
-    ? ('<div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0;font-size:11px;color:#718096">'
+    ? ('<div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0;font-size:11px;color:var(--za-sub)">'
       +'<span>'+posLabel+'</span>'
       +(hasNext?('<button onclick="_sortieNextPage()" style="background:#edf2f7;color:#2c5282;border:1px solid #cbd5e0;border-radius:7px;padding:5px 11px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit">次の'+pageSize+(st.cmd==='priority'?'人':'名')+'</button>'):'')
       +'</div>')
@@ -30216,7 +30276,7 @@ function _sortiePaintPicker(){
   ov.innerHTML='<div style="background:#fff;max-width:640px;margin:0 auto;border-radius:14px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
     +'<b style="font-size:15px;color:#2c5282">'+cmd.label+'</b>'
-    +'<button onclick="_sortiePaintIntro()" style="background:none;border:none;color:#718096;font-size:12px;cursor:pointer;font-family:inherit">← 戻る</button></div>'
+    +'<button onclick="_sortiePaintIntro()" style="background:none;border:none;color:var(--za-sub);font-size:12px;cursor:pointer;font-family:inherit">← 戻る</button></div>'
     +_sortieMeterHTML()
     +_sortieExplainHTML(st.cmd)
     +(isPriorityCmd?'<div style="font-size:11px;color:#b7791f;font-weight:700;margin:4px 0">☆をタップして⭐絶対訪問（本日の優先3客）に指定できます（'+starCount+'/3）</div>':'')
@@ -30244,6 +30304,7 @@ function _sortieConfirm(){
     _sortiePaintIntro();
     return;
   }
+  if(st.cmd==='priority' && _sortieDayGate(st,toAdd,already)) return;
   if(planUntimedCount()+toAdd.length>PLAN_UNTIMED_MAX){
     var free=PLAN_UNTIMED_MAX-planUntimedCount(); if(free<0) free=0;
     if(typeof aibisAlert==='function') aibisAlert('このまま追加すると予定表の上限（時間未定<b>'+PLAN_UNTIMED_MAX+'件</b>）を超えます。<br>チェックを外して人数を調整してください。<br><span style="font-size:12px;color:#718096">空き'+free+'件に対して'+toAdd.length+'名を選択中</span>');
@@ -30277,6 +30338,292 @@ function _sortieConfirm(){
   if(lowMsg){ setTimeout(function(){ toast(lowMsg); },700); } // 確定した瞬間の1回のみ（renderのたびには出さない）
   _sortieCheckAchievement();
 }
+/* ---- T6 段階3: その日のショットガン（選んだ人＝中心と同じ町で訪問が遅れているお客様を、今日だけの組にする）----
+ * 予定の行に dayGid（組の番号）・dayRank（1＝中心、2〜＝仲間）を書くだけ。本物のショットガンの印（sg…）は使わない。
+ * ここの関数は引数だけを読む（画面・予定表・カードの配列に書かない）。tools/test-sortie-day-sg.js が VM で試す。 */
+/* 紐づけの対象外（打ち切り・課長の打ち切り） */
+function _sortieDayExcluded(x){
+  if(!x) return true;
+  return x.pursuit_judge==='X' || x.pursuit_judge_sel==='打ち切り' || x.revisit_judge==='打ち切り' || x.mgr_term!==undefined;
+}
+/* 中心ごとに同じ町の仲間を選ぶ。centerIds はプールの順。同じ町＝makeAddressSortKey の sourceLevel 0 で市区町村＋町名が一致（丁目は区別しない）。
+ * 仲間：遅れ（fn.isLate）・昨日今日会っていない（fn.isFresh）・対象外でない・予定済みでない・プールにいない・他の中心でない。
+ * 遅れのひどい順（fn.pace）→ id 順に SORTIE_LINK_MAX 人まで。先の中心が取った人は後の中心に出さない。fn.allow があればその人だけ（確定直前の数え直し）。
+ * sgSkip（本物のショットガンの「今日は行かない」）の人は出すが、チェックは外して出す。
+ * 戻り値 {groups:[{centerId,name,town,time,members:[{id,name,pace,skip,on}]}], solo:[{id,name,town}]}（solo＝仲間がいない中心） */
+function _sortieLinkBuild(centerIds, cards, foldMap, plan, fn){
+  var byId=Object.create(null), inPlan=Object.create(null), taken=Object.create(null);
+  (cards||[]).forEach(function(x){ if(x && x.id!=null) byId[x.id]=x; });
+  ((plan&&plan.entries)||[]).forEach(function(en){ if(en&&en.cardId) inPlan[en.cardId]=1; });
+  var skip=(plan&&plan.sgSkip)||{};
+  (centerIds||[]).forEach(function(id){ taken[id]=1; });
+  var groups=[], solo=[];
+  (centerIds||[]).forEach(function(cid){
+    var ce=byId[cid]; if(!ce) return;
+    var ck=makeAddressSortKey(ce,foldMap);
+    var picks=[];
+    if(ck.sourceLevel===0){
+      picks=(cards||[]).filter(function(x){
+        if(!x || x.id==null || taken[x.id] || inPlan[x.id]) return false;
+        if(fn.inPool && fn.inPool(x)) return false;
+        if(fn.allow && !fn.allow(cid,x)) return false;
+        if(fn.isExcluded(x) || !fn.isLate(x) || !fn.isFresh(x)) return false;
+        var xk=makeAddressSortKey(x,foldMap);
+        return xk.sourceLevel===0 && xk.cityKey===ck.cityKey && xk.townKey===ck.townKey;
+      }).sort(function(a,b){
+        var d=fn.pace(b)-fn.pace(a); if(d) return d;
+        var ia=String(a.id), ib=String(b.id); return ia<ib?-1:(ia>ib?1:0);
+      }).slice(0,SORTIE_LINK_MAX);
+    }
+    picks.forEach(function(x){ taken[x.id]=1; });
+    var town=(ck.cityKey||'')+(ck.townKey||'');
+    if(picks.length){
+      groups.push({centerId:cid, name:ce.name||'', town:town, time:'', members:picks.map(function(x){
+        var sk=skip[x.id]===true;
+        return {id:x.id, name:x.name||'', pace:fn.pace(x), skip:sk, on:!sk};
+      })});
+    } else {
+      solo.push({id:cid, name:ce.name||'', town:town});
+    }
+  });
+  return {groups:groups, solo:solo};
+}
+/* 確認画面の状態から、予定表に入れる行を画面の並び（組ごとに中心→☑の仲間、そのあと仲間がいない中心）で作る。
+ * grp：印を付ける組の通し番号（印なしは -1）。rank：dayRank（中心1・☑の仲間を2,3,4…と詰める。印なしは0）。
+ * ☑の仲間が0人の組の中心と、仲間がいない中心は、印を付けない普通の行。時刻は組の時刻（仲間がいない中心は時間未定）。 */
+function _sortieDayRows(day){
+  var rows=[], gi=0;
+  ((day&&day.groups)||[]).forEach(function(g){
+    var on=(g.members||[]).filter(function(m){ return m.on; });
+    if(!on.length){ rows.push({id:g.centerId, time:g.time||'', grp:-1, rank:0}); return; }
+    rows.push({id:g.centerId, time:g.time||'', grp:gi, rank:1});
+    on.forEach(function(m,j){ rows.push({id:m.id, time:g.time||'', grp:gi, rank:j+2}); });
+    gi++;
+  });
+  ((day&&day.solo)||[]).forEach(function(s){ rows.push({id:s.id, time:'', grp:-1, rank:0}); });
+  return rows;
+}
+/* 合計：入れる件数・組の数・時間未定で入る人・時間未定の空き（PLAN_UNTIMED_MAX から今の時間未定の件数を引く）・足りない人数 */
+function _sortieDayCount(day, untimedNow){
+  var rows=_sortieDayRows(day);
+  var untimed=rows.filter(function(r){ return !r.time; }).length;
+  var groups=rows.filter(function(r){ return r.rank===1; }).length;
+  var free=PLAN_UNTIMED_MAX-(+untimedNow||0); if(free<0) free=0;
+  return {total:rows.length, groups:groups, untimed:untimed, free:free, short:(untimed>free?untimed-free:0)};
+}
+/* 組の番号（dayGid）。taken（今日の予定表と同じ確定で使った番号）と重ならない番号を返し、taken に足す */
+function _sortieDayGid(taken){
+  var g;
+  do{ g='d'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }while(taken[g]);
+  taken[g]=1;
+  return g;
+}
+/* ---- T6 段階3b: 確認画面と確定 ----
+ * 確認画面の状態は _sortieState とは別に持つ（_sortieState の形は変えない・保存しない）。
+ * {st:<確認画面を出したときの _sortieState>, groups, solo, apply:<確定のボタンが立てる一度だけのフラグ>, err:<確定直前の数え直しで超えたときの赤字>} */
+var _sortieDay=null;
+/* 紐づけの条件（_sortieLinkBuild の fn）。遅れ＝calcPaceOverrate>=1、昨日今日会っていない＝_sortiePriPool の fresh と同じ式 */
+function _sortieDayFn(st,allow){
+  var inPool=Object.create(null); (st.pool||[]).forEach(function(x){ if(x) inPool[x.id]=1; });
+  return {
+    pace:function(x){ return calcPaceOverrate(x); },
+    isLate:function(x){ return calcPaceOverrate(x)>=1; },
+    isFresh:function(x){ var ld=+lastContactDays(x); return ld<0||ld>=2; },
+    isExcluded:_sortieDayExcluded,
+    inPool:function(x){ return !!inPool[x.id]; },
+    allow:allow||null
+  };
+}
+/* 選んだ人（中心）をプールの順に並べる */
+function _sortieDayCenters(st,ids){
+  var want=Object.create(null); (ids||[]).forEach(function(id){ want[id]=1; });
+  return (st.pool||[]).filter(function(x){ return x && want[x.id]; }).map(function(x){ return x.id; });
+}
+/* _sortieConfirm の入口（優先客だけ）。true＝ここで引き受けた（確認画面を出した・確定した）、false＝今までの道へ。
+ * 確定のボタンが立てたフラグはここで必ず下ろす。別の候補の状態（st）のフラグは使わない。 */
+function _sortieDayGate(st,toAdd,already){
+  var day=_sortieDay, go=!!(day && day.apply && day.st===st);
+  if(day) day.apply=false;
+  if(go){ _sortieDayApply(st); return true; }
+  _sortieDay=null;
+  var link=_sortieLinkBuild(_sortieDayCenters(st,toAdd), cards, buildTownFoldMap(), _plan, _sortieDayFn(st,null));
+  if(!link.groups.length) return false;
+  _sortieDay={st:st, groups:link.groups, solo:link.solo, apply:false, err:''};
+  _sortieDayPaint();
+  var ov=document.getElementById('sortieBoardView'); if(ov) ov.scrollTop=0;
+  return true;
+}
+/* 確認画面のボタンが今の状態のものか（確認画面を出したときの _sortieState のまま・優先客・確認画面が出陣ボードに今出ている）。
+ * 古い確認画面のボタン（コマンドを変えたあと・閉じたあと）では確定も☑・時刻・選び直すもしない。 */
+function _sortieDayLive(){
+  var day=_sortieDay, st=_sortieState, ov=document.getElementById('sortieBoardView');
+  return !!(day && st && day.st===st && st.cmd==='priority' && ov && ov.style.display!=='none' && document.getElementById('sortieDayFoot'));
+}
+/* 確定。引数なし＝確定のボタン（フラグを立てて _sortieConfirm からやり直す。予定表の読み直しは _sortieConfirm が行う）。
+ * 引数あり＝_sortieDayGate から：確認画面に出した人だけで数え直す（新しい人は足さない・予定済みや消えた人は落とす・中心が予定済みならその組ごと入れない）。
+ * 時間未定が上限を超えるなら誰も入れずに確認画面に留まる。通れば組ごとに中心→☑の仲間の順で入れ、dayGid・dayRank・組の時刻を書く。⭐は中心だけ。 */
+function _sortieDayApply(st){
+  if(!st){
+    if(_sortieDayLive()){ _sortieDay.apply=true; _sortieConfirm(); return; }
+    /* 古い確認画面のボタン：何も確定せず状態を捨て、出陣ボードが開いていれば候補画面を描き直す（履歴に触れない） */
+    _sortieDay=null;
+    var ov=document.getElementById('sortieBoardView');
+    if(_sortieState && ov && ov.style.display!=='none') _sortiePaintPicker();
+    return;
+  }
+  var day=_sortieDay; if(!day) return;
+  var byId=Object.create(null); cards.forEach(function(x){ if(x && x.id!=null) byId[x.id]=x; });
+  var inPlan=Object.create(null); (_plan.entries||[]).forEach(function(en){ if(en&&en.cardId) inPlan[en.cardId]=1; });
+  var live=function(id){ return !!byId[id] && !inPlan[id]; };
+  var shown=Object.create(null);
+  day.groups.forEach(function(g){ var m=Object.create(null); g.members.forEach(function(x){ m[x.id]=1; }); shown[g.centerId]=m; });
+  var ids=day.groups.map(function(g){ return g.centerId; }).concat(day.solo.map(function(s){ return s.id; }));
+  var link=_sortieLinkBuild(_sortieDayCenters(st,ids), cards, buildTownFoldMap(), _plan, _sortieDayFn(st,function(cid,x){ return !!(shown[cid] && shown[cid][x.id]); }));
+  var still=Object.create(null);
+  link.groups.forEach(function(g){ var m=Object.create(null); g.members.forEach(function(x){ m[x.id]=1; }); still[g.centerId]=m; });
+  var next={st:st, apply:false, err:'',
+    groups:day.groups.filter(function(g){ return live(g.centerId); }).map(function(g){
+      var m=still[g.centerId]||Object.create(null);
+      return {centerId:g.centerId, name:g.name, town:g.town, time:g.time, members:g.members.filter(function(x){ return !!m[x.id]; })};
+    }),
+    solo:day.solo.filter(function(s){ return live(s.id); })};
+  var rows=_sortieDayRows(next), cnt=_sortieDayCount(next, planUntimedCount());
+  if(!rows.length){ _sortieDay=null; toast('選択されたメンバーがいません'); _sortiePaintIntro(); return; }
+  if(cnt.short>0){
+    next.err='予定表が変わり、このまま追加すると上限（時間未定'+PLAN_UNTIMED_MAX+'件）を超えます。時刻を決めるか、チェックを外してください。空き'+cnt.free+'件に対して'+cnt.untimed+'人です';
+    _sortieDay=next;
+    _sortieDayPaint();
+    toast('あと'+cnt.short+'人分、時刻を決めるか、チェックを外してください');
+    return; /* atomic: 誰も追加しない。確認画面に留まる */
+  }
+  var taken=Object.create(null), gids=Object.create(null), centersIn=[];
+  (_plan.entries||[]).forEach(function(en){ if(en&&en.dayGid) taken[en.dayGid]=1; });
+  rows.forEach(function(r){
+    var x=byId[r.id]; if(!x) return;
+    var en=makePlanEntry(x); /* cards配列へは書き込まない。投入は必ずmakePlanEntry経由 */
+    if(r.time) en.time=r.time;
+    if(r.grp>=0){ if(!gids[r.grp]) gids[r.grp]=_sortieDayGid(taken); en.dayGid=gids[r.grp]; en.dayRank=r.rank; }
+    _plan.entries.push(en);
+    if(r.rank<=1) centersIn.push(r.id);
+  });
+  /* ⭐は中心だけ（_sortieConfirm の⭐の付け方と同じ「used+1」方式。仲間はプールにいないので☆が付かない） */
+  if(st.cmd==='priority' && st.star){
+    centersIn.forEach(function(id){
+      if(!st.star[id]) return;
+      var en=null;
+      for(var i=_plan.entries.length-1;i>=0;i--){ if(_plan.entries[i].cardId===id){ en=_plan.entries[i]; break; } }
+      if(!en || en.prio) return;
+      var used=_plan.entries.filter(function(x){return x.prio;}).length;
+      if(used<3){ en.prio=used+1; }
+    });
+  }
+  savePlan();
+  var toastFn=SORTIE_LOW_TOASTS[st.cmd]; var lowMsg=toastFn?toastFn(rows.length):''; // 低人数のひとことは仲間を含めた人数で数える
+  _sortieClose();
+  showPlanner();
+  toast(rows.length+'件を予定表に追加しました'+(cnt.groups?'（その日のショットガン '+cnt.groups+'組）':''));
+  if(lowMsg){ setTimeout(function(){ toast(lowMsg); },700); }
+  _sortieCheckAchievement();
+}
+/* 「今日だけの組」の色（main.css には足さない） */
+var SORTIE_DAY_INK='#234E52', SORTIE_DAY_SOFT='#E6FFFA', SORTIE_DAY_BAR='#2C7A7B';
+/* 確認画面の HTML。ctx={slots:planSlots(), busy:{時刻:1}, untimedNow:今の時間未定の件数, visitNow:今の訪問メーターの人数, helpOpen}。
+ * 利用者の文字は e()（属性は eAttr()）を通す。数字は _sortieDayCount（PLAN_UNTIMED_MAX）から。履歴には触れない（カードへ飛ぶ導線も作らない）。 */
+function _sortieDayConfirmHTML(day,ctx){
+  var cnt=_sortieDayCount(day,ctx.untimedNow), bad=cnt.short>0;
+  var nm=function(s){ return e(s||'無名')+'様'; };
+  var sub='color:var(--za-sub)';
+  var line='border-top:1px solid var(--za-gray-soft)';
+  var frames=(day.groups||[]).map(function(g,gi){
+    var on=g.members.filter(function(m){ return m.on; }).length;
+    var rows=g.members.map(function(m,mi){
+      return '<label data-sortie-day-member="'+eAttr(m.id)+'" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:2px;'+line+';cursor:pointer">'
+        +'<input type="checkbox"'+(m.on?' checked':'')+' onchange="_sortieDayToggle('+gi+','+mi+')" style="width:20px;height:20px;flex-shrink:0;margin:0">'
+        +'<span style="font-size:13px;font-weight:'+(m.on?'700':'600')+';color:'+(m.on?'var(--za-ink)':'var(--za-sub)')+';min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+nm(m.name)+'</span>'
+        +'<span style="margin-left:auto;font-size:11.5px;'+sub+';white-space:nowrap;padding-left:6px">'+(m.skip&&!m.on?'今日は行かない':e('ペース'+(+m.pace).toFixed(1)+'倍超過'))+'</span>'
+        +'</label>';
+    }).join('');
+    var opts='<option value=""'+(g.time?'':' selected')+'>時間未定</option>'+(ctx.slots||[]).map(function(s){
+      return '<option value="'+eAttr(s)+'"'+(g.time===s?' selected':'')+'>'+e(s)+(ctx.busy[s]?'（予定あり）':'')+'</option>';
+    }).join('');
+    var hint=g.time?((ctx.busy[g.time]?'<div style="font-size:12px;line-height:1.6;color:var(--za-amber-ink);background:var(--za-amber-soft);border-radius:8px;padding:6px 9px;margin-top:6px">'+e(g.time)+' にはすでに予定があります。印刷では同じ時間の行にまとめて出ます。</div>':'')
+      +'<div style="font-size:12px;line-height:1.6;color:'+SORTIE_DAY_INK+';background:'+SORTIE_DAY_SOFT+';border-radius:8px;padding:6px 9px;margin-top:6px">'+e(g.time)+' に、'+(1+on)+'人が同じ時刻で入ります。</div>'):'';
+    return '<section data-sortie-day-group="'+gi+'" style="border:1px solid var(--za-line-mid);border-left:4px solid '+SORTIE_DAY_BAR+';border-radius:10px;background:var(--za-surface);margin:10px 0;padding:10px 10px 8px 12px">'
+      +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px">'
+      +'<span style="font-size:11px;font-weight:800;background:'+SORTIE_DAY_INK+';color:var(--za-surface);border-radius:999px;padding:1px 9px;white-space:nowrap">中心</span>'
+      +'<b style="font-size:14px;color:var(--za-ink)">'+nm(g.name)+'</b>'
+      +'<span style="margin-left:auto;font-size:11.5px;'+sub+';white-space:nowrap">'+e(g.town)+'</span></div>'
+      +rows
+      +(on?'':'<div style="font-size:12.5px;'+sub+';padding:10px 2px;'+line+'">この組は、ひとりで入ります</div>')
+      +'<div style="display:flex;align-items:center;gap:10px;margin-top:6px;padding-top:8px;'+line+'">'
+      +'<label for="sortieDayTime'+gi+'" style="font-size:12.5px;font-weight:700;color:'+SORTIE_DAY_INK+';flex-shrink:0">時刻</label>'
+      +'<select id="sortieDayTime'+gi+'" onchange="_sortieDayTime('+gi+',this.value)" style="flex:1;min-width:0;min-height:44px;border:1px solid var(--za-line-mid);border-radius:8px;padding:0 10px;font-size:14px;font-weight:700;color:var(--za-navy2);background:var(--za-surface);font-family:inherit">'+opts+'</select></div>'
+      +hint
+      +'</section>';
+  }).join('');
+  var solo=(day.solo||[]).length?('<div data-sortie-day-solo="1" style="border:1px dashed var(--za-line-mid);border-radius:10px;background:var(--za-card-soft);padding:8px 12px;margin:10px 0;font-size:12.5px;color:var(--za-ink);line-height:1.7">'
+    +'<b>仲間がいないお客様</b>'
+    +day.solo.map(function(s){ return '<br>'+nm(s.name)+(s.town?'　<span style="'+sub+'">'+e(s.town)+'</span>':''); }).join('')
+    +'<br><span style="'+sub+';font-size:12px">今日いっしょに回せる同じ町のお客様がいません。時間未定で入ります。</span></div>'):'';
+  var meter='<div data-sortie-day-meter="1" style="display:flex;justify-content:space-between;gap:8px;font-size:11px;'+sub+';margin:10px 0"><span>訪問メーター</span><span>'+ctx.visitNow+'名 → '+(ctx.visitNow+cnt.total)+'名</span></div>';
+  var stat=function(label,val){
+    return '<div style="flex:1;border:1px solid '+(bad?'var(--za-red-line)':'var(--za-line)')+';border-radius:8px;background:'+(bad?'var(--za-red-soft)':'var(--za-card-soft)')+';padding:5px 10px">'
+      +'<div style="font-size:11px;'+sub+'">'+label+'</div><div style="font-size:16px;font-weight:800;color:'+(bad?'var(--za-red-lo)':'var(--za-ink)')+'">'+val+'</div></div>';
+  };
+  var alertBox=function(t){ return '<div role="alert" style="font-size:12.5px;font-weight:700;line-height:1.6;color:var(--za-red-lo);background:var(--za-red-soft);border:1px solid var(--za-red-line);border-radius:8px;padding:6px 10px;margin-bottom:8px">'+e(t)+'</div>'; };
+  var foot='<div id="sortieDayFoot" style="position:sticky;bottom:0;z-index:1;background:var(--za-surface);margin:10px -20px -20px;padding:10px 20px 14px;border-top:1px solid var(--za-line);border-radius:0 0 14px 14px;box-shadow:0 -6px 10px -8px rgba(0,0,0,.18)">'
+    +'<div style="display:flex;gap:8px;margin-bottom:8px">'+stat('時間未定の空き',cnt.free+'件')+stat('時間未定で入る人',cnt.untimed+'人')+'</div>'
+    +(day.err?alertBox(day.err):(bad?alertBox('あと'+cnt.short+'人分、時刻を決めるか、チェックを外してください'):''))
+    +'<button type="button" onclick="_sortieDayApply()" class="bp"'+(bad?' disabled':'')+' style="width:100%;min-height:48px;border:none;border-radius:9px;padding:12px;font-size:14px;font-weight:700;font-family:inherit;'+(bad?'background:#CBD5E0;color:var(--za-mute);cursor:not-allowed':'cursor:pointer')+'">'
+    +'📅 '+cnt.total+'件を予定表に入れる'+(cnt.groups?'（'+cnt.groups+'組）':'')+'</button>'
+    +'</div>';
+  var help=['中心は、選んだお客様です。印刷した予定表では、同じ時間の中で中心が先に出て、仲間はその続きに並びます。',
+    '🗺 順路は、中心のお客様から始まります。',
+    '予定表で中心の時刻を変えると、同じ時刻の仲間も一緒に動きます。仲間ひとりだけ動かすこともできます。',
+    '中心を予定表から消しても、組は残ります。次の人が中心になります。'];
+  return '<div style="background:var(--za-surface);max-width:640px;margin:0 auto;border-radius:14px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">'
+    +'<b style="font-size:15px;color:var(--za-navy2)">🔥 その日のショットガン</b>'
+    +'<button type="button" onclick="_sortieDayBack()" style="background:none;border:none;color:var(--za-sub);font-size:13px;cursor:pointer;font-family:inherit;min-height:44px;padding:0 6px 0 10px;white-space:nowrap">← 選び直す</button></div>'
+    +'<p style="font-size:13px;line-height:1.7;color:var(--za-ink);margin:6px 0 2px">選んだお客様と同じ町で、訪問が遅れているお客様を、今日だけ一緒に回る組にします。</p>'
+    +'<p style="font-size:12px;line-height:1.7;'+sub+';margin:0 0 8px">🎯 作戦（ショットガン）のグループとは別で、明日には消えます。</p>'
+    +'<details id="sortieDayHelp"'+(ctx.helpOpen?' open':'')+' style="margin:4px 0 10px;border:1px solid var(--za-line);border-radius:10px;background:var(--za-card-soft)">'
+    +'<summary style="cursor:pointer;padding:12px;font-size:13px;font-weight:700;color:var(--za-navy2)">中心と仲間のこと</summary>'
+    +'<ul style="margin:0;padding:0 12px 10px 30px;font-size:12.5px;line-height:1.7;color:var(--za-ink)">'+help.map(function(t){ return '<li>'+t+'</li>'; }).join('')+'</ul></details>'
+    +frames+solo+meter+foot
+    +'</div>';
+}
+/* 確認画面を描く（予定表は _sortieConfirm が読み直した _plan を使う） */
+function _sortieDayPaint(){
+  var day=_sortieDay; if(!day) return;
+  var busy=Object.create(null); ((_plan&&_plan.entries)||[]).forEach(function(en){ if(en&&en.time) busy[en.time]=1; });
+  var hd=document.getElementById('sortieDayHelp');
+  var ov=_sortieEnsureOv();
+  ov.innerHTML=_sortieDayConfirmHTML(day,{slots:planSlots(), busy:busy, untimedNow:planUntimedCount(), visitNow:_sortieVisitCount(), helpOpen:!!(hd&&hd.open)});
+  ov.style.display='block';
+}
+/* 仲間の☑を入れる・外す */
+function _sortieDayToggle(gi,mi){
+  if(!_sortieDayLive()) return;
+  var day=_sortieDay, g=day&&day.groups[gi], m=g&&g.members[mi]; if(!m) return;
+  m.on=!m.on; day.err='';
+  _sortieDayPaint();
+}
+/* 組の時刻を決める（時間未定は ''）。決めた時刻は組の全員に付く */
+function _sortieDayTime(gi,v){
+  if(!_sortieDayLive()) return;
+  var day=_sortieDay, g=day&&day.groups[gi]; if(!g) return;
+  v=String(v||''); if(v && planSlots().indexOf(v)<0) return;
+  g.time=v; day.err='';
+  _sortieDayPaint();
+  var el=document.getElementById('sortieDayTime'+gi); if(el) el.focus();
+}
+/* 「← 選び直す」：確認画面の状態を捨てて候補画面へ（選んだ人は _sortieState に残る。履歴に触れない） */
+function _sortieDayBack(){ if(!_sortieDayLive()) return; _sortieDay=null; _sortiePaintPicker(); }
+window._sortieDayApply=_sortieDayApply;
+window._sortieDayToggle=_sortieDayToggle;
+window._sortieDayTime=_sortieDayTime;
+window._sortieDayBack=_sortieDayBack;
 /* ---- 「予定表だけ開く」＝押しつけない必須導線。スキップ済みフラグを保存し、低人数トーストは出さない ---- */
 function _sortieSkipToPlain(){
   try{ localStorage.setItem(_sortieSkipKey(),'1'); }catch(e){}
@@ -30292,6 +30639,7 @@ function _sortieSkipToPlain(){
 function _sortieClose(){
   var ov=document.getElementById('sortieBoardView'); if(ov) ov.style.display='none';
   _sortieState=null;
+  _sortieDay=null;
   if(_sortieOpenedExplicit && typeof _navReplaceNext!=='undefined'){ _navReplaceNext=true; }
   _sortieOpenedExplicit=false;
 }
