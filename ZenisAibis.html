@@ -1018,7 +1018,7 @@ body.is-mob .mob-menu{display:inline-block}
    全部のタブを同じ描画で作り hidden で隠す（担当ごとの J9 のスナップなど描画の中の保存は前のまま）。朝3分＝数字の帯4つ・遅れサイン・今日の指揮・担当へ一言（常に課全体）。
    1対1＝担当の顔の列・青緑の帯・本人の HUD（次のクエストとカードの質の1行つき）・今日話すこと・本人の今日の3手・6軸。月1回＝育成クエスト・カードの質・マップを先頭近くに。
    タブ・切替・HUD・今日の3手の形は担当の画面と同じ（担当の比べだけ、狭い窓では余白を詰める）。押せる範囲は ::before で上下に広げる（見た目と位置は変えない・隣の押せる物と重ねない）。ファネルの棒は伸ばさず上の覆いを縮める。
-   上の6つの操作（#analysisContent の .z-mtbar）は色と並びだけ（🖨 だけ主ボタン）。狭い窓（760px 未満）では課長の窓も本物のスマホと同じ全画面・余白 10px。screen の中だけ。色は既存の変数だけ */
+   上の6つの操作（#analysisContent の .z-mtbar）は色と並びだけ（🖨 だけ主ボタン）。狭い窓（760px 未満）では課長の窓も本物のスマホと同じ全画面・余白 10px。screen の中だけ。色は既存の変数だけ。スマホ（body.is-mob）では 💭・🖨 が隠れるので AI の流れの右の線を消し、🧭 の右寄せをやめて左詰め（2026-11-03 高田さん承認）。PC は幅によらず前のまま */
 @media screen{
   .zdash-mgr [data-z-tab-panel][hidden],.zdash-mgr [data-z-seg-pane][hidden]{display:none}
   .zdash-mgr .z-tabs{display:flex;gap:4px;margin:0 0 8px;padding:3px;border:1px solid var(--z-line);border-radius:12px;background:var(--z-surface-2)}
@@ -1122,6 +1122,8 @@ body.is-mob .mob-menu{display:inline-block}
   #analysisContent .z-mtb-sel{width:auto;max-width:100%;padding:4px 8px}
   #analysisContent .z-mtb-pri{border-color:var(--za-navy2);background:var(--za-navy2);color:var(--za-surface)}
   #analysisContent .z-mtb-end{margin-left:auto}
+  body.is-mob #analysisContent .z-mtb-grp{border-right:0}
+  body.is-mob #analysisContent .z-mtb-end{margin-left:0}
   @media (max-width:759.98px){
     #analysisPanel .z-dashcard{width:100%;max-width:none;margin:0;max-height:100dvh;border-radius:0}
     #analysisContent{padding:10px!important}
@@ -3571,7 +3573,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.57";
+var APP_VERSION = "v11.58";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
