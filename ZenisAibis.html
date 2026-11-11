@@ -1256,6 +1256,84 @@ body.is-mob .mob-menu{display:inline-block}
 /* PC：ダッシュボードbentoを均一2列・順番どおりに（整合性/一団性/連続性。dense解除で左右に飛ばない／大小バラつき解消。全幅カードのみ全幅維持） */
 @media (min-width:769px),(pointer:fine),(pointer:none){.zdash .z-bento{display:block!important;column-count:2;column-gap:14px}.zdash .z-bento>.z-card{break-inside:avoid;margin:0 0 14px;width:100%;box-sizing:border-box}.zdash .z-bento>.z-cf{column-span:all}}
 .zdash .z-list2{display:block}@media(min-width:760px){.zdash .z-list2{display:grid;grid-template-columns:1fr 1fr;gap:0 22px;align-items:start}.zdash .z-list2>*{min-width:0}}
+/* ダッシュボードの入れ直し 段階①「揃える」（2026-11-10 高田さん承認「OK、進めて」）：並びの順・HTML・JS・色は変えず、CSS だけで札の並びをそろえる。
+   担当の今日・課長の朝3分は左右の列の下の端をそろえる（短い側の最後の札を伸ばし、今日の3手の行と今日の指揮の行は縦のゆとりを等分）。札の間は 12px（760px 未満は 10px）。
+   進み具合・振り返り・月1回の札の格子は、760px 以上は段階②③（下の塊）の12列で組む。
+   1対1 は2段組みのまま、1枚だけの半幅を段抜きに。760px 未満は1列（朝3分の数字の帯は2×2のまま）。月1回の育成クエストの中は3列。screen の中だけ */
+@media screen{
+  .zdash-rep [data-z-tab-panel="today"]>.z-hud,.zdash-rep .z-tcol>.z-card{margin:0 0 10px}
+  .zdash-mgr .z-am>.z-cockpit,.zdash-mgr .z-am>.z-card{margin:0 0 10px}
+  @media (min-width:760px){
+    .zdash-rep [data-z-tab-panel="today"]>.z-hud{margin:0 0 12px}
+    .zdash-rep .z-today{gap:12px;align-items:stretch}
+    .zdash-rep .z-tcol{display:flex;flex-direction:column;gap:12px;min-width:0}
+    .zdash-rep .z-tcol>.z-card{margin:0}
+    .zdash-rep .z-tcol>.z-card:last-child{flex:1 1 auto}
+    .zdash-rep .z-moves{display:flex;flex-direction:column}
+    .zdash-rep .z-moves>[data-z-seg-pane="u"]:not([hidden]){display:flex;flex-direction:column;justify-content:space-around;flex:1 1 auto}
+    .zdash-mgr .z-am{grid-template-rows:auto 1fr;gap:12px;align-items:stretch}
+    .zdash-mgr .z-am>.z-cockpit,.zdash-mgr .z-am>.z-card{margin:0}
+    .zdash-mgr .z-am>.z-mcmd{display:flex;flex-direction:column}
+    .zdash-mgr .z-am>.z-mcmd>.z-cmd{flex:1 1 auto}
+    .zdash-mgr [data-z-tab-panel="mon"] .z-jobgrid2{grid-template-columns:repeat(3,minmax(0,1fr))}
+  }
+  @media (min-width:769px),(pointer:fine),(pointer:none){
+    .zdash [data-z-tab-panel="one"]>.z-bento>.z-cf+.z-c2:last-child{column-span:all}
+    .zdash [data-z-tab-panel="one"]>.z-bento>.z-cf+.z-c2:has(+.z-cf){column-span:all}
+  }
+  @media not all and (min-width:760px){
+    .zdash-rep :not(.z-cockpit)>.z-bento,.zdash-mgr :not(.z-cockpit)>.z-bento{display:grid!important;grid-template-columns:minmax(0,1fr);gap:10px;column-count:auto}
+    .zdash-rep :not(.z-cockpit)>.z-bento>.z-card,.zdash-mgr :not(.z-cockpit)>.z-bento>.z-card{margin:0;grid-column:1 / -1}
+  }
+}
+/* ダッシュボードの入れ直し 段階②「組み直す」（2026-11-10 高田さん承認「OK、進めて」）：課長の月1回だけ。章の見出し（.z-chap。h3 ではなく .z-bento の外）で区切り、
+   章ごとの札の格子を12列にして、幅のクラス（z-s4〜z-s12）で大きい札と小さい札を組む（行ごとに高さがそろう）。幅のクラスの無い半幅が1枚だけ残る所は全幅に
+   （:has() を使う規則は使わない規則と分ける）。760px 未満は段階①の1列のまま（朝3分の数字の帯には効かない）。screen の中だけ */
+@media screen{
+  .zdash-mgr [data-z-tab-panel="mon"]>.z-chap{display:flex;align-items:center;gap:8px;margin:20px 0 8px;font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--z-mut)}
+  .zdash-mgr [data-z-tab-panel="mon"]>.z-chap::after{content:"";flex:1 1 auto;height:1px;background:var(--z-line)}
+  .zdash-mgr [data-z-tab-panel="mon"]>.z-chap:first-child{margin-top:0}
+  @media (min-width:760px){
+    /* display の !important は PC の2段組み（.zdash .z-bento{display:block!important}）に勝つため。grid-column は詳しさで勝つので付けない */
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento{display:grid!important;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-flow:row;gap:12px;align-items:stretch;column-count:auto;margin:0 0 12px}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-card{margin:0;grid-column:1 / -1}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-c1{grid-column:span 4}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-c2{grid-column:span 6}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-s4{grid-column:span 4}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-s5{grid-column:span 5}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-s6{grid-column:span 6}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-s7{grid-column:span 7}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-s8{grid-column:span 8}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-s12{grid-column:1 / -1}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-cf+.z-c2:not([class*=" z-s"]):last-child,
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-cf+.z-c2:not([class*=" z-s"])+.z-c2+.z-c2:last-child{grid-column:1 / -1}
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-cf+.z-c2:not([class*=" z-s"]):has(+.z-cf),
+    .zdash.zdash-mgr [data-z-tab-panel="mon"]>.z-bento>.z-cf+.z-c2:not([class*=" z-s"])+.z-c2+.z-c2:has(+.z-cf){grid-column:1 / -1}
+  }
+}
+/* ダッシュボードの入れ直し 段階③「組み直す」（2026-11-10 高田さん承認「OK、進めて」）：担当の進み具合・振り返りだけ。段階②と同じ型で、章の見出し（.z-chap。h3 ではなく .z-bento の外。
+   進み具合の最初の見出しは数字の帯の先頭）で区切り、章ごとの札の格子を12列にして幅のクラス（z-s4〜z-s8）で組む。ロープレの推移は活動の足あとと 6｜6。
+   載らないことがある札（将来在庫・AI分析結果）が無いときに残る1枚は全幅に（:has() は使わない）。760px 未満は段階①の1列のまま。screen の中だけ */
+@media screen{
+  .zdash-rep [data-z-tab-panel="prog"] .z-chap,.zdash-rep [data-z-tab-panel="look"] .z-chap{display:flex;align-items:center;gap:8px;margin:20px 0 8px;font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--z-mut)}
+  .zdash-rep [data-z-tab-panel="prog"] .z-chap::after,.zdash-rep [data-z-tab-panel="look"] .z-chap::after{content:"";flex:1 1 auto;height:1px;background:var(--z-line)}
+  .zdash-rep [data-z-tab-panel="prog"] .z-chap:first-child,.zdash-rep [data-z-tab-panel="look"] .z-chap:first-child{margin-top:0}
+  .zdash-rep [data-z-tab-panel="prog"]>.z-k3row>.z-chap{grid-column:1 / -1;margin:0}
+  @media (min-width:760px){
+    /* display の !important は段階②と同じ理由（PC の2段組みの display:block!important に勝つため） */
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento{display:grid!important;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-flow:row;gap:12px;align-items:stretch;column-count:auto;margin:0 0 12px}
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-card,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>.z-card{margin:0;grid-column:1 / -1}
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-c2,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>.z-c2{grid-column:span 6}
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-s4,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>.z-s4{grid-column:span 4}
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-s5,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>.z-s5{grid-column:span 5}
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-s6,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>.z-s6{grid-column:span 6}
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-s7,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>.z-s7{grid-column:span 7}
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-s8,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>.z-s8{grid-column:span 8}
+    .zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>#rpTrendCard{grid-column:span 6}
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-s6:nth-child(3):last-child,
+    .zdash.zdash-rep [data-z-tab-panel="prog"]>.z-bento>.z-card:only-child,.zdash.zdash-rep [data-z-tab-panel="look"]>.z-bento>.z-card:only-child{grid-column:1 / -1}
+  }
+}
 /* sections */
 .zdash .z-secsub{font-size:11px;font-weight:500;color:var(--z-mut);margin-left:7px}.zdash .z-sec{margin:16px 0}.zdash .z-sec-h{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:11px 14px;background:linear-gradient(90deg,rgba(255,255,255,.05),transparent);border:1px solid var(--z-line);border-radius:12px;margin:0;font-weight:800;font-size:14px;color:var(--z-ink);transition:background .15s}.zdash .z-sec:not(.z-collapsed) .z-sec-h{background:linear-gradient(90deg,rgba(52,227,208,.16),rgba(139,124,255,.10));border-bottom-left-radius:0;border-bottom-right-radius:0;border-bottom:none}
 .zdash .z-sec-h .z-ar{margin-left:auto;color:var(--z-dim);font-size:11px;transition:color .15s}.zdash .z-sec:not(.z-collapsed) .z-sec-h .z-ar{color:#34e3d0}
@@ -3573,7 +3651,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.58";
+var APP_VERSION = "v11.59";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -15166,41 +15244,45 @@ function renderSelfDash(tid, targetManager){
  // ===== 📈 進み具合 =====
  var _myNow=_kpi3Now(mine);
  bodyState+='<div class="z-card z-cf"><h3>📌 重要3指標トレンド（直近6ヶ月）</h3><div class="z-sub">提案依頼・同行・家族構成コンプの月別件数。今月：提案 '+_myNow[0]+'・同行 '+_myNow[1]+'・家族 '+_myNow[2]+'。<br><span style="color:var(--z-dim)">※家族構成は人数把握まで。氏名・年齢・職業まで深掘りを。</span></div>'+_kpi3Chart(mine)+'</div>';
- bodyState+='<div class="z-card z-c2"><h3>🔻 マイ・パイプライン <span style="font-size:10px;color:var(--z-dim)">転換率つき</span> <span class="z-tag">今月 ⤴'+_suMon+'</span> <span class="z-tag">連想到達（今月） '+_su3+'</span></h3><div class="z-sub">連想(3)の壁を越えているか。⤴＝お客様の段を引き上げた回数（今月）。</div>'+_zFunnel(sc)+'</div>';
- bodyState+='<div class="z-card z-hero z-cf"><div class="z-ring" style="--p:'+renso+'"><div class="z-ring-in"><b>'+renso+'<small>%</small></b><span>連想以上率</span></div></div><div class="z-hmeta"><h3>🔭 保有と連想以上率</h3><div class="z-chips"><span class="z-chip">保有 <b>'+n+'</b>件</span><span class="z-chip">A・S <b>'+asN+'</b>件</span><span class="z-chip">要フォロー <b>'+fuN+'</b>件</span><span class="z-chip">連想以上率 <b>'+renso+'</b>%（'+conn+'件）</span></div></div></div>';
- bodyState+=_zc('✅','契約前進チェックリスト','契約までの不足を1行で。','<div class="z-list2">'+zContractListHTML(mine,false)+'</div>','z-cf')+_zc('👪','家族合意マップ','家族の賛否と次に会う人。','<div class="z-list2">'+zFamilyMapHTML(mine,false)+'</div>','z-cf')+futureCard+holdCard;
+ var _sPipe='<div class="z-card z-c2"><h3>🔻 マイ・パイプライン <span style="font-size:10px;color:var(--z-dim)">転換率つき</span> <span class="z-tag">今月 ⤴'+_suMon+'</span> <span class="z-tag">連想到達（今月） '+_su3+'</span></h3><div class="z-sub">連想(3)の壁を越えているか。⤴＝お客様の段を引き上げた回数（今月）。</div>'+_zFunnel(sc)+'</div>';
+ var _sRing='<div class="z-card z-hero z-cf z-s6"><div class="z-ring" style="--p:'+renso+'"><div class="z-ring-in"><b>'+renso+'<small>%</small></b><span>連想以上率</span></div></div><div class="z-hmeta"><h3>🔭 保有と連想以上率</h3><div class="z-chips"><span class="z-chip">保有 <b>'+n+'</b>件</span><span class="z-chip">A・S <b>'+asN+'</b>件</span><span class="z-chip">要フォロー <b>'+fuN+'</b>件</span><span class="z-chip">連想以上率 <b>'+renso+'</b>%（'+conn+'件）</span></div></div></div>';
+ var _sCheck=_zc('✅','契約前進チェックリスト','契約までの不足を1行で。','<div class="z-list2">'+zContractListHTML(mine,false)+'</div>','z-cf z-s8'), _sFamily=_zc('👪','家族合意マップ','家族の賛否と次に会う人。','<div class="z-list2">'+zFamilyMapHTML(mine,false)+'</div>','z-cf z-s4');
  // ===== 🌱 振り返り（先頭に育成クエストとカードの質）=====
  var _rq=[0,0,0,0,0]; mine.forEach(function(c){ _rq[_richTier(_cardRichness(c))]++; });
- var questCard='<div class="z-card z-cf z-questc" data-z-card="quest"><h3>🌱 育成クエスト</h3><div class="z-sub">いちばん伸ばしどころの力を「次のクエスト」に（課長の育成クエストと同じ計算）。ジョブの図鑑は「あなたの営業タイプ」から。</div>'
+ var questCard='<div class="z-card z-cf z-questc z-s7" data-z-card="quest"><h3>🌱 育成クエスト</h3><div class="z-sub">いちばん伸ばしどころの力を「次のクエスト」に（課長の育成クエストと同じ計算）。ジョブの図鑑は「あなたの営業タイプ」から。</div>'
   +(_qs?'<div class="z-qrow"><span>次のクエスト</span><b>'+e(_qs.next)+'</b></div><div class="z-qrow"><span>今月の成長</span><b>'+e(_qs.grow.length?_qs.grow.join(' / '):'記録待ち')+'</b></div><div class="z-qrow"><span>型</span><b>'+e(_qs.type)+'</b><span class="z-sub">育成度 '+_qs.lv+'</span></div>':'')+'</div>';
  var qualityCard=_zc('📐','カードの質（自分の分）','内容の濃さで5階層（課長のカード品質ピラミッドと同じ計算）。',
    '<div class="z-qrow"><span>高品質率（💎＋🥇）</span><b>'+_zPct(_rq[0]+_rq[1],n)+'%</b><span class="z-sub">（'+(_rq[0]+_rq[1])+'/'+n+'枚）</span></div>'
-   +'<div class="z-qtiers">'+(typeof _ZRICH_TIERS!=='undefined'?_ZRICH_TIERS:[]).map(function(tr,i){return '<span>'+tr[0]+' <b>'+_rq[i]+'</b></span>';}).join('')+'</div>','z-cf');
- var growthCard=_zc('🌱','成長サマリ','あなたの伸び。ランキングより自分の前進を。',zGrowthCardHTML(axes,_ghost,_sk,_mg),'z-cf');
- bodyGrow=questCard+qualityCard+growthCard+_selfJobCard;
- bodyGrow+='<div class="z-card z-cf"><h3>📈 活動の足あと（直近12ヶ月）</h3><div class="z-sub">発掘・訪問・アポの月別量。右肩上がりが努力の証。</div>'+_zLine([{data:mDisc,color:'#2f9e44'},{data:mVis,color:'#1971c2'},{data:mApo,color:'#e8920c'}])+'<div class="z-legend"><span><i style="background:#9be15d"></i>発掘</span><span><i style="background:#4aa8ff"></i>訪問</span><span><i style="background:#ffb443"></i>アポ</span></div><div class="z-sub" style="margin:8px 0 2px">累計発掘（積み上がり）</div>'+_zLine([{data:cum,color:'#0c8599'}])+'</div>';
+   +'<div class="z-qtiers">'+(typeof _ZRICH_TIERS!=='undefined'?_ZRICH_TIERS:[]).map(function(tr,i){return '<span>'+tr[0]+' <b>'+_rq[i]+'</b></span>';}).join('')+'</div>','z-cf z-s5');
+ var growthCard=_zc('🌱','成長サマリ','あなたの伸び。ランキングより自分の前進を。',zGrowthCardHTML(axes,_ghost,_sk,_mg),'z-cf z-s6');
+ // 段階③：振り返りは章ごとに並べる（下の _panels）。bodyGrow は章「推移」の札（活動の足あと・ロープレの推移）だけを受ける
+ bodyGrow+='<div class="z-card z-cf z-s6"><h3>📈 活動の足あと（直近12ヶ月）</h3><div class="z-sub">発掘・訪問・アポの月別量。右肩上がりが努力の証。</div>'+_zLine([{data:mDisc,color:'#2f9e44'},{data:mVis,color:'#1971c2'},{data:mApo,color:'#e8920c'}])+'<div class="z-legend"><span><i style="background:#9be15d"></i>発掘</span><span><i style="background:#4aa8ff"></i>訪問</span><span><i style="background:#ffb443"></i>アポ</span></div><div class="z-sub" style="margin:8px 0 2px">累計発掘（積み上がり）</div>'+_zLine([{data:cum,color:'#0c8599'}])+'</div>';
  // 第260弾: ロープレの点数の推移（全カードの評価履歴・読むだけ。既存の数字・並びは変えない）
  if(typeof rpTrendCardHTML==='function') bodyGrow+=rpTrendCardHTML(_allC);
  var myAch=_achBadges(mine);
- bodyGrow+='<div class="z-card z-cf z-dex" data-z-seg-box><div class="z-chead"><h3>🏅 図鑑</h3>'+_seg('dex',[['t','称号'],['a','実績']])+'</div>'
+ var _gDex='<div class="z-card z-cf z-dex z-s6" data-z-seg-box><div class="z-chead"><h3>🏅 図鑑</h3>'+_seg('dex',[['t','称号'],['a','実績']])+'</div>'
   +_pane('dex','t','t','<div class="z-sub">獲得した称号。いろんな軸で輝ける。今の自分の勲章。</div><div class="z-badges">'+(myBadges.length?myBadges.map(function(b){return '<div class="z-badge lit"><div class="z-be">'+b.e+'</div><div class="z-bt">'+b.t+'</div><div class="z-bw">'+b.w+'</div></div>';}).join(''):'<div class="z-sub">あと一歩！どれかの軸でトップを狙おう</div>')+'</div>')
   +_pane('dex','a','t','<div class="z-sub">実績バッジ。行動の積み重ねで誰でも取れる実績。</div><div class="z-badges">'+(myAch.length?myAch.map(function(b){return '<div class="z-badge lit"><div class="z-be">'+b.e+'</div><div class="z-bt">'+b.t+'</div></div>';}).join(''):'<div class="z-sub">行動を重ねると実績が増えるよ。</div>')+'</div>')+'</div>';
  // 人と比べる札（目利き力・課内の順位）は、振り返りの中で既定で閉じた節に（1画面目には出さない）
  var rankSec=(mekiH||rankH)?_zsec('selfRank','🎯 目利き力・課内の順位 <span class="z-secsub">開いたときだけ表示</span>',mekiH+rankH):'';
- var bodyGrow2='<div class="z-card z-spar z-c2"><h3>🥊 今日の壁打ちワーク</h3><div class="z-sub">AI相手に1問だけ自問自答。</div><div class="z-q">「連想まで来た<em>'+e(spar)+'様</em>に、<em>提案依頼の許可</em>を取る最初の一言は？」</div>'+(isMob?'<div style="font-size:11px;color:var(--z-mut)">PC（Chrome）でAI壁打ち＆印刷が使えます。</div>':'<button class="z-btn-spar" onclick="copySelfPrompt();openCopilot()">🥊 AIと壁打ちする</button>')+'</div>';
- if(!isMob && !tid){ bodyGrow2+='<div class="z-card z-cf"><h3>💭 AI分析結果（貼り付け）</h3><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"><button class="z-mini" onclick="copySelfPrompt()">🤖 分析用に抽出</button><button class="z-mini" onclick="openCopilot()">🤖 AI分析</button><button class="z-mini" onclick="printSelfReport()">🖨 印刷</button><span id="selfMemoAt" style="margin-left:auto;align-self:center;font-size:11px;font-weight:700;color:#2f9e44;white-space:nowrap"></span><button class="z-mini" onclick="clearSelfMemo()" style="background:none;border:1px solid #fc8181;color:#c53030">🗑 削除</button></div><div class="z-sub no-print" id="selfPnMap" hidden></div><textarea id="selfAnalysisMemo" placeholder="AIの分析結果をここに貼り付け（印刷に使われます）" oninput="saveSelfMemo()"></textarea></div>'; }
+ var bodyGrow2='<div class="z-card z-spar z-c2 z-s5"><h3>🥊 今日の壁打ちワーク</h3><div class="z-sub">AI相手に1問だけ自問自答。</div><div class="z-q">「連想まで来た<em>'+e(spar)+'様</em>に、<em>提案依頼の許可</em>を取る最初の一言は？」</div>'+(isMob?'<div style="font-size:11px;color:var(--z-mut)">PC（Chrome）でAI壁打ち＆印刷が使えます。</div>':'<button class="z-btn-spar" onclick="copySelfPrompt();openCopilot()">🥊 AIと壁打ちする</button>')+'</div>';
+ if(!isMob && !tid){ bodyGrow2+='<div class="z-card z-cf z-s7"><h3>💭 AI分析結果（貼り付け）</h3><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"><button class="z-mini" onclick="copySelfPrompt()">🤖 分析用に抽出</button><button class="z-mini" onclick="openCopilot()">🤖 AI分析</button><button class="z-mini" onclick="printSelfReport()">🖨 印刷</button><span id="selfMemoAt" style="margin-left:auto;align-self:center;font-size:11px;font-weight:700;color:#2f9e44;white-space:nowrap"></span><button class="z-mini" onclick="clearSelfMemo()" style="background:none;border:1px solid #fc8181;color:#c53030">🗑 削除</button></div><div class="z-sub no-print" id="selfPnMap" hidden></div><textarea id="selfAnalysisMemo" placeholder="AIの分析結果をここに貼り付け（印刷に使われます）" oninput="saveSelfMemo()"></textarea></div>'; }
  // 土地の内訳（マップ）：たたまない札。ヒートマップを既定に、生産緑地・現況を切替で
  // 第214弾: self scope明示化。population semantics(mine導出)は無変更。通常呼出(targetManager省略)は
  // 実targetがcards全体−土地リードのため、嘘にならないneutral labelを用いる（population変更は禁止）。
- bodyGrow2+='<div class="z-card z-cf z-land" data-z-seg-box><div class="z-chead"><h3>🗺 土地の内訳</h3>'+_seg('land',[['hm','ヒートマップ'],['sg','生産緑地'],['gj','現況']])+'</div>'
+ var _gLand='<div class="z-card z-cf z-land" data-z-seg-box><div class="z-chead"><h3>🗺 土地の内訳</h3>'+_seg('land',[['hm','ヒートマップ'],['sg','生産緑地'],['gj','現況']])+'</div>'
   +_pane('land','hm','hm',_zAreaCard('self', mine, targetManager?'担当：'+e(targetManager)+'（ミラー）':'保有全体', 'zSetAreaSelf'))
   +_pane('land','sg','hm','<div class="z-card z-c2"><h3>🌳 生産緑地 保有率</h3>'+_ryokuchiRing(mine)+'</div>')
   +_pane('land','gj','hm','<div class="z-card z-c2"><h3>🥧 現況の内訳</h3><div class="z-sub">担当先の現状区分の分布。</div>'+_genjoPie(mine)+'</div>')+'</div>';
  // ===== タブ（全部のタブを同じ描画で作って隠す。開いていないタブも描くので、上の保存は今までどおり描画1回につき1回）=====
+ // 段階③：進み具合・振り返りは章の見出し（h3 ではなく .z-bento の外）で区切る。進み具合の最初の見出しは数字の帯の先頭
+ function _chapH(t){return '<div class="z-chap" role="heading" aria-level="4">'+t+'</div>';}
+ function _chap(t,body){return _chapH(t)+'<div class="z-bento">'+body+'</div>';}
  var _panels={
   today:hud+'<div class="z-today"><div class="z-tcol">'+movesCard+'</div><div class="z-tcol">'+goalCard+dangerCard+'</div></div>',
-  prog:'<div class="z-k3row">'+_kpi3Cards(mine)+'</div><div class="z-sub z-k3note">※同行：ここは件（今月同行したカード）。今月の的の同行は回（同行を含む訪問の回数）なので数が違います。</div><div class="z-bento">'+bodyState+'</div>',
-  look:'<div class="z-bento">'+bodyGrow+'</div>'+rankSec+'<div class="z-bento">'+bodyGrow2+'</div>'
+  prog:'<div class="z-k3row">'+_chapH('今月の数字')+_kpi3Cards(mine)+'</div><div class="z-sub z-k3note">※同行：ここは件（今月同行したカード）。今月の的の同行は回（同行を含む訪問の回数）なので数が違います。</div><div class="z-bento">'+bodyState+'</div>'
+   +_chap('見込みの流れと量',_sPipe+holdCard+_sRing+futureCard)+_chap('案件の前進',_sCheck+_sFamily),
+  look:_chap('育成',questCard+qualityCard)+_chap('成長',_selfJobCard+growthCard+_gDex)+_chap('推移',bodyGrow)+rankSec+_chap('練習と所見',bodyGrow2)+_chap('土地',_gLand)
  };
  var _tabs=[['today','今日'],['prog','進み具合'],['look','振り返り']];
  var _cur=_panels[_sst.tab]?_sst.tab:'today';
@@ -27672,8 +27754,8 @@ function renderAnalysis(){
  var mVis=_zMonthly(t,_zVisitDates), mApo=_zMonthly(t,_zAppoDates), cum=[],r0=0;mDisc.forEach(function(v){r0+=v;cum.push(r0);});
  var _discByRep=_zc('👥','担当別 今月の発掘','誰がエンジンか。',_zVbars(reps.map(function(r){return g[r].filter(function(c){return (c.discovery_date||'').slice(0,7)===curMonth;}).length;}),reps.map(function(r){return r.slice(0,1);}),_zAVAS),'z-c2');
  var bodyProcess=('📈 プロセス（活動量の伸び）',
-   _zc('📊','課の活動量（直近12ヶ月）','発掘・訪問・アポの月別量。',_zLine([{data:mDisc,color:'#9be15d'},{data:mVis,color:'#4aa8ff'},{data:mApo,color:'#ffb443'}])+'<div class="z-legend"><span><i style="background:#9be15d"></i>発掘</span><span><i style="background:#4aa8ff"></i>訪問</span><span><i style="background:#ffb443"></i>アポ</span></div>','z-cf')
-  +_zc('🧗','累計発掘（積み上がり）','努力が積み上がる様子。',_zLine([{data:cum,color:'#34e3d0'}]),'z-c2'));
+   _zc('📊','課の活動量（直近12ヶ月）','発掘・訪問・アポの月別量。',_zLine([{data:mDisc,color:'#9be15d'},{data:mVis,color:'#4aa8ff'},{data:mApo,color:'#ffb443'}])+'<div class="z-legend"><span><i style="background:#9be15d"></i>発掘</span><span><i style="background:#4aa8ff"></i>訪問</span><span><i style="background:#ffb443"></i>アポ</span></div>','z-cf z-s8')
+  +_zc('🧗','累計発掘（積み上がり）','努力が積み上がる様子。',_zLine([{data:cum,color:'#34e3d0'}]),'z-c2 z-s4'));
  // contract（段階4: 契約距離〔契約クローズ・トラッカー〕は出さない＝Q7 B。契約クロック〔_zCLOCK_DAYS〕は朝3分の期限〔課全体〕と 1対1 の期限〔選んだ範囲〕）
  function _clockList(arr){return _zClockRows(arr).slice(0,6);}
  var allA=_clockList(tE), allA1=_clockList(t1); // 朝3分の期限（allA）は土地見込みを除く（tE）。1対1（allA1）は選んだ範囲のまま
@@ -27693,8 +27775,8 @@ function renderAnalysis(){
  var missH=miss.map(function(m){var p=m[4];return '<div class="z-mbar"><div class="z-ml"><span>'+m[0]+'</span><b>'+m[1]+' / '+m[2]+'（'+p+'%）</b></div><div class="z-mtrack"><i style="width:'+p+'%;background:'+m[3]+'"></i></div></div>';}).join('');
  var ptRows=reps.map(function(r){return {r:r,p:_repPoints(g[r])};}).sort(function(a,b){return b.p-a.p;});var ptMax=ptRows.length?ptRows[0].p:0;var ptTot=ptRows.reduce(function(s,x){return s+x.p;},0);var ptH='<div class="z-sub" style="margin-bottom:8px">課合計 <b style="color:var(--z-lime)">'+ptTot+'</b>pt（活動の積み上げ・現在値）</div>'+ptRows.map(function(x){var pct=ptMax?Math.round(x.p/ptMax*100):0;var col=_ptColor(pct);return '<div class="z-mbar"><div class="z-ml"><span>'+e(x.r)+'</span><b>'+x.p+'pt</b></div><div class="z-mtrack"><i style="width:'+pct+'%;background:'+col+'"></i></div></div>';}).join('');
 var achH=reps.map(function(r){var bs=_achBadges(g[r]);if(!bs.length)return '';return '<div style="margin-bottom:7px"><span style="font-size:12px;font-weight:700">'+e(r)+'</span> '+bs.map(function(b){return '<span class="z-pill" style="background:rgba(155,225,93,.14);color:var(--z-lime);margin-left:4px">'+b.e+' '+b.t+'</span>';}).join('')+'</div>';}).join('')||'<div class="z-sub">集計中</div>';
- var achCard=_zc('🎖','担当別 実績バッジ','行動の積み重ねで全員に出番。',achH,'z-c2');
- var goalCard=_zc('🎖','今月の課目標（進捗）','今月の課目標（暫定の目安）。みんなで達成。',missH,'z-c2');
+ var achCard=_zc('🎖','担当別 実績バッジ','行動の積み重ねで全員に出番。',achH,'z-c2 z-s4');
+ var goalCard=_zc('🎖','今月の課目標（進捗）','今月の課目標（暫定の目安）。みんなで達成。',missH,'z-c2 z-s4');
  // area（第214弾: team scope明示化。labelはscope導出変数そのものから構築＝実targetと一致保証）
  var bodyArea=_zAreaCard('team', t, scope==='all'?'課全体':'担当：'+e(scope));
  // multi
@@ -27745,11 +27827,11 @@ var achH=reps.map(function(r){var bs=_achBadges(g[r]);if(!bs.length)return '';re
    if(!tr.length) tr.push(['標準','#718096']);
    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--z-line)"><span style="font-weight:700;font-size:13px;min-width:60px;flex-shrink:0">'+e(r)+'</span><span style="display:flex;gap:5px;flex-wrap:wrap">'+tr.map(function(x){return '<span class="z-pill" style="background:'+x[1]+'22;color:'+x[1]+'">'+x[0]+'</span>';}).join('')+'</span></div>';
  }).join('');
- var _teamCourse=_zc('🕳','リーク分析（離脱の場所）','転換率が落ちる段を発見。',_zFunnel(sc),'z-c2');
+ var _teamCourse=_zc('🕳','リーク分析（離脱の場所）','転換率が落ちる段を発見。',_zFunnel(sc),'z-c2 z-s7');
+ var _prCard=_zc('⭕','提案依頼の取得状況','顧客の意思表示＝契約への最短サイン。','<div style="text-align:center;margin-bottom:8px"><span style="font-family:Sora,sans-serif;font-size:30px;font-weight:800;color:#2f9e44">'+prGot+'</span><span style="font-size:12px;color:var(--z-dim)"> 件取得／'+cards.filter(function(c){return !_isLandLead(c);}).length+'件中（'+_zPct(prGot,cards.filter(function(c){return !_isLandLead(c);}).length)+'%）</span></div>'+_zVbars(prBars,reps.map(function(r){return r.slice(0,1);}),reps.map(function(){return '#2f9e44';})),'z-c2 z-s5');
  var bodyTeam=('🧑‍💼 担当の特性・保有状況',
-   _zc('⭕','提案依頼の取得状況','顧客の意思表示＝契約への最短サイン。','<div style="text-align:center;margin-bottom:8px"><span style="font-family:Sora,sans-serif;font-size:30px;font-weight:800;color:#2f9e44">'+prGot+'</span><span style="font-size:12px;color:var(--z-dim)"> 件取得／'+cards.filter(function(c){return !_isLandLead(c);}).length+'件中（'+_zPct(prGot,cards.filter(function(c){return !_isLandLead(c);}).length)+'%）</span></div>'+_zVbars(prBars,reps.map(function(r){return r.slice(0,1);}),reps.map(function(){return '#2f9e44';})),'z-c2')
-  +_zc('🧬','担当の特性（自動所見）','カード全体から見た各担当のタイプ。','<div class="z-list2">'+(traitRows||'<div class="z-sub">担当データなし</div>')+'</div>','z-cf'));
- var _holdCard=_zc('📇','見込み保有数（全体・担当別）','課全体の母数と担当別の保有件数。','<div style="text-align:center;margin-bottom:8px"><span style="font-family:Sora,sans-serif;font-size:30px;font-weight:800;color:#34e3d0">'+cards.length+'</span><span style="font-size:12px;color:var(--z-dim)"> 件（全体）／平均 '+avgHold.toFixed(1)+'件</span></div>'+_zVbars(holdBars,reps.map(function(r){return r.slice(0,1);}),_zAVAS),'z-c2');
+  _zc('🧬','担当の特性（自動所見）','カード全体から見た各担当のタイプ。','<div class="z-list2">'+(traitRows||'<div class="z-sub">担当データなし</div>')+'</div>','z-cf z-s8'));
+ var _holdCard=_zc('📇','見込み保有数（全体・担当別）','課全体の母数と担当別の保有件数。','<div style="text-align:center;margin-bottom:8px"><span style="font-family:Sora,sans-serif;font-size:30px;font-weight:800;color:#34e3d0">'+cards.length+'</span><span style="font-size:12px;color:var(--z-dim)"> 件（全体）／平均 '+avgHold.toFixed(1)+'件</span></div>'+_zVbars(holdBars,reps.map(function(r){return r.slice(0,1);}),_zAVAS),'z-c2 z-s5');
  var _lbCard=_zc('🏆','担当別スコア','平均スコア順。',lbH,'z-c2'), _ptCard=_zc('⚡','担当別 行動量スコア','行動の積み上げ。契約だけでなく前進を評価。',ptH,'z-c2'), _inpCard=_zc('📝','入力充実度（担当別）','カードの作り込み度。低い担当は質のフォローを。',_zVbars(inpBars,reps.map(function(r){return r.slice(0,1);}),inpBars.map(function(v){return v>=70?'#2f9e44':v>=50?'#ffb443':'#ff5d7d';})),'z-c2');
  // insights
  var pingStat=reps.map(function(r){var a=g[r].filter(function(c){return !_isLandLead(c);}),T=a.length||1;return {r:r,v:_zPct(a.filter(function(c){return getKaiwaLevel(c)===0;}).length,T),n:a.length};}).filter(function(o){return o.n>=3;}).sort(function(a,b){return b.v-a.v;});
@@ -27780,7 +27862,7 @@ var achH=reps.map(function(r){var bs=_achBadges(g[r]);if(!bs.length)return '';re
  else if(zClose>0) zComment='クロージング段に在庫あり。他社比較・資金不安・家族反対の潰し込みを。';
  else zComment='バランス良好。連想到達からの一押しを継続。';
  var zoneH='<div class="z-tiles"><div class="z-tile"><b>'+zImm+'</b><span>未成熟（面識〜興味）</span></div><div class="z-tile"><b style="color:var(--z-warn-ink)">'+zPre+'</b><span>提案前（連想・欲求）</span></div><div class="z-tile"><b style="color:#34e3d0">'+zClose+'</b><span>クロージング（比較〜決心）</span></div></div><div class="z-sub" style="margin-top:8px"><span style="color:var(--z-cyan);font-weight:700">読み解き：</span>'+zComment+'</div>';
- var zoneCard=_zc('🪜','見込み進捗（3ゾーン）','どこで止まっているか。8段のファネルは「🕳 リーク分析」に。',zoneH,'z-cf');
+ var zoneCard=_zc('🪜','見込み進捗（3ゾーン）','どこで止まっているか。8段のファネルは「🕳 リーク分析」に。',zoneH,'z-cf z-s7');
  // ===== P2: 次の一手 準備度（入力欄は増やさず既存データから算出） =====
  var _today10=new Date().toISOString().slice(0,10);
  var _readyScore=function(c){var st=+(c.stage||0),s=0;
@@ -27844,9 +27926,9 @@ var achH=reps.map(function(r){var bs=_achBadges(g[r]);if(!bs.length)return '';re
    }
    var note=ab>0?'<div class="z-sub" style="margin-top:6px;color:#c05621">※放置（31日超・未昇格）が多いと「雑欲（発掘しっぱなし）」。昇格 or 整理を促そう。</div>':'';
    var body=(leads.length+eng.length)?(tiles+brk+perRep+note):'<div class="z-empty">対象カードがありません</div>';
-   return _zc('⛏','発掘パイプライン <span class="z-secsub">土地見込み→対話</span>','発掘した土地見込みを、対話・面談につなげられているか。発掘活用率＝対話済み÷(対話済み＋発掘中)。',body,'z-c2');
+   return _zc('⛏','発掘パイプライン <span class="z-secsub">土地見込み→対話</span>','発掘した土地見込みを、対話・面談につなげられているか。発掘活用率＝対話済み÷(対話済み＋発掘中)。',body,'z-c2 z-s7');
  })();
- var _kpiTrend=(_zc('📈','重要3指標トレンド（直近6ヶ月）','3指標を重ねて推移。提案=赤・同行=緑・家族=黄。',_kpi3Chart(t),'z-c2')); var _velCard=(_zc('🏎','パイプライン・ベロシティ','各段の平均滞留日数。長い段が失速＝<b style="color:#ff5d7d">'+STG[slow]+'</b>。',_zVbars(dwAvg,STG.map(function(s){return s.slice(0,2);}),dwAvg.map(function(v){return v>=50?'#ff5d7d':v>=30?'#ffb443':'#38a169';})),'z-c2')); var _blankCard=(_zc('🕳','未入力の傾向（課全体）','どの項目が抜けやすいか。高い＝チームの弱点。',_zVbars(blankRates,FCHK.map(function(f){return f[0];}),blankRates.map(function(){return '#ff8aa0';})),'z-c2'));
+ var _kpiTrend=(_zc('📈','重要3指標トレンド（直近6ヶ月）','3指標を重ねて推移。提案=赤・同行=緑・家族=黄。',_kpi3Chart(t),'z-c2 z-s8')); var _velCard=(_zc('🏎','パイプライン・ベロシティ','各段の平均滞留日数。長い段が失速＝<b style="color:#ff5d7d">'+STG[slow]+'</b>。',_zVbars(dwAvg,STG.map(function(s){return s.slice(0,2);}),dwAvg.map(function(v){return v>=50?'#ff5d7d':v>=30?'#ffb443':'#38a169';})),'z-c2 z-s5')); var _blankCard=(_zc('🕳','未入力の傾向（課全体）','どの項目が抜けやすいか。高い＝チームの弱点。',_zVbars(blankRates,FCHK.map(function(f){return f[0];}),blankRates.map(function(){return '#ff8aa0';})),'z-c2'));
  // ===== ダッシュボード大幅改訂 段階4：タブ「朝3分・1対1・月1回」（全部のタブを同じ描画で作って hidden で隠す。担当ごとの J9 のスナップなど描画の中の保存は前のまま）=====
  var _ms=_zMgrSt;
  if(_ms.fresh){ _ms.fresh=false; _ms.one=one; } else if(one!==_ms.one){ _ms.one=one; if(one!=='all') _ms.tab='one'; } // 担当を選び直したら 1対1 を開く（Q3 A）
@@ -27914,12 +27996,13 @@ var achH=reps.map(function(r){var bs=_achBadges(g[r]);if(!bs.length)return '';re
    return band+pick+hud+'<div class="z-bento">'+talk+mv+readyCard+contractCard+familyCard+clockCard+dangerCard+six+mapCard+'</div>';
  })();
  // ----- 月1回（課全体）：先頭近くに育成クエスト・カードの質・マップ（高田さん確定）。着地予測は点線の枠でたたむ -----
- var _cardQuality=_segCard('z-mqual','📐 カードの質','品質ピラミッド｜未入力の傾向｜入力充実度。','qual',[['py','ピラミッド'],['bl','未入力の傾向'],['in','入力充実度']],[bodyQuality,_blankCard,_inpCard]);
- var _cardMap=_segCard('z-mmap','🗺 マップ','町の熱量とお宝客。','map',[['hm','ヒートマップ'],['tr','お宝度']],[bodyArea,_cardTreasure]);
+ var _cardQuality=_segCard('z-mqual z-s6','📐 カードの質','品質ピラミッド｜未入力の傾向｜入力充実度。','qual',[['py','ピラミッド'],['bl','未入力の傾向'],['in','入力充実度']],[bodyQuality,_blankCard,_inpCard]);
+ var _cardMap=_segCard('z-mmap z-s6','🗺 マップ','町の熱量とお宝客。','map',[['hm','ヒートマップ'],['tr','お宝度']],[bodyArea,_cardTreasure]);
  var _cardCmp=_segCard('z-mcmp','👥 担当の比べ','切替で1枚。','cmp',[['sc','スコア'],['pt','行動量'],['dc','今月の発掘'],['k3','重要3指標'],['no1','タイプ別No.1']],[_lbCard,_ptCard,_discByRep,_k3RankCard,_axKingCard]);
- var monH='<div class="z-bento">'+questCard+_cardQuality+_cardMap+bodyProcess+_k3Cards+_kpiTrend+goalCard+_cardCmp
-   +_cardWork+_velCard+zoneCard+_teamCourse+achCard+_cardInsights+_llCard+bodyTeam+_holdCard
-   +_extrasFor('today')+_extrasFor('coach')+_extrasFor('teamchk')+_extrasFor('grow')+_extrasFor('state')+'</div>'
+ function _chap(t,body){return '<div class="z-chap" role="heading" aria-level="4">'+t+'</div><div class="z-bento">'+body+'</div>';}
+ var monH=_chap('育成',questCard)+_chap('カードの質とマップ',_cardQuality+_cardMap)+_chap('量と推移',bodyProcess+_k3Cards+_kpiTrend+goalCard)
+   +_chap('担当の比べ',_cardCmp+bodyTeam+achCard)+_chap('流れと漏れ',_cardWork+zoneCard+_velCard+_teamCourse+_prCard)+_chap('保有と土地',_holdCard+_llCard)
+   +_chap('AI の所見',_cardInsights+_extrasFor('today')+_extrasFor('coach')+_extrasFor('teamchk')+_extrasFor('grow')+_extrasFor('state'))
    +_zsec('mgrLand','🔮 着地予測 <span class="z-secsub">仮の係数（実績ではない）</span>',landCard);
  var _tabs=[['am','朝3分'],['one','1対1'],['mon','月1回']], _panels={am:amH,one:oneH,mon:monH};
  var _cur=_panels[_ms.tab]!=null?_ms.tab:'am';
