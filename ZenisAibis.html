@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+<!-- APP_VERSION = "v11.60" -->
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -3651,7 +3652,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.59";
+var APP_VERSION = "v11.60";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -16311,6 +16312,7 @@ window._bulkSelDropped=_bulkSelDropped;
 window._bulkSelGuardedChange=_bulkSelGuardedChange;
 window._bulkPruneSelection=_bulkPruneSelection;
 function updateSelectCount(){
+  if(typeof aibisVerGate!=='undefined') aibisVerGate.prefetch(); // 段階1c: 選ぶ画面で、送る前の版の確かめのために先に取っておく
   var n=Object.keys(selectedIds).length;
   var el=document.getElementById('selectCount'); if(el) el.textContent=n;
   // 選択中は送るボタンを強調
@@ -16360,6 +16362,7 @@ function _sendRuleText(subjPrefix){
  * 「やめる」・共有の取り消し・写真の読み出し失敗で「やめる」では呼ばない（何も進めない）。 */
 var _NEWVER_NOTE263='受け取る側も最新版に更新してから開いてください';
 function _sendCards(selected, toEmail, ccEmail, subjPrefix, onDone, copyAddr, bd, extraBody, onHandedOff){
+  if(typeof aibisVerGate!=='undefined' && aibisVerGate.stopIfNewer('送って')) return; // 段階1c: 送る前の版の確かめ（先に取った結果だけを同期で見る。共有の前に待たない）
   var data=JSON.stringify(selected,null,2);
   var now=new Date();
   var ts=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0')+'_'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0');
@@ -22579,10 +22582,158 @@ function _extraSplit263(d, photoBundles, klogBundles){
   if(d.klog) klogBundles.push(d.klog);
   return true;
 }
+// ===== JSON の暗号化 段階1c（2026-11-13 高田さん承認）: 送るファイルの封筒 aibis_sealed v1 を読む =====
+// 読む直前に版を確かめ（version_gate.js。新しい版なら平文でも読まない）、封筒は端末の鍵（aibisKeys）で開け、中身の JSON の文字列を
+// 元の場所へ置き換えてから、今の型分け（カード・付属ファイル・写真・記録）へそのまま渡す。kind と中身の形が合わない物・名簿と申請
+// （段階1d まで読めない）・開けない封筒が1件でもあれば、理由ごとの件数を出して全体を止める（平文と一緒でも黙って飛ばさない）。
+// 平文のファイルは今までどおり読む。送り手は有効な名簿で決め（段階1d-5）、名簿に無い・取り消した端末からのカードと、担当名が名簿と違うカードは上書きを選べない。
+// 段階1d-3（2026-11-16）: 名簿・申請は開けたら別に集める。それだけを選んだときは _sealedRegFiles1d へ渡し（名簿＝roster_staff.js の取り込み）、ほかのファイルと一緒なら全体を止める。
+// 段階1d-5（2026-11-17）: 送り手を名簿でつなぐ（_sealedSender1d）。登録済みの端末からのカードは上書きを選べる。
+var _SEALED_REASON_LABEL_1C={
+  no_device:'この端末に鍵が無い（端末の登録がまだ）', no_key_for_me:'この端末あての鍵が入っていない',
+  bad_signature:'署名が合わない（書き換えられた恐れ）', unwrap_failed:'鍵を取り出せない', gcm_failed:'中身が壊れているか書き換えられている',
+  unknown_v:'知らない版の封筒', unknown_alg:'知らない暗号の方式', unknown_kind:'知らない種類', unsupported_kind:'この版では読めない種類（申請）', // [SUPERSEDED 段階1d] 旧: 'この版では読めない種類（名簿・申請）'
+  nested:'封筒の中に封筒が入っている', header_mismatch:'見出しが合わない', bad_format:'形が正しくない', internal_error:'開く途中で失敗した',
+  reg_mixed:'名簿・申請（ほかのファイルと分けて読み込んでください）'
+};
+var _SEALED_KIND_TYPE_1C={extra:'aibis_extra', photos:'aibis_photos', inbox_photos:'aibis_photos', klog:'aibis_klog'};
+function _sealedPayloadFits1c(kind, payload){
+  var d; try{ d=JSON.parse(payload); }catch(_e){ return false; }
+  if(kind==='cards') return Array.isArray(d) && d.some(function(c){ return c && typeof c==='object' && !Array.isArray(c); });
+  var t=_SEALED_KIND_TYPE_1C[kind];
+  return !!(t && d && typeof d==='object' && !Array.isArray(d) && d.type===t);
+}
+function _sealedIndexes1c(texts){
+  var idx=[];
+  texts.forEach(function(t, i){
+    if(typeof t!=='string' || !/^\s*\{/.test(t) || t.indexOf('"aibis_sealed"')<0) return;
+    try{ var d=JSON.parse(t); if(d && typeof d==='object' && !Array.isArray(d) && d.type==='aibis_sealed') idx.push(i); }catch(_e){}
+  });
+  return idx;
+}
+function _sealedStopNotice1c(counts){
+  var lines=['⚠ 暗号化されたファイルを読めなかったため、読み込みを止めました'];
+  Object.keys(_SEALED_REASON_LABEL_1C).forEach(function(r){ if(counts[r]) lines.push('・'+_SEALED_REASON_LABEL_1C[r]+'：'+counts[r]+'件'); });
+  lines.push('一緒に選んだほかのファイルも読み込んでいません。データは変更していません。');
+  aibisAlert('<div data-sealed-read-stop="1">'+lines.map(function(l){ return e(l); }).join('<br>')+'</div>');
+}
+async function _sealedOpenAll1c(texts, idx){
+  var out=texts.slice(), counts={}, bad=0, info={count:0, cards:0, unregistered:false, created:[], revoked:false, senders:[], managers:[], mismatch:Object.create(null), older:[], seenNext:{}};
+  var regs=[]; // 段階1d-3: 開けた名簿・申請
+  function add(r){ counts[r]=(counts[r]||0)+1; bad++; }
+  var rec=null;
+  try{ rec=(typeof aibisKeys!=='undefined' && aibisKeys) ? await aibisKeys.read() : null; }catch(_e){ rec=null; }
+  var canOpen=!!(rec && rec.device && typeof aibisSealed!=='undefined' && aibisSealed);
+  var rc=canOpen ? await _sealedRosterCtx1d() : null; // 段階1d-5: 有効な名簿と前回の created
+  for(var k=0;k<idx.length;k++){
+    var i=idx[k];
+    if(!canOpen){ add('no_device'); continue; }
+    var r=await aibisSealed.open(texts[i], rec.device, rc.ok ? aibisRoster.openRosterOf(AIBIS_ROOTS, rc.eff) : null); // 段階1d-5: 有効な名簿の端末＋定数の課長の端末  [SUPERSEDED 段階1d] 旧: null（名簿は段階1d まで空）
+    if(!r || !r.ok){ add((r && _SEALED_REASON_LABEL_1C[r.reason]) ? r.reason : 'internal_error'); continue; }
+    if(r.meta.kind==='roster' || r.meta.kind==='request'){ regs.push(r); continue; } // [SUPERSEDED 段階1d] 旧: { add('unsupported_kind'); continue; }
+    if(!_sealedPayloadFits1c(r.meta.kind, r.payload)){ add('bad_format'); continue; }
+    out[i]=r.payload; info.count++;
+    if(r.meta.kind==='cards'){ info.cards++; info.created.push(r.meta.created); _sealedSender1d(info, r, rc); } // [SUPERSEDED 段階1d] 旧: if(!r.sender.registered) info.unregistered=true;
+  }
+  if(bad){ if(regs.length) counts.reg_mixed=regs.length; _sealedStopNotice1c(counts); return null; }
+  if(regs.length){ _sealedRegFiles1d(regs, texts.length); return null; }
+  return {texts:out, sealed:info};
+}
+// 段階1d-3: 名簿・申請だけ（1つの種類だけ）を選んだときの渡し先。名簿＝取り込み（roster_staff.js の rosterReceiveFiles）。
+// 申請＝課長の承認（段階1d-4・roster_admin.js の rosterAdminReceiveRequests）。ほかのファイル（平文・ほかの封筒・もう一方の種類）と一緒なら全体を止める（何も読まない）。
+function _sealedRegFiles1d(regs, total){
+  var kinds={}; regs.forEach(function(r){ kinds[r.meta.kind]=true; });
+  if(regs.length!==total || Object.keys(kinds).length!==1){
+    aibisAlert('<div data-roster-mixed="1">'+e('⚠ 名簿・申請のファイルは、ほかのファイルと分けて読み込んでください。何も読み込んでいません。')+'</div>');
+    return;
+  }
+  if(kinds.roster && typeof rosterReceiveFiles==='function'){ rosterReceiveFiles(regs); return; }
+  if(kinds.request && typeof rosterAdminReceiveRequests==='function'){ rosterAdminReceiveRequests(regs); return; }
+  _sealedStopNotice1c(kinds.roster ? {internal_error:regs.length} : {unsupported_kind:regs.length});
+}
+// 読込の2つの入口の前段：戻りが null なら読まない（案内は出し済み）。{texts, sealed} の sealed は封筒が無ければ null
+function _readGate1c(texts){
+  var vg=(typeof aibisVerGate!=='undefined' && aibisVerGate && typeof aibisVerGate.checkBeforeRead==='function') ? aibisVerGate.checkBeforeRead() : Promise.resolve(true);
+  return vg.then(function(go){
+    if(!go) return null;
+    var idx=_sealedIndexes1c(texts);
+    if(!idx.length) return {texts:texts, sealed:null};
+    return _sealedOpenAll1c(texts, idx);
+  });
+}
+// 送り手の扱い（設計 5章）。1c は名簿が空なので「未登録の端末から」と作った日時だけ。
+// [SUPERSEDED 段階1d] 旧: 署名した人と担当名の食い違い・前回より古い created の警告は段階1d でここへ足す。→ 段階1d-5 で足した（_sealedSender1d）
+function _sealedWhen1c(c){ var d=new Date(c); return isNaN(d.getTime())?String(c):d.toLocaleString('ja-JP'); }
+function _sealedSenderNotes1c(s){
+  var notes=[];
+  if(s.senders && s.senders.length) notes.push('🔒 登録済みの端末（'+s.senders.map(function(n){ return n+'さん'; }).join('・')+'）から届いた暗号化ファイルです');
+  if(s.managers && s.managers.length) notes.push('🔒 課長の端末（'+s.managers.map(function(l){ return l==='pc'?'PC':'スマホ'; }).join('・')+'）から届いた暗号化ファイルです');
+  Object.keys(s.mismatch||{}).forEach(function(n){ notes.push('⚠ 署名した人（'+n+'さん）と担当名が違うカードが'+s.mismatch[n]+'件あります。マージだけで読み込みます（上書きは選べません）'); });
+  if(s.revoked) notes.push('⚠ 取り消した端末から届いたファイルです。マージだけで読み込みます（上書きは選べません）');
+  if(s.unregistered) notes.push('🔒 未登録の端末から届いた暗号化ファイルです。マージだけで読み込みます（上書きは選べません）');
+  if(s.plain) notes.push('⚠ 暗号化されていないファイルが一緒に選ばれています。マージだけで読み込みます（上書きは選べません）');
+  (s.older||[]).forEach(function(c){ notes.push('⚠ 前回読み込んだファイル（'+_sealedWhen1c(c)+'）より古いファイルです'); });
+  if(s.created && s.created.length) notes.push('作った日時：'+s.created.map(_sealedWhen1c).join('・'));
+  return notes;
+}
+function _sealedFor1c(imp){ var s=doMerge._sealed1c; return (s && s.imp===imp)?s:null; }
+// 段階1d-5（設計 14_ の 1章 G・2章 2e・3c）: 有効な名簿と、送り手ごとの前回の created（名簿の置き場の seen）を読む。DB は作らない（rosterGet はのぞくだけ）。
+// 名簿の部品が無ければ ok:false（送り手は全部が未登録）
+async function _sealedRosterCtx1d(){
+  var rc={ok:false, eff:null, seen:{}};
+  if(typeof aibisRoster==='undefined' || !aibisRoster || typeof AIBIS_ROOTS==='undefined' || typeof aibisKeys.rosterGet!=='function') return rc;
+  rc.ok=true;
+  try{ rc.eff=await aibisRoster.effectiveRoster(AIBIS_ROOTS, await aibisKeys.rosterGet('current')); }catch(_e){ rc.eff=null; }
+  try{ var s=await aibisKeys.rosterGet('seen'); if(s && typeof s==='object' && !Array.isArray(s)) rc.seen=s; }catch(_e){}
+  return rc;
+}
+// 段階1d-5: 封筒（kind:cards）ごとに送り手を判定し、結果だけを info に置く。人と名前は dev から名簿を引く（見出しの pid は信じない・表示に使わない）。
+// 課長の端末・登録済み→上書きを選べる／未登録・取り消し済み→マージだけ／登録済みの担当で、カードの担当名か同じ id の今のカードの担当名が名簿の名前と違う→マージだけ（課長の端末は見ない）／
+// 同じ送り手の前回の created より古い→警告だけ。次に覚える created（seenNext）は登録済み・課長の端末の分だけ
+function _sealedSender1d(info, r, rc){
+  var who=(rc && rc.ok) ? aibisRoster.whoIs(AIBIS_ROOTS, rc.eff, r.sender.dev) : {status:'unregistered'};
+  if(who.status==='revoked'){ info.revoked=true; return; }
+  if(who.status!=='registered' && who.status!=='manager'){ info.unregistered=true; return; }
+  if(who.status==='manager'){ if(info.managers.indexOf(who.label)<0) info.managers.push(who.label); }
+  else {
+    if(info.senders.indexOf(who.name)<0) info.senders.push(who.name);
+    var list=[], byId={}, n=0;
+    try{ list=JSON.parse(r.payload); }catch(_e){ list=[]; }
+    (Array.isArray(cards)?cards:[]).forEach(function(c){ if(c && c.id!=null) byId[c.id]=c; });
+    list.forEach(function(c){
+      if(!c || typeof c!=='object') return;
+      var now=(c.id!=null && Object.prototype.hasOwnProperty.call(byId, c.id)) ? byId[c.id] : null;
+      if((c.manager||'')!==who.name || (now && (now.manager||'')!==who.name)) n++;
+    });
+    if(n) info.mismatch[who.name]=(info.mismatch[who.name]||0)+n;
+  }
+  var dev=r.sender.dev, prev=rc.seen[dev], t=new Date(r.meta.created).getTime();
+  var pt=(prev && typeof prev.created==='string') ? new Date(prev.created).getTime() : NaN;
+  if(!isNaN(t) && !isNaN(pt) && t<pt && info.older.indexOf(prev.created)<0) info.older.push(prev.created);
+  var nx=info.seenNext[dev];
+  if(!isNaN(t) && (!nx || t>new Date(nx.created).getTime())) info.seenNext[dev]={created:r.meta.created, rosterSerial:r.meta.rosterSerial};
+}
+// 段階1d-5: 「はい、読み込む」の後（doMerge の askMergeMode の直後）に、送り手ごとの前回の created を名簿の置き場の seen へ覚える
+// （{<dev>:{created, rosterSerial, at}}。覚えた created より古い物では戻さない。鍵が無い端末では rosterPut が置かない）
+function _sealedSeenSave1d(imp){
+  var s=_sealedFor1c(imp), devs=(s && s.seenNext) ? Object.keys(s.seenNext) : [];
+  if(!devs.length || typeof aibisKeys==='undefined' || !aibisKeys || typeof aibisKeys.rosterGet!=='function' || typeof aibisKeys.rosterPut!=='function') return;
+  var at=new Date().toISOString();
+  aibisKeys.rosterGet('seen').then(function(cur){
+    var seen=(cur && typeof cur==='object' && !Array.isArray(cur)) ? cur : {}, changed=false;
+    devs.forEach(function(d){
+      var nx=s.seenNext[d], pv=seen[d];
+      var pt=(pv && typeof pv.created==='string') ? new Date(pv.created).getTime() : NaN;
+      if(!isNaN(pt) && !(new Date(nx.created).getTime()>pt)) return;
+      seen[d]={created:nx.created, rosterSerial:nx.rosterSerial, at:at}; changed=true;
+    });
+    return changed ? aibisKeys.rosterPut('seen', seen) : null;
+  }).catch(function(){});
+}
 function openFSAWithConfirm(){
   window.showOpenFilePicker({multiple:true, types:[{description:'z.Aibis (.txt/.json)',accept:{'text/plain':['.txt'],'application/json':['.json']}}]}).then(function(handles){
     var readers=handles.map(function(h){ return h.getFile().then(function(f){ return f.text(); }).catch(function(){ return null; }); });
-    Promise.all(readers).then(function(texts){
+    Promise.all(readers).then(_readGate1c).then(function(g){ if(!g) return; var texts=g.texts, sealed1c=g.sealed; // 段階1c: 読む前の版の確かめ・封筒を開けて中身へ置き換え
       var photoBundles=[], cardArrays=[], klogBundles=[], bad=0, fullBk=0;
       texts.forEach(function(t, i){
         var _nm257=(handles[i]&&handles[i].name)||'';
@@ -22600,7 +22751,7 @@ function openFSAWithConfirm(){
       photoBundles.forEach(function(pb){ pchain=pchain.then(function(){ return importPhotoBundle(pb, multiPhoto); }); });
       pchain.then(function(){
         if(fullBk && (hasCards || photoBundles.length)){ try{ toast('⚠ まるごと引っ越しファイルは読み込まずに飛ばしました（初期設定から戻します）'); }catch(e){} }
-        if(hasCards){ var merged=[]; cardArrays.forEach(function(a){ merged=merged.concat(a); }); doMerge._klogPending259={imp:merged, bundles:klogBundles}; confirmImport(merged); }
+        if(hasCards){ var merged=[]; cardArrays.forEach(function(a){ merged=merged.concat(a); }); doMerge._klogPending259={imp:merged, bundles:klogBundles}; doMerge._sealed1c=(sealed1c&&sealed1c.cards)?{imp:merged, plain:cardArrays.length>sealed1c.cards, unregistered:sealed1c.unregistered, created:sealed1c.created, revoked:sealed1c.revoked, senders:sealed1c.senders, managers:sealed1c.managers, mismatch:sealed1c.mismatch, older:sealed1c.older, seenNext:sealed1c.seenNext}:null; confirmImport(merged); }
         else if(klogBundles.length){ _klogMergeBundles259(klogBundles); } // 第259弾: 記録ファイルだけ→今あるカードへ合流
         else if(photoBundles.length){ if(multiPhoto){ try{ toast('📥 写真ファイル'+photoBundles.length+'件を読み込みました'); if(typeof updateInboxBadge==='function')updateInboxBadge(); }catch(e){} } }
         else if(fullBk){ _fullBackupImportNotice257(); }
@@ -22613,7 +22764,7 @@ function onFileImport(ev){
   var files=ev.target.files; if(!files||!files.length) return;
   var arr=Array.prototype.slice.call(files); ev.target.value='';
   var readers=arr.map(function(f){ return new Promise(function(res){ var r=new FileReader(); r.onload=function(e2){ res(e2.target.result); }; r.onerror=function(){ res(null); }; r.readAsText(f,'UTF-8'); }); });
-  Promise.all(readers).then(function(texts){
+  Promise.all(readers).then(_readGate1c).then(function(g){ if(!g) return; var texts=g.texts, sealed1c=g.sealed; // 段階1c: 読む前の版の確かめ・封筒を開けて中身へ置き換え
     var photoBundles=[], cardArrays=[], klogBundles=[], bad=0, fullBk=0;
     texts.forEach(function(t, i){
       var _nm257=(arr[i]&&arr[i].name)||'';
@@ -22631,7 +22782,7 @@ function onFileImport(ev){
     photoBundles.forEach(function(pb){ pchain=pchain.then(function(){ return importPhotoBundle(pb, multiPhoto); }); }); // 順次取込（多数でも安定）
     pchain.then(function(){
       if(fullBk && (hasCards || photoBundles.length)){ try{ toast('⚠ まるごと引っ越しファイルは読み込まずに飛ばしました（初期設定から戻します）'); }catch(e){} }
-      if(hasCards){ var merged=[]; cardArrays.forEach(function(a){ merged=merged.concat(a); }); doMerge._klogPending259={imp:merged, bundles:klogBundles}; confirmImport(merged); }
+      if(hasCards){ var merged=[]; cardArrays.forEach(function(a){ merged=merged.concat(a); }); doMerge._klogPending259={imp:merged, bundles:klogBundles}; doMerge._sealed1c=(sealed1c&&sealed1c.cards)?{imp:merged, plain:cardArrays.length>sealed1c.cards, unregistered:sealed1c.unregistered, created:sealed1c.created, revoked:sealed1c.revoked, senders:sealed1c.senders, managers:sealed1c.managers, mismatch:sealed1c.mismatch, older:sealed1c.older, seenNext:sealed1c.seenNext}:null; confirmImport(merged); }
         else if(klogBundles.length){ _klogMergeBundles259(klogBundles); } // 第259弾: 記録ファイルだけ→今あるカードへ合流
       else if(photoBundles.length){ if(multiPhoto){ try{ toast('📥 写真ファイル'+photoBundles.length+'件を読み込みました'); if(typeof updateInboxBadge==='function')updateInboxBadge(); }catch(e){} } }
       else if(fullBk){ _fullBackupImportNotice257(); }
@@ -22655,6 +22806,8 @@ function confirmImport(imp){
   if(otherManagers.length>0){
     msg+='<br><br>⚠ '+e(nmSan(uName))+'以外のカードも含まれてるよ';
   }
+  var _sl1c=_sealedFor1c(imp); // 段階1c: 封筒から開けたカードを含むときは送り手の扱いを出す
+  if(_sl1c){ msg+='<br><br>'+_sealedSenderNotes1c(_sl1c).map(function(l){ return e(l); }).join('<br>'); }
   msg+='<br><br>'
     +'<div style="display:flex;gap:8px;margin-top:4px">'
     +'<button onclick="closeAibisAlert();doMerge(window._pendingImport)" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">はい、読み込む</button>'
@@ -22671,6 +22824,7 @@ function askMergeMode(imp){
   });
   var isManager=isMgrUnlocked();
   if(!isManager||cards.length===0) return Promise.resolve('merge');
+  var _sl1c=_sealedFor1c(imp); if(_sl1c && (_sl1c.unregistered || _sl1c.revoked || _sl1c.plain || Object.keys(_sl1c.mismatch||{}).length)) return Promise.resolve('merge'); // 段階1c: 未登録の端末からの封筒は上書きを選べない（段階1d-5: 取り消した端末・担当名の食い違いも。段3: 平文と一緒に選んだときも）  [SUPERSEDED 段階1d] 旧: if(_sl1c && _sl1c.unregistered)  [SUPERSEDED 段階1d] 旧: if(_sl1c && (_sl1c.unregistered || _sl1c.revoked || Object.keys(_sl1c.mismatch||{}).length))
   var nameStr=names.map(function(x){return e(nmSan(x));}).join('・');
 
   return new Promise(function(resolve){
@@ -22690,6 +22844,7 @@ function askMergeMode(imp){
 }
 async function doMerge(imp, onDone){
   var mode=await askMergeMode(imp);
+  if(typeof _sealedSeenSave1d==='function') _sealedSeenSave1d(imp); // 段階1d-5: 「はい、読み込む」の後に送り手の前回の created を覚える
   if(mode==='overwrite'){
     // 読み込むデータの担当者名を収集
     var names=[];
@@ -24388,6 +24543,9 @@ function maskAddress(addr){
   // 丁目なければ市区町村まで
   var m2=addr.match(/^(.+?[都道府県])(.+?[市区町村郡])/);
   if(m2) return m2[1]+m2[2];
+  // それもなければ数字より前で切る（番地を出さない。直し1 段1-2）
+  var i=addr.search(/[0-9０-９]/);
+  if(i>=0) return addr.substring(0,i);
   return addr.substring(0,10);
 }
 function _anonScrub(t,c){
@@ -24480,6 +24638,8 @@ function genPrompt(anon,presetOverride){
   var dispAddr = anon ? maskAddress(c.address) : (c.address||'未入力');
   var dispPlan = anon ? maskAddress(c.plan_address) : (c.plan_address||'未入力');
   var dispMgr  = anon ? (uName||c.manager||'担当') : ((c.branch||branch)+' '+(c.section||section)+' '+(c.manager||uName));
+  genPrompt._anon=null;
+  if(anon){ if(typeof _aiAnonCard!=='function'){ genPrompt._anon={error:true}; return ''; } try{ var _ac=_aiAnonCard(c); if(!_ac){ genPrompt._anon={error:true}; return ''; } c=_ac.card; genPrompt._anon={omitted:_ac.omitted}; }catch(_e){ genPrompt._anon={error:true}; return ''; } }
   // 家族
   var famTxtFn = function(f){
     var fname = anon ? (f.name ? getAlias(f.name) : '') : (f.name||'');
@@ -24692,7 +24852,7 @@ function genPrompt(anon,presetOverride){
         if(m.met) tags.push('面談済');
         var stance=m.stance==='positive'?'ポジティブ':m.stance==='negative'?'ネガティブ':'不明';
         var line='  '+genLabel[gen]+'・'+(m.role||'')
-          +(m.name?' 「'+m.name+'」':'')
+          +(m.name?' 「'+(anon?getAlias(m.name):m.name)+'」':'')
           +(m.age?' '+m.age+'歳':'')
           +' 居住:'+( m.living||'未確認')
           +' スタンス:'+stance
@@ -25136,6 +25296,8 @@ function _promptFileGo(){
     var preset=promptToFile._preset||document.getElementById('promptPreset')?.value||'general';
     promptToFile._preset=null;
     var p=genPrompt(true,preset);
+    var _an=genPrompt._anon||null;
+    if(_an&&_an.error){ aibisAlert('⚠ 匿名化の途中で問題が起きたため、ファイル化を中止しました（ファイルは作っていません）。<br><br>もう一度お試しください。'); return; }
     var pn=(typeof pseudoNameFor==='function'&&cur)?(pseudoNameFor(cur, [])||null):null;
     var th='\u5206\u6790';
     try{
@@ -25153,7 +25315,7 @@ function _promptFileGo(){
     var a=document.createElement('a'); a.href=url; a.download=fn;
     document.body.appendChild(a); a.click();
     setTimeout(function(){ try{document.body.removeChild(a);URL.revokeObjectURL(url);}catch(_e){} },400);
-    aibisAlert('📎 <b>'+e(fn)+'</b> を保存しました。<br><br>CopilotやチャットAIに<b>ファイルを添付</b>して、チャット欄には<br><br><b>「添付の指示に従って分析してください」</b><br><br>とだけ送ればOK。長文の貼り付けは不要です。<br><br>🛡 簡易匿名化：自由入力欄の固有名詞は残る場合があります。添付前に内容を確認してください。');
+    aibisAlert('📎 <b>'+e(fn)+'</b> を保存しました。<br><br>CopilotやチャットAIに<b>ファイルを添付</b>して、チャット欄には<br><br><b>「添付の指示に従って分析してください」</b><br><br>とだけ送ればOK。長文の貼り付けは不要です。<br><br>🛡 簡易匿名化：自由入力欄の固有名詞は残る場合があります。添付前に内容を確認してください。'+(_an&&_an.omitted>0?'<br><br>🛡 個人情報の疑いがある行を '+_an.omitted+' 行省略しました。':''));
   }catch(ex){ toast('⚠ ファイル作成に失敗しました'); }
 }
 window.promptToFile=promptToFile; window._promptFileGo=_promptFileGo;
@@ -28071,6 +28233,28 @@ function _aiAim(c, ps){
   var t=_rpNamePost(_rpSanitize(_rpNamePre(String(c.next_aim), c), c), c);
   if(_rpLeakScan(t, c).length || _rpNameScan(t, c).length) return '｜担当の狙い（個人情報の疑いがあるため省略）';
   return '｜担当の狙い「'+e(_rpFinalize(t, {call:ps.call}))+'」';
+}
+// プロンプト抽出の匿名化（直し1 a・2026-11-13 高田さん承認「おすすめで」）：自由記述の欄だけを行ごとに 前の直し→匿名化→後の直し→遮断か足した見張りに当たれば省略。
+// 「お客様」「お客さん」は目印に替えてから通し、検査の後で戻す（敬称の置き換えで「お□□様」にしない）。部品が無いときは null（今までどおり）。cur は書き換えない。
+var _AI_FREE_OMIT='（個人情報の疑いがあるため省略）';
+function _aiFreeText(v,c,st){
+  if(v==null||v==='') return v;
+  return String(v).split('\n').map(function(ln){
+    if(!ln) return ln;
+    ln=ln.split('お客様').join('\u0002A\u0002').split('お客さん').join('\u0002B\u0002');
+    var t=_rpNamePost(_rpSanitize(_rpNamePre(ln, c), c), c);
+    if(_rpLeakScan(t,c).length || _rpNameScan(t,c).length){ st.omitted++; return _AI_FREE_OMIT; }
+    return t.split('\u0002A\u0002').join('お客様').split('\u0002B\u0002').join('お客さん');
+  }).join('\n');
+}
+function _aiAnonCard(c){
+  if(!c || typeof _rpSanitize!=='function' || typeof _rpLeakScan!=='function' || typeof _rpNamePre!=='function' || typeof _rpNamePost!=='function' || typeof _rpNameScan!=='function') return null;
+  var st={omitted:0}, out=Object.assign({},c);
+  ['initial_content','initial_content_rec','analog_memo','ai_memo','ai_summary','stage_reason','d_trigger','revisit_4eyes','pursuit_4eyes','kuushitsu_bikou'].forEach(function(k){ if(out[k]) out[k]=_aiFreeText(out[k],c,st); });
+  if(out.d_trigger_when && !/^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(String(out.d_trigger_when))) out.d_trigger_when=_aiFreeText(out.d_trigger_when,c,st);// 目安時期は年月（list_core.js の _dTrigSoon が読む形）ならそのまま。それ以外の手入力は自由記述として守る
+  if(Array.isArray(c.family)) out.family=c.family.map(function(f){ if(!f||typeof f!=='object') return f; var g=Object.assign({},f); if(g.note) g.note=_aiFreeText(g.note,c,st); if(g.bikou) g.bikou=_aiFreeText(g.bikou,c,st); return g; });
+  ['revisits','pursuits'].forEach(function(k){ if(Array.isArray(c[k])) out[k]=c[k].map(function(v){ if(!v||typeof v!=='object') return v; var w=Object.assign({},v); if(w.content) w.content=_aiFreeText(w.content,c,st); if(w.rec) w.rec=_aiFreeText(w.rec,c,st); return w; }); });
+  return {card:out, omitted:st.omitted};
 }
 // 抽出の対象・スコア順・上位N件（担当は5件・課全体は10件）。結果貼り付けの対応の行は、ここで選んだ並びを抽出に成功したときに _aiPnMap へ持ったものを使う（表示のときに選び直さない）。
 function _aiPick(isMember, memberName){
@@ -32343,6 +32527,1750 @@ function doResetSmartphone(){
   });
 }
 window.resetSmartphone=resetSmartphone;
+/* === 送るファイルの封筒 aibis_sealed v1（JSON の暗号化 段階1a・2026-11-13 高田さん承認）: 本体・カメラ共有の部品 ===
+ * 設計：work-claude/design/json-crypto/10_設計の第3版（確定）.md の 3章（鍵）・5章（封筒の形）。
+ * 使い捨ての AES-256-GCM 鍵で中身を暗号化し、その鍵を宛先の端末ごとに
+ * 使い捨ての ECDH P-256 鍵 → HKDF-SHA-256（salt は長さ0）→ AES-KW で包む。送った端末の ECDSA P-256 で署名する。
+ * 外側：{type, v, alg, kind, hdr, ct, sig}（type・v・alg・kind は hdr の写し。開くときに照らす）
+ * hdr（JSON をバイト列にして base64）：{type, v, alg, kind, app, created, rosterSerial, team, from:{pid, dev, pub}, to:[{kid, epk, wk}], iv}
+ * 署名の入力は SHA-256(hdr のバイト列)‖SHA-256(ct のバイト列)。iv は hdr の中なので、署名が封筒の全部を覆う。
+ * kid＝公開鍵 raw（65バイト）の SHA-256 の頭16バイトの16進。to[].kid は宛先の ECDH 公開鍵、from.dev は署名の公開鍵（from.pub）。
+ * 使うのはブラウザの Web Crypto（crypto.subtle）・TextEncoder・TextDecoder だけ。
+ * 読み込んでも何も起動しない（外へ出す名前は aibisSealed の1つだけ。crypto は呼ばれたときに初めて使う）。
+ * 段階1c から本体のテンプレートに取り込む（読込の file_ops.js が封筒を開ける）。カメラには取り込まない。tools/test-sealed-envelope.js が vm で読んで確かめる。
+ */
+var aibisSealed = (function () {
+  var TYPE = 'aibis_sealed';
+  var V = 1;
+  var ALG = 'P256-HKDF-AESKW-A256GCM-ES256';
+  var KINDS = ['cards', 'extra', 'photos', 'klog', 'inbox_photos', 'roster', 'request'];
+
+  var ECDH_PARAMS = { name: 'ECDH', namedCurve: 'P-256' };
+  var ECDSA_PARAMS = { name: 'ECDSA', namedCurve: 'P-256' };
+  var ECDSA_SIGN = { name: 'ECDSA', hash: 'SHA-256' };
+  var GCM_IV_BYTES = 12;
+  var SIG_BYTES = 64; /* P-256 の r‖s（IEEE P1363 の形） */
+  var P256_RAW_BYTES = 65; /* 圧縮しない点 0x04‖X‖Y */
+  var WRAP_INFO = 'aibis_sealed/v1/wrap';
+
+  function subtle() { return crypto.subtle; }
+  function utf8(s) { return new TextEncoder().encode(s); }
+  /* 正しくない UTF-8 は例外にする（置き換え文字で黙って通さない） */
+  function utf8DecodeStrict(bytes) { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+
+  /* vm で読むと Uint8Array・ArrayBuffer が別の世界の物になるので、instanceof を使わずに見分ける */
+  function toBytes(x) {
+    if (ArrayBuffer.isView(x)) return new Uint8Array(x.buffer, x.byteOffset, x.byteLength);
+    if (Object.prototype.toString.call(x) === '[object ArrayBuffer]') return new Uint8Array(x);
+    throw new TypeError('バイト列（Uint8Array / ArrayBuffer）ではない');
+  }
+  function concat(parts) {
+    var n = 0, i, o = 0;
+    for (i = 0; i < parts.length; i++) n += parts[i].length;
+    var out = new Uint8Array(n);
+    for (i = 0; i < parts.length; i++) { out.set(parts[i], o); o += parts[i].length; }
+    return out;
+  }
+  function hex(bytes) {
+    var b = toBytes(bytes), s = '';
+    for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+    return s;
+  }
+  async function sha256(bytes) {
+    return new Uint8Array(await subtle().digest('SHA-256', toBytes(bytes)));
+  }
+  /* kid＝公開鍵 raw の SHA-256 の頭16バイトの16進（32文字） */
+  async function kidOf(pubRaw) {
+    return hex((await sha256(pubRaw)).subarray(0, 16));
+  }
+
+  /* ---- base64（標準の文字表・= で埋める） ---- */
+  var B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var B64_INDEX = (function () {
+    var t = [];
+    for (var i = 0; i < 128; i++) t.push(-1);
+    for (var j = 0; j < 64; j++) t[B64_CHARS.charCodeAt(j)] = j;
+    return t;
+  })();
+
+  function b64encode(input) {
+    var b = toBytes(input), n = b.length, out = '', i = 0, v;
+    for (; i + 2 < n; i += 3) {
+      v = (b[i] << 16) | (b[i + 1] << 8) | b[i + 2];
+      out += B64_CHARS.charAt(v >>> 18) + B64_CHARS.charAt((v >>> 12) & 63) + B64_CHARS.charAt((v >>> 6) & 63) + B64_CHARS.charAt(v & 63);
+    }
+    if (n - i === 1) {
+      v = b[i] << 16;
+      out += B64_CHARS.charAt(v >>> 18) + B64_CHARS.charAt((v >>> 12) & 63) + '==';
+    } else if (n - i === 2) {
+      v = (b[i] << 16) | (b[i + 1] << 8);
+      out += B64_CHARS.charAt(v >>> 18) + B64_CHARS.charAt((v >>> 12) & 63) + B64_CHARS.charAt((v >>> 6) & 63) + '=';
+    }
+    return out;
+  }
+
+  /* 厳しめに読む：長さが4の倍数・文字表の外は不可・= は末尾だけ・余りのビットが0（同じバイト列に別の書き方を許さない） */
+  function b64decode(s) {
+    if (typeof s !== 'string') throw new TypeError('base64 が文字列ではない');
+    var n = s.length;
+    if (n % 4 !== 0) throw new Error('base64 の長さが4の倍数ではない');
+    var pad = 0;
+    if (n >= 2 && s.charAt(n - 1) === '=' && s.charAt(n - 2) === '=') pad = 2;
+    else if (n >= 1 && s.charAt(n - 1) === '=') pad = 1;
+    var out = new Uint8Array((n / 4) * 3 - pad);
+    function val(k) {
+      var c = s.charCodeAt(k);
+      var v = c < 128 ? B64_INDEX[c] : -1;
+      if (v < 0) throw new Error('base64 の文字表の外の文字');
+      return v;
+    }
+    var o = 0;
+    for (var i = 0; i < n; i += 4) {
+      var last = i + 4 === n;
+      var c0 = val(i), c1 = val(i + 1);
+      var c2 = last && pad === 2 ? 0 : val(i + 2);
+      var c3 = last && pad >= 1 ? 0 : val(i + 3);
+      if (last && pad === 2 && (c1 & 15) !== 0) throw new Error('base64 の余りのビットが0ではない');
+      if (last && pad === 1 && (c2 & 3) !== 0) throw new Error('base64 の余りのビットが0ではない');
+      var v = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
+      out[o++] = (v >>> 16) & 255;
+      if (!(last && pad === 2)) out[o++] = (v >>> 8) & 255;
+      if (!(last && pad >= 1)) out[o++] = v & 255;
+    }
+    return out;
+  }
+
+  /* ---- 端末の鍵（3章 1） ---- */
+
+  /* 鍵の組から、公開鍵 raw と kid を足した「端末」の形にする */
+  async function describeDevice(keys) {
+    var pubEcdhRaw = new Uint8Array(await subtle().exportKey('raw', keys.ecdh.publicKey));
+    var pubSigRaw = new Uint8Array(await subtle().exportKey('raw', keys.ecdsa.publicKey));
+    return {
+      ecdh: keys.ecdh, /* { privateKey, publicKey }（開ける用） */
+      ecdsa: keys.ecdsa, /* { privateKey, publicKey }（署名用） */
+      pubEcdhRaw: pubEcdhRaw,
+      pubSigRaw: pubSigRaw,
+      kid: await kidOf(pubEcdhRaw), /* 宛先として探す印（to[].kid） */
+      dev: await kidOf(pubSigRaw) /* 送り手の端末の印（from.dev） */
+    };
+  }
+
+  /* ECDH P-256 と ECDSA P-256 の2組を extractable:false で作る（秘密鍵は外へ出せない。公開鍵は Web Crypto の決まりでいつも出せる） */
+  async function makeDevice() {
+    var ecdh = await subtle().generateKey(ECDH_PARAMS, false, ['deriveBits']);
+    var ecdsa = await subtle().generateKey(ECDSA_PARAMS, false, ['sign', 'verify']);
+    return describeDevice({ ecdh: ecdh, ecdsa: ecdsa });
+  }
+
+  /* ---- 包む鍵（HKDF → AES-KW）と署名 ---- */
+
+  async function hkdfToKw(sharedBits, recipientPubRaw, epkRaw, usages) {
+    var ikm = await subtle().importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
+    return subtle().deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: concat([utf8(WRAP_INFO), recipientPubRaw, epkRaw]) },
+      ikm,
+      { name: 'AES-KW', length: 256 },
+      false,
+      usages
+    );
+  }
+
+  async function sigInput(hdrBytes, ctBytes) {
+    return concat([await sha256(hdrBytes), await sha256(ctBytes)]);
+  }
+
+  /* 署名：入力は SHA-256(hdr のバイト列)‖SHA-256(ct のバイト列)。ECDSA の中でさらに SHA-256 がかかる */
+  async function signParts(sigPrivateKey, hdrBytes, ctBytes) {
+    return new Uint8Array(await subtle().sign(ECDSA_SIGN, sigPrivateKey, await sigInput(toBytes(hdrBytes), toBytes(ctBytes))));
+  }
+
+  /* ---- 封をする ----
+   * a.kind：KINDS のどれか／a.payload：中身（文字列）／a.app：送る側の版の文字列（呼ぶ側が渡す）
+   * a.from：{pid, device}（device は makeDevice の戻り）／a.recipients：[{pubEcdhRaw}]（宛先の端末の ECDH 公開鍵 raw）
+   * a.team：課の ID／a.rosterSerial：名簿の番号（0以上の整数）
+   * 戻り：外側の封筒 {type, v, alg, kind, hdr, ct, sig}。入力がおかしいときは例外を投げる */
+  async function seal(a) {
+    if (!a || KINDS.indexOf(a.kind) < 0) throw new Error('seal: 知らない kind: ' + (a && a.kind));
+    if (typeof a.payload !== 'string') throw new TypeError('seal: payload は文字列');
+    if (typeof a.app !== 'string' || !a.app) throw new TypeError('seal: app は空でない文字列');
+    if (!a.from || typeof a.from.pid !== 'string' || !a.from.device) throw new TypeError('seal: from は {pid, device}');
+    if (!Array.isArray(a.recipients) || a.recipients.length === 0) throw new Error('seal: 宛先が無い');
+    if (typeof a.team !== 'string') throw new TypeError('seal: team は文字列');
+    if (typeof a.rosterSerial !== 'number' || !isFinite(a.rosterSerial) || Math.floor(a.rosterSerial) !== a.rosterSerial || a.rosterSerial < 0) {
+      throw new TypeError('seal: rosterSerial は0以上の整数');
+    }
+
+    /* 使い捨ての中身の鍵。wrapKey("raw") で包むために extractable:true が要る（この関数の外へは出さない） */
+    var cek = await subtle().generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+
+    var to = [], seen = {};
+    for (var i = 0; i < a.recipients.length; i++) {
+      var rpRaw = toBytes(a.recipients[i].pubEcdhRaw);
+      var kid = await kidOf(rpRaw);
+      if (seen[kid]) continue; /* 同じ端末が2回並んだら1つにまとめる */
+      seen[kid] = true;
+      var rp = await subtle().importKey('raw', rpRaw, ECDH_PARAMS, true, []);
+      /* 宛先ごと・ファイルごとに使い捨ての ECDH 鍵（送り手の ECDH 鍵は使わない） */
+      var eph = await subtle().generateKey(ECDH_PARAMS, false, ['deriveBits']);
+      var epkRaw = new Uint8Array(await subtle().exportKey('raw', eph.publicKey));
+      var bits = await subtle().deriveBits({ name: 'ECDH', public: rp }, eph.privateKey, 256);
+      var kw = await hkdfToKw(bits, rpRaw, epkRaw, ['wrapKey']);
+      var wk = new Uint8Array(await subtle().wrapKey('raw', cek, kw, { name: 'AES-KW' }));
+      to.push({ kid: kid, epk: b64encode(epkRaw), wk: b64encode(wk) });
+    }
+
+    var dev = a.from.device;
+    var iv = crypto.getRandomValues(new Uint8Array(GCM_IV_BYTES));
+    var hdr = {
+      type: TYPE,
+      v: V,
+      alg: ALG,
+      kind: a.kind,
+      app: a.app,
+      created: new Date().toISOString(),
+      rosterSerial: a.rosterSerial,
+      team: a.team,
+      from: { pid: a.from.pid, dev: dev.dev, pub: b64encode(dev.pubSigRaw) }, /* pub はいつも入れる（dev＝kid(pub)） */
+      to: to,
+      iv: b64encode(iv) /* iv は hdr の中（署名と AAD に入る） */
+    };
+    var hdrBytes = utf8(JSON.stringify(hdr));
+    var ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv: iv, additionalData: hdrBytes, tagLength: 128 }, cek, utf8(a.payload)));
+    var sig = await signParts(dev.ecdsa.privateKey, hdrBytes, ct);
+
+    return { type: TYPE, v: V, alg: ALG, kind: a.kind, hdr: b64encode(hdrBytes), ct: b64encode(ct), sig: b64encode(sig) };
+  }
+
+  /* ---- 開ける ---- */
+
+  function isPlainObject(o) { return o !== null && typeof o === 'object' && !Array.isArray(o); }
+  function fail(reason, detail) { return detail ? { ok: false, reason: reason, detail: detail } : { ok: false, reason: reason }; }
+  function needStr(o, k, where) {
+    if (typeof o[k] !== 'string') throw new Error(where + '.' + k + ' が文字列ではない');
+    return o[k];
+  }
+
+  /* 形だけを見る（alg を見る前なので、alg ごとの長さ〔iv 12・sig 64・公開鍵 65・wk 40〕はここでは見ず、使う段で落とす） */
+  function parseParts(env) {
+    var hdrBytes = b64decode(needStr(env, 'hdr', 'env'));
+    var ct = b64decode(needStr(env, 'ct', 'env'));
+    var sig = b64decode(needStr(env, 'sig', 'env'));
+    var hdr = JSON.parse(utf8DecodeStrict(hdrBytes));
+    if (!isPlainObject(hdr)) throw new Error('hdr が JSON のオブジェクトではない');
+    needStr(hdr, 'app', 'hdr');
+    needStr(hdr, 'created', 'hdr');
+    needStr(hdr, 'team', 'hdr');
+    var rs = hdr.rosterSerial;
+    if (typeof rs !== 'number' || !isFinite(rs) || Math.floor(rs) !== rs || rs < 0) throw new Error('hdr.rosterSerial が0以上の整数ではない');
+    if (!isPlainObject(hdr.from)) throw new Error('hdr.from が無い');
+    needStr(hdr.from, 'pid', 'hdr.from');
+    needStr(hdr.from, 'dev', 'hdr.from');
+    var fromPub = b64decode(needStr(hdr.from, 'pub', 'hdr.from'));
+    var iv = b64decode(needStr(hdr, 'iv', 'hdr'));
+    if (!Array.isArray(hdr.to) || hdr.to.length === 0) throw new Error('hdr.to が空');
+    var to = [];
+    for (var i = 0; i < hdr.to.length; i++) {
+      var t = hdr.to[i], w = 'hdr.to[' + i + ']';
+      if (!isPlainObject(t)) throw new Error(w + ' がオブジェクトではない');
+      to.push({ kid: needStr(t, 'kid', w), epk: b64decode(needStr(t, 'epk', w)), wk: b64decode(needStr(t, 'wk', w)) });
+    }
+    return { hdrBytes: hdrBytes, hdr: hdr, iv: iv, ct: ct, sig: sig, fromPub: fromPub, to: to };
+  }
+
+  async function verifySender(p) {
+    /* from.dev と kid(from.pub) の食い違いも署名の失敗として扱う */
+    if ((await kidOf(p.fromPub)) !== p.hdr.from.dev) return false;
+    if (p.fromPub.length !== P256_RAW_BYTES || p.sig.length !== SIG_BYTES) return false;
+    var key;
+    try { key = await subtle().importKey('raw', p.fromPub, ECDSA_PARAMS, false, ['verify']); } catch (e) { return false; }
+    try { return await subtle().verify(ECDSA_SIGN, key, p.sig, await sigInput(p.hdrBytes, p.ct)); } catch (e2) { return false; }
+  }
+
+  async function unwrapFor(device, entry) {
+    if (entry.epk.length !== P256_RAW_BYTES) throw new Error('epk の長さ');
+    var epk = await subtle().importKey('raw', entry.epk, ECDH_PARAMS, true, []);
+    var bits = await subtle().deriveBits({ name: 'ECDH', public: epk }, device.ecdh.privateKey, 256);
+    var kw = await hkdfToKw(bits, toBytes(device.pubEcdhRaw), entry.epk, ['unwrapKey']);
+    return subtle().unwrapKey('raw', entry.wk, kw, { name: 'AES-KW' }, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  }
+
+  /* 先頭が { のときだけ JSON として読む（大きな平文の文字列で無駄に読まない） */
+  function looksSealed(payload) {
+    if (!/^\s*\{/.test(payload)) return false;
+    try {
+      var x = JSON.parse(payload);
+      return isPlainObject(x) && x.type === TYPE;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function openInner(envelope, device, roster) {
+    var env = envelope;
+    if (typeof env === 'string') {
+      try { env = JSON.parse(env); } catch (e) { return fail('not_envelope'); }
+    }
+    if (!isPlainObject(env) || env.type !== TYPE) return fail('not_envelope');
+    if (env.v !== V) return fail('unknown_v');
+
+    var p;
+    try { p = parseParts(env); } catch (e2) { return fail('bad_format', e2.message); }
+
+    if (env.alg !== ALG) return fail('unknown_alg');
+    if (KINDS.indexOf(env.kind) < 0) return fail('unknown_kind');
+
+    var h = p.hdr;
+    if (h.type !== env.type || h.v !== env.v || h.alg !== env.alg || h.kind !== env.kind) return fail('header_mismatch');
+
+    var mine = null;
+    for (var i = 0; i < p.to.length; i++) { if (p.to[i].kid === device.kid) { mine = p.to[i]; break; } }
+    if (!mine) return fail('no_key_for_me');
+
+    /* 署名を復号より先に見る（ct・hdr〔iv を含む〕の改ざんはここで bad_signature になる） */
+    if (!(await verifySender(p))) return fail('bad_signature');
+
+    var cek;
+    try { cek = await unwrapFor(device, mine); } catch (e3) { return fail('unwrap_failed'); }
+
+    var plain;
+    try {
+      if (p.iv.length !== GCM_IV_BYTES) throw new Error('iv の長さ');
+      plain = await subtle().decrypt({ name: 'AES-GCM', iv: p.iv, additionalData: p.hdrBytes, tagLength: 128 }, cek, p.ct);
+    } catch (e4) {
+      return fail('gcm_failed');
+    }
+
+    var payload;
+    try { payload = utf8DecodeStrict(new Uint8Array(plain)); } catch (e5) { return fail('bad_format', '開いた中身が UTF-8 ではない'); }
+
+    if (looksSealed(payload)) return fail('nested');
+
+    /* registered は from.dev だけで見る（hdr の pid と名簿の pid の食い違いの扱いは段階1d で決める） */
+    var devices = roster && Array.isArray(roster.devices) ? roster.devices : [];
+    var registered = false;
+    for (var j = 0; j < devices.length; j++) { if (devices[j] && devices[j].dev === h.from.dev) { registered = true; break; } }
+    return {
+      ok: true,
+      payload: payload,
+      sender: { pid: h.from.pid, dev: h.from.dev, registered: registered },
+      meta: { kind: h.kind, app: h.app, created: h.created, team: h.team, rosterSerial: h.rosterSerial }
+    };
+  }
+
+  /* 封筒を開ける。例外は投げず、いつも {ok:true, payload, sender, meta} か {ok:false, reason[, detail]} を返す
+   * 調べる順：not_envelope → unknown_v → bad_format → unknown_alg → unknown_kind → header_mismatch
+   *          → no_key_for_me → bad_signature → unwrap_failed → gcm_failed → nested
+   * 並びの外：開いた中身が UTF-8 でない＝bad_format（detail 付き）／思わぬ例外＝internal_error
+   * envelope：外側の封筒（JSON の文字列でも可）／device：この端末（makeDevice の戻り）
+   * roster：名簿 {devices:[{pid, dev}]}（dev＝署名の公開鍵の kid。無くてもよい） */
+  async function open(envelope, device, roster) {
+    try {
+      return await openInner(envelope, device, roster);
+    } catch (e) {
+      return fail('internal_error', String(e && e.message ? e.message : e));
+    }
+  }
+
+  return {
+    TYPE: TYPE,
+    V: V,
+    ALG: ALG,
+    KINDS: KINDS.slice(),
+    makeDevice: makeDevice,
+    describeDevice: describeDevice,
+    kidOf: kidOf,
+    seal: seal,
+    open: open,
+    b64encode: b64encode,
+    b64decode: b64decode,
+    signParts: signParts
+  };
+})();
+
+/* === 端末の鍵の置き場 aibis_keys_v1（JSON の暗号化 段階1b・2026-11-13 高田さん承認）: 部品 ===
+ * 設計：work-claude/design/json-crypto/10_設計の第3版（確定）.md の 3章（鍵）1・9。
+ * IndexedDB aibis_keys_v1（version 1 固定）に、この端末の鍵（aibisSealed.makeDevice の形。CryptoKey は
+ * extractable:false のまま structured clone で置く）・人 ID・名簿（置き場だけ。中身の形は段階1d）を置く。
+ * 置き場（store）：device（この端末の1件。キー 'self'）／roster（名簿。段階1d-1 から rosterGet・rosterPut で 'current'・'seen'・'approvals' の3キーを置く）。
+ * この DB を消すのは「端末の登録を外す」（removeAll）だけ。「スマホをリセット」と全データのクリアでは消さない。
+ * 鍵が無い端末では DB を作らない（has・read は、まだ無い DB を開くと作り直しの段で止めて、空の DB を残さない）。
+ * 読み込んでも何も起動しない（外へ出す名前は aibisKeys の1つだけ。indexedDB は呼ばれたときに初めて使う）。
+ */
+var aibisKeys = (function () {
+  var DB_NAME = 'aibis_keys_v1';
+  var DB_VERSION = 1;
+  var STORE_DEVICE = 'device';
+  var STORE_ROSTER = 'roster';
+  var SELF = 'self';
+
+  function idb() { return indexedDB; }
+
+  /* 開く（無ければ作る）。開いた先は使い終わったら閉じる */
+  function openDb() {
+    return new Promise(function (resolve, reject) {
+      var req = idb().open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains(STORE_DEVICE)) db.createObjectStore(STORE_DEVICE);
+        if (!db.objectStoreNames.contains(STORE_ROSTER)) db.createObjectStore(STORE_ROSTER);
+      };
+      req.onsuccess = function () {
+        var db = req.result;
+        db.onversionchange = function () { try { db.close(); } catch (_e) {} };
+        resolve(db);
+      };
+      req.onerror = function () { reject(req.error || new Error('open failed')); };
+    });
+  }
+
+  /* 開くだけ（無ければ作らずに null）。作り直しの段で止めると、新しく作りかけた DB は残らない */
+  function peekDb() {
+    return new Promise(function (resolve, reject) {
+      var fresh = false;
+      var req = idb().open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = function (ev) {
+        fresh = true;
+        try { (ev && ev.target && ev.target.transaction ? ev.target.transaction : req.transaction).abort(); } catch (_e) {}
+      };
+      req.onsuccess = function () {
+        var db = req.result;
+        if (fresh) { try { db.close(); } catch (_e) {} resolve(null); return; }
+        db.onversionchange = function () { try { db.close(); } catch (_e) {} };
+        resolve(db);
+      };
+      req.onerror = function () {
+        if (fresh) { resolve(null); return; }
+        reject(req.error || new Error('open failed'));
+      };
+    });
+  }
+
+  function getSelf(db) {
+    return new Promise(function (resolve, reject) {
+      if (!db.objectStoreNames.contains(STORE_DEVICE)) { resolve(null); return; }
+      var g = db.transaction(STORE_DEVICE, 'readonly').objectStore(STORE_DEVICE).get(SELF);
+      g.onsuccess = function () { resolve(g.result || null); };
+      g.onerror = function () { reject(g.error || new Error('get failed')); };
+    });
+  }
+
+  function isRecord(rec) {
+    return !!(rec && typeof rec === 'object' && typeof rec.pid === 'string' && rec.pid && rec.device && typeof rec.device === 'object');
+  }
+
+  /* この端末の鍵と人 ID を読む。無ければ null */
+  async function read() {
+    var db = await peekDb();
+    if (!db) return null;
+    try {
+      var rec = await getSelf(db);
+      return isRecord(rec) ? rec : null;
+    } finally { try { db.close(); } catch (_e) {} }
+  }
+
+  /* この端末に鍵があるか */
+  async function has() {
+    return !!(await read());
+  }
+
+  /* 消されにくくするよう頼む。結果は true（認められた）／false（断られた）／null（頼めない・失敗） */
+  async function askPersist() {
+    try {
+      if (typeof navigator === 'undefined' || !navigator.storage || typeof navigator.storage.persist !== 'function') return null;
+      return (await navigator.storage.persist()) === true;
+    } catch (_e) { return null; }
+  }
+
+  /* この端末の鍵を作って置く。
+   * opts.pid：人 ID（呼ぶ側が決める）／opts.makeDevice：鍵を作る関数（既定は aibisSealed.makeDevice）
+   * 戻り：{ok:true, record, persisted}（persisted が false なら呼ぶ側が案内を出す）
+   *       {ok:false, reason:'no_pid'|'no_maker'|'exists'|'error', detail?}。すでに鍵があれば上書きしない */
+  async function create(opts) {
+    opts = opts || {};
+    var pid = opts.pid;
+    if (typeof pid !== 'string' || !pid) return { ok: false, reason: 'no_pid' };
+    var maker = opts.makeDevice;
+    if (typeof maker !== 'function' && typeof aibisSealed !== 'undefined' && aibisSealed && typeof aibisSealed.makeDevice === 'function') maker = aibisSealed.makeDevice;
+    if (typeof maker !== 'function') return { ok: false, reason: 'no_maker' };
+    try {
+      if (await read()) return { ok: false, reason: 'exists' };
+      var device = await maker();
+      var record = { pid: pid, created: new Date().toISOString(), device: device };
+      var db = await openDb();
+      try {
+        var added = await new Promise(function (resolve, reject) {
+          var tx = db.transaction(STORE_DEVICE, 'readwrite');
+          var st = tx.objectStore(STORE_DEVICE);
+          var exists = false;
+          var g = st.get(SELF);
+          g.onsuccess = function () {
+            if (g.result) { exists = true; return; }
+            st.add(record, SELF);
+          };
+          tx.oncomplete = function () { resolve(!exists); };
+          tx.onerror = function () { reject(tx.error || new Error('put failed')); };
+          tx.onabort = function () { reject(tx.error || new Error('put aborted')); };
+        });
+        if (!added) return { ok: false, reason: 'exists' };
+      } finally { try { db.close(); } catch (_e) {} }
+      var persisted = await askPersist();
+      return { ok: true, record: record, persisted: persisted };
+    } catch (e) {
+      return { ok: false, reason: 'error', detail: String(e && e.message ? e.message : e) };
+    }
+  }
+
+  /* 名簿の置き場（roster）を読む（段階1d-1）。DB が無い・置き場が無い・キーが無いときは null（DB は作らない） */
+  async function rosterGet(key) {
+    var db = await peekDb();
+    if (!db) return null;
+    try {
+      if (!db.objectStoreNames.contains(STORE_ROSTER)) return null;
+      return await new Promise(function (resolve, reject) {
+        var g = db.transaction(STORE_ROSTER, 'readonly').objectStore(STORE_ROSTER).get(key);
+        g.onsuccess = function () { resolve(g.result === undefined ? null : g.result); };
+        g.onerror = function () { reject(g.error || new Error('get failed')); };
+      });
+    } finally { try { db.close(); } catch (_e) {} }
+  }
+
+  /* 名簿の置き場（roster）に置く（段階1d-1）。この端末に鍵があるときだけ。
+   * guard（段階1 の指摘の直し 段5）：関数なら同じ readwrite のトランザクションの中で今の値（無ければ null）を読んで渡し、true を返したときだけ置く
+   * 戻り：{ok:true}／{ok:false, reason:'no_device'|'guard'|'error', detail?} */
+  async function rosterPut(key, value, guard) {
+    try {
+      if (!(await read())) return { ok: false, reason: 'no_device' };
+      var db = await openDb();
+      var refused = false;
+      try {
+        await new Promise(function (resolve, reject) {
+          var tx = db.transaction(STORE_ROSTER, 'readwrite');
+          var st = tx.objectStore(STORE_ROSTER);
+          if (typeof guard === 'function') {
+            var g = st.get(key);
+            g.onsuccess = function () {
+              var pass = false;
+              try { pass = guard(g.result === undefined ? null : g.result) === true; } catch (_e) { pass = false; }
+              if (pass) st.put(value, key); else refused = true;
+            };
+          } else {
+            st.put(value, key);
+          }
+          tx.oncomplete = function () { resolve(); };
+          tx.onerror = function () { reject(tx.error || new Error('put failed')); };
+          tx.onabort = function () { reject(tx.error || new Error('put aborted')); };
+        });
+      } finally { try { db.close(); } catch (_e) {} }
+      if (refused) return { ok: false, reason: 'guard' };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: 'error', detail: String(e && e.message ? e.message : e) };
+    }
+  }
+
+  /* 全部消す（＝端末の登録を外す）。戻り：{ok:true}／{ok:false, reason:'blocked'|'error', detail?}
+   * blocked：ほかのタブが開いている。そのタブが閉じると消える（頼んだ消去はそのまま待つ） */
+  function removeAll() {
+    return new Promise(function (resolve) {
+      var settled = false;
+      function done(r) { if (!settled) { settled = true; resolve(r); } }
+      var req;
+      try { req = idb().deleteDatabase(DB_NAME); }
+      catch (e) { done({ ok: false, reason: 'error', detail: String(e && e.message ? e.message : e) }); return; }
+      req.onsuccess = function () { done({ ok: true }); };
+      req.onerror = function () { done({ ok: false, reason: 'error', detail: String(req.error && req.error.message ? req.error.message : req.error) }); };
+      req.onblocked = function () { done({ ok: false, reason: 'blocked' }); };
+    });
+  }
+
+  return {
+    DB_NAME: DB_NAME,
+    DB_VERSION: DB_VERSION,
+    STORES: [STORE_DEVICE, STORE_ROSTER],
+    create: create,
+    read: read,
+    has: has,
+    rosterGet: rosterGet,
+    rosterPut: rosterPut,
+    removeAll: removeAll
+  };
+})();
+
+/* === 端末の登録を外す（JSON の暗号化 段階1b・2026-11-13 高田さん承認） ===
+ * 端末の鍵の置き場 aibis_keys_v1（shared/device_keys.js の aibisKeys）を消すのは、この操作だけ。
+ * 退職・端末の返却のための操作なので、二度確かめる（戻せないことを文で出す）。
+ * ボタンはこの端末に鍵があるときだけ、⋮ の「消す操作」の今のボタンのすぐ上に差し込む
+ * （スマホ＝「スマホをリセット」の上、PC＝「全データをクリア」の上。今のボタンが最後のまま）。
+ * 見た目は隣のボタンのインラインの写し。list_view.html は変えない。
+ * 「スマホをリセット」（resetPhone）と全データのクリア（clearAll）は鍵の置き場を消さない。
+ */
+window.deviceUnregister=deviceUnregister; window.deviceUnregister2=deviceUnregister2; window.doDeviceUnregister=doDeviceUnregister;
+window.deviceUnregisterRefresh=deviceUnregisterRefresh; window.aibisKeys=aibisKeys;
+function _devUnregPlace(show){
+  var spots=[
+    {id:'mobDeviceUnregisterBtn', box:'mobDropdown', next:'resetSmartphone()',
+      html:'<button id="mobDeviceUnregisterBtn" onclick="closeMobMenu();deviceUnregister()" style="color:#c53030;font-size:11px">🔑 端末の登録を外す<span class="za-mm-d">この端末の鍵を消します（退職・返却のとき）</span></button>'},
+    {id:'pcDeviceUnregisterBtn', box:'pcMenuClearSection', next:'clearAllCards()',
+      html:'<button id="pcDeviceUnregisterBtn" onclick="closePcMenu();deviceUnregister()" style="color:#c53030;font-weight:600" title="この端末の鍵を消します（退職・端末を返すとき）">🔑 端末の登録を外す</button>'}
+  ];
+  spots.forEach(function(s){
+    var old=document.getElementById(s.id);
+    if(!show){ if(old&&old.parentNode) old.parentNode.removeChild(old); return; }
+    if(old) return;
+    var box=document.getElementById(s.box); if(!box) return;
+    var btns=box.getElementsByTagName('button'), nextBtn=null;
+    for(var i=0;i<btns.length;i++){ if((btns[i].getAttribute('onclick')||'').indexOf(s.next)>=0){ nextBtn=btns[i]; break; } }
+    if(!nextBtn||!nextBtn.parentNode) return;
+    var tmp=document.createElement('div'); tmp.innerHTML=s.html;
+    nextBtn.parentNode.insertBefore(tmp.firstChild, nextBtn);
+  });
+}
+function deviceUnregisterRefresh(){
+  if(typeof aibisKeys==='undefined'||!aibisKeys) return Promise.resolve(false);
+  return aibisKeys.has().then(function(yes){ _devUnregPlace(!!yes); return !!yes; }).catch(function(){ return false; });
+}
+function deviceUnregister(){
+  aibisAlert('この端末の登録を外すよ⚠<br><br>'
+    +'この端末の鍵を消します。退職するときや、端末を返すときに使うよ。<br>'
+    +'<b>消した鍵は元に戻せません。</b>この端末あてに暗号化して送られたファイルは、この端末では開けなくなります。<br>'
+    +'この端末に置いた名簿も消えます。<br>' // 段階1d-3
+    +'<span style="font-size:12px;color:#718096">カードと写真は消えません。</span><br><br>'
+    +'<div style="display:flex;gap:8px;margin-top:8px">'
+    +'<button onclick="closeAibisAlert();deviceUnregister2()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">登録を外す</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'</div>');
+}
+function deviceUnregister2(){
+  aibisAlert('最終確認！この端末の鍵を消すと、元に戻せません。<br>本当に登録を外す？<br><br>'
+    +'<div style="display:flex;gap:8px;margin-top:8px">'
+    +'<button onclick="closeAibisAlert();doDeviceUnregister()" class="bd za-dlg-danger" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">本当に外す</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+    +'</div>');
+}
+function doDeviceUnregister(){
+  if(typeof aibisKeys==='undefined'||!aibisKeys){ toast('⚠ 登録を外せませんでした'); return; }
+  aibisKeys.removeAll().then(function(r){
+    if(r&&r.ok){ toast('✅ この端末の登録を外しました（鍵を消しました）'); }
+    else if(r&&r.reason==='blocked'){ toast('⚠ ほかのタブで z.Aibis が開いています。そのタブを閉じると登録が外れます'); }
+    else { toast('⚠ 登録を外せませんでした'); }
+    deviceUnregisterRefresh();
+    if(typeof deviceRegisterRefresh==='function') deviceRegisterRefresh();
+  });
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ deviceUnregisterRefresh(); });
+else deviceUnregisterRefresh();
+
+/* === 送る前・読む前の版の確かめ（JSON の暗号化 段階1c・2026-11-13 高田さん承認）: 本体だけ ===
+ * 設計：work-claude/design/json-crypto/10_設計の第3版（確定）.md の 3章5。更新バッジ（shared/update_badge.js）の確かめは
+ * 起動時1回だけなので、送る直前・読む直前にも version.json を見て、公開側が新しければ「開き直して」と出して止める。
+ * 取れない・時間切れ・形が違うときは止めない（そのまま進む）。update_badge.js はカメラと共有なので変えない。
+ * 読む前（読込の2つの入口）：fresh() でその場で取り、結果を待ってから読む。
+ * 送る前（送る口はすべて _sendCards を通る）：押したあとに待たない（共有は利用者の操作の中で呼ぶ）。起動時・画面を開いたとき・
+ *   見えたとき（visibilitychange）に prefetch() で先に取っておき、押したときは stopIfNewer() が覚えた結果だけを同期で見る。
+ */
+var aibisVerGate = (function () {
+  var TIMEOUT_MS = 2500;
+  var PREFETCH_GAP_MS = 60000;
+  /* parseVer・cmpVer・isNewer は shared/update_badge.js:24-46 と同じ。変えるときは両方 */
+  function parseVer(s) {
+    if (typeof s !== 'string') return null;
+    var body = s.replace(/^.*?v/i, '');
+    if (!body || !/^[0-9]+(\.[0-9]+)*$/.test(body)) return null;
+    var parts = body.split('.').map(function (x) { return parseInt(x, 10); });
+    for (var i = 0; i < parts.length; i++) { if (!isFinite(parts[i])) return null; }
+    return parts;
+  }
+  function cmpVer(a, b) {
+    var n = Math.max(a.length, b.length);
+    for (var i = 0; i < n; i++) {
+      var x = a[i] || 0, y = b[i] || 0;
+      if (x > y) return 1;
+      if (x < y) return -1;
+    }
+    return 0;
+  }
+  function isNewer(target, self) {
+    var t = parseVer(target), s = parseVer(self);
+    if (!t || !s) return target !== self;
+    return cmpVer(t, s) === 1;
+  }
+
+  var last = null; /* 'newer'|'same'。まだ取れていない・取れなかったときは null のまま */
+  var inflight = null, lastAt = 0;
+
+  /* version.json を取り、'newer'|'same'|'unknown'（取れない・時間切れ・形が違う）で返す。失敗で reject しない */
+  function fetchState() {
+    return new Promise(function (resolve) {
+      var done = false;
+      function fin(st) { if (!done) { done = true; resolve(st); } }
+      var timer = setTimeout(function () { fin('unknown'); }, TIMEOUT_MS);
+      try {
+        fetch(Z_PUBLIC_URL + 'version.json?_=' + Date.now(), { cache: 'no-store' }).then(function (res) {
+          if (!res.ok) return null;
+          return res.json();
+        }).then(function (data) {
+          var target = data && data.main && data.main.appVersion;
+          if (!target) { fin('unknown'); return; }
+          fin(isNewer(target, APP_VERSION) ? 'newer' : 'same');
+        }).catch(function () { fin('unknown'); }).then(function () { clearTimeout(timer); });
+      } catch (e) { clearTimeout(timer); fin('unknown'); }
+    });
+  }
+  /* その場で取る（読む前）。取れたときだけ覚えた結果も新しくする */
+  function fresh() {
+    return fetchState().then(function (st) { if (st !== 'unknown') last = st; return st; });
+  }
+  /* 先に取っておく（送る前のため）。取っている途中・少し前に取ったばかりなら取らない */
+  function prefetch() {
+    if (inflight || (lastAt && Date.now() - lastAt < PREFETCH_GAP_MS)) return;
+    inflight = fresh().then(function () { lastAt = Date.now(); inflight = null; }, function () { inflight = null; });
+  }
+  function notice(what) {
+    try {
+      aibisAlert('<div data-ver-gate="1">' + e('🔄 新しいバージョンがあります。アイビスを開き直して（再読み込みして）から、もう一度' + what + 'ください。') + '<br>' + e('データは変更していません。') + '</div>');
+    } catch (_e) {}
+  }
+  /* 送る直前：覚えた結果だけを同期で見る。新しい版なら案内を出して true（止める） */
+  function stopIfNewer(what) {
+    if (last !== 'newer') return false;
+    notice(what || '送って');
+    return true;
+  }
+  /* 読む直前：その場で取り、新しい版なら案内を出して false（読まない）。取れないときは true（そのまま読む） */
+  function checkBeforeRead() {
+    return fresh().then(function (st) {
+      if (st === 'newer') { notice('読み込んで'); return false; }
+      return true;
+    }, function () { return true; });
+  }
+  try {
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') prefetch(); });
+    prefetch();
+  } catch (_e) {}
+  return {
+    isNewer: isNewer,
+    fresh: fresh,
+    prefetch: prefetch,
+    stopIfNewer: stopIfNewer,
+    checkBeforeRead: checkBeforeRead,
+    cached: function () { return last; }
+  };
+})();
+
+/* === 課長の端末の鍵の定数（JSON の暗号化 段階1d-1・2026-11-13 高田さん承認） ===
+ * 設計：work-claude/design/json-crypto/10_設計の第3版（確定）.md の 3章 3・4。
+ * team：課の ID／managers：課長の端末（PC とスマホの2台。{label:"pc"|"mob", issuer:true|false, kid, dev, ecdhPub, sigPub}。名簿を作れる issuer:true は pc の1台だけ）
+ * rescue：救いの鍵の公開鍵（段階3）／minRosterSerial：取り込む名簿の最小番号。
+ * 空の間は、申請・承認・名簿は「課長の端末の鍵がまだアプリに入っていません」で止まる。
+ * この1行は tools/make-roots.js の出力をそのまま貼る（段階1e）。check.js がこの1行を固定で検査する。
+ * ここ以外に定数を変える口を作らない（URL の引数・保存データ・画面の変数から変えられる作りにしない）。
+ */
+var AIBIS_ROOTS = {"team":"","managers":[],"rescue":"","minRosterSerial":0};
+
+/* === 端末の登録の申請と名簿 aibis_request v1・aibis_roster v1（JSON の暗号化 段階1d-1・2026-11-13 高田さん承認）: 部品 ===
+ * 設計：work-claude/design/json-crypto/10_設計の第3版（確定）.md の 3章 3・4・7、14_1dの作り方（設計レビュー Fable）.md の 2章。
+ * 申請：{"type":"aibis_request","v":1,"pid","name","form":"pc"|"mob","ecdhPub","sigPub"}（欄の順は固定・日時なし。同じ端末・名前なら同じ文字列）。
+ * 確認コード：申請の文字列（UTF-8）を PBKDF2-HMAC-SHA-256（salt aibis_request/v1/code・CODE_ITER 回）→頭40ビット→32文字の表で8文字（XXXX-XXXX）。
+ * 名簿：{"type":"aibis_roster","v":1,"team","serial","issued","people":[{"pid","name","role","devices":[{"form","kid","dev","ecdhPub","sigPub","added"}]}],
+ *       "revoked":[{"kid","dev","pid","at"}]}。人は pid 順・端末は dev 順・取り消しは kid 順。決まった並びの文字列だけを正しい名簿とする。
+ * 名簿が正：送り手の人・名前は dev から名簿を引く。封筒の見出しの pid は使わない。
+ * 名簿を信じるのは、署名した端末が定数（team_roots.js の AIBIS_ROOTS）の課長の端末のときだけ（呼ぶ側は decideImport を通す）。
+ * 使うのはブラウザの Web Crypto と、先に読み込んだ sealed_envelope.js（aibisSealed の kidOf・b64encode・b64decode）だけ。
+ * 読み込んでも何も起動しない（外へ出す名前は aibisRoster の1つだけ。本体のテンプレートの中で読み、画面の外へは出さない）。
+ */
+var aibisRoster = (function () {
+  var REQ_TYPE = 'aibis_request';
+  var ROSTER_TYPE = 'aibis_roster';
+  var V = 1;
+  var CODE_SALT = 'aibis_request/v1/code';
+  var CODE_ITER = 200000;
+  var CODE_CHARS = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  var CODE_LEN = 8;
+  var NAME_MAX = 40;
+  var TEXT_MAX = 4096; /* 申請の文字列の長さの上限 */
+  var FORMS = ['pc', 'mob'];
+  var ROLES = ['staff', 'dev'];
+  var P256_RAW_BYTES = 65;
+  var PID_RE = /^p_[0-9a-f]{32}$/;
+  var KID_RE = /^[0-9a-f]{32}$/;
+  var REQ_KEYS = ['type', 'v', 'pid', 'name', 'form', 'ecdhPub', 'sigPub'];
+  var ROSTER_KEYS = ['type', 'v', 'team', 'serial', 'issued', 'people', 'revoked'];
+  var PERSON_KEYS = ['pid', 'name', 'role', 'devices'];
+  var DEVICE_KEYS = ['form', 'kid', 'dev', 'ecdhPub', 'sigPub', 'added'];
+  var REVOKED_KEYS = ['kid', 'dev', 'pid', 'at'];
+  var ROOTS_KEYS = ['team', 'managers', 'rescue', 'minRosterSerial'];
+  var MANAGER_KEYS = ['label', 'issuer', 'kid', 'dev', 'ecdhPub', 'sigPub'];
+
+  function subtle() { return crypto.subtle; }
+  function utf8(s) { return new TextEncoder().encode(s); }
+  function isPlainObject(o) { return o !== null && typeof o === 'object' && !Array.isArray(o); }
+  function isInt(n, min) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n && n >= min; }
+  function keysExactly(o, keys) {
+    var k = Object.keys(o);
+    if (k.length !== keys.length) return false;
+    for (var i = 0; i < k.length; i++) { if (k[i] !== keys[i]) return false; }
+    return true;
+  }
+  function hex(bytes) {
+    var s = '';
+    for (var i = 0; i < bytes.length; i++) s += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+    return s;
+  }
+  async function sha256Hex(text) {
+    return hex(new Uint8Array(await subtle().digest('SHA-256', utf8(text))));
+  }
+  function byStr(k) { return function (a, b) { return a[k] < b[k] ? -1 : (a[k] > b[k] ? 1 : 0); }; }
+  function fail(reason, detail) { return detail ? { ok: false, reason: reason, detail: detail } : { ok: false, reason: reason }; }
+
+  function nameOk(n) {
+    return typeof n === 'string' && n.length > 0 && n.length <= NAME_MAX && n === n.trim() && !/[\u0000-\u001f\u007f]/.test(n);
+  }
+
+  /* 公開鍵（base64・65バイトの圧縮しない P-256 の点）を読み、曲線の上の点かを Web Crypto で確かめる。戻り：バイト列か null */
+  async function pubRaw(b64, alg) {
+    if (typeof b64 !== 'string') return null;
+    var raw;
+    try { raw = aibisSealed.b64decode(b64); } catch (e) { return null; }
+    if (raw.length !== P256_RAW_BYTES || raw[0] !== 4) return null;
+    try {
+      if (alg === 'ecdh') await subtle().importKey('raw', raw, { name: 'ECDH', namedCurve: 'P-256' }, true, []);
+      else await subtle().importKey('raw', raw, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify']);
+    } catch (e2) { return null; }
+    return raw;
+  }
+
+  /* ---- 人 ID ---- */
+  function makePid() {
+    return 'p_' + hex(crypto.getRandomValues(new Uint8Array(16)));
+  }
+
+  /* ---- 申請 ---- */
+  function requestTextOf(f) {
+    return JSON.stringify({ type: REQ_TYPE, v: V, pid: f.pid, name: f.name, form: f.form, ecdhPub: f.ecdhPub, sigPub: f.sigPub });
+  }
+
+  /* 申請の文字列を作る。a：{pid, name, form, device}（device は aibisSealed.makeDevice の形）。戻り：{ok:true, text}／{ok:false, reason} */
+  function makeRequest(a) {
+    if (!a || typeof a.pid !== 'string' || !PID_RE.test(a.pid)) return fail('bad_pid');
+    if (!nameOk(a.name)) return fail('bad_name');
+    if (FORMS.indexOf(a.form) < 0) return fail('bad_form');
+    if (!a.device || !a.device.pubEcdhRaw || !a.device.pubSigRaw) return fail('no_device');
+    return {
+      ok: true,
+      text: requestTextOf({ pid: a.pid, name: a.name, form: a.form, ecdhPub: aibisSealed.b64encode(a.device.pubEcdhRaw), sigPub: aibisSealed.b64encode(a.device.pubSigRaw) })
+    };
+  }
+
+  /* 申請の文字列を確かめて読む。欄が7つちょうど・決まった並びの文字列だけを受ける。
+   * 戻り：{ok:true, req:{pid, name, form, ecdhPub, sigPub, ecdhRaw, sigRaw, kid, dev}}／{ok:false, reason:'bad_format'|'unknown_v', detail?} */
+  async function parseRequest(text) {
+    if (typeof text !== 'string' || text.length > TEXT_MAX) return fail('bad_format', '文字列ではないか長すぎる');
+    var o;
+    try { o = JSON.parse(text); } catch (e) { return fail('bad_format', 'JSON ではない'); }
+    if (!isPlainObject(o) || o.type !== REQ_TYPE) return fail('bad_format', '申請ではない');
+    if (o.v !== V) return fail('unknown_v');
+    if (!keysExactly(o, REQ_KEYS)) return fail('bad_format', '欄の過不足');
+    if (typeof o.pid !== 'string' || !PID_RE.test(o.pid)) return fail('bad_format', 'pid');
+    if (!nameOk(o.name)) return fail('bad_format', 'name');
+    if (FORMS.indexOf(o.form) < 0) return fail('bad_format', 'form');
+    var ecdhRaw = await pubRaw(o.ecdhPub, 'ecdh'), sigRaw = await pubRaw(o.sigPub, 'ecdsa');
+    if (!ecdhRaw || !sigRaw) return fail('bad_format', '公開鍵');
+    if (requestTextOf(o) !== text) return fail('bad_format', '決まった並びの文字列ではない');
+    return {
+      ok: true,
+      req: { pid: o.pid, name: o.name, form: o.form, ecdhPub: o.ecdhPub, sigPub: o.sigPub, ecdhRaw: ecdhRaw, sigRaw: sigRaw,
+        kid: await aibisSealed.kidOf(ecdhRaw), dev: await aibisSealed.kidOf(sigRaw) }
+    };
+  }
+
+  /* ---- 確認コード ---- */
+  async function requestCode(text) {
+    if (typeof text !== 'string') throw new TypeError('requestCode: 文字列');
+    var base = await subtle().importKey('raw', utf8(text), 'PBKDF2', false, ['deriveBits']);
+    var b = new Uint8Array(await subtle().deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: utf8(CODE_SALT), iterations: CODE_ITER }, base, 40));
+    var v = (((b[0] * 256 + b[1]) * 256 + b[2]) * 256 + b[3]) * 256 + b[4]; /* 40ビット（2^53 より小さい） */
+    var out = '';
+    for (var i = CODE_LEN - 1; i >= 0; i--) { out = CODE_CHARS.charAt(v % 32) + out; v = Math.floor(v / 32); }
+    return out.slice(0, 4) + '-' + out.slice(4);
+  }
+
+  /* 入力のそろえ方：全角→半角・大文字・空白とハイフンを除く・O→0・I と L→1 */
+  function normalizeCode(input) {
+    var s = String(input == null ? '' : input);
+    if (typeof s.normalize === 'function') s = s.normalize('NFKC');
+    return s.toUpperCase().replace(/[\s\-‐-―−ーｰ_]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  }
+
+  /* 入力が申請の確認コードと合うか（正解の文字は返さない） */
+  async function codeMatches(text, input) {
+    var want = (await requestCode(text)).replace('-', '');
+    var got = normalizeCode(input);
+    if (got.length !== want.length) return false;
+    var diff = 0;
+    for (var i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
+    return diff === 0;
+  }
+
+  /* ---- 名簿 ---- */
+  function serialize(r) {
+    var people = r.people.map(function (p) {
+      return {
+        pid: p.pid, name: p.name, role: p.role,
+        devices: p.devices.map(function (d) {
+          return { form: d.form, kid: d.kid, dev: d.dev, ecdhPub: d.ecdhPub, sigPub: d.sigPub, added: d.added };
+        }).sort(byStr('dev'))
+      };
+    }).sort(byStr('pid'));
+    var revoked = r.revoked.map(function (x) { return { kid: x.kid, dev: x.dev, pid: x.pid, at: x.at }; }).sort(byStr('kid'));
+    return JSON.stringify({ type: ROSTER_TYPE, v: V, team: r.team, serial: r.serial, issued: r.issued, people: people, revoked: revoked });
+  }
+
+  function emptyRoster(team) {
+    return { type: ROSTER_TYPE, v: V, team: String(team || ''), serial: 0, issued: '', people: [], revoked: [] };
+  }
+
+  /* 名簿の文字列を確かめて読む。戻り：{ok:true, roster}／{ok:false, reason:'bad_format'|'unknown_v'|'kid_mismatch'|'duplicate_device'|'revoked_active', detail?} */
+  async function verifyRoster(text) {
+    if (typeof text !== 'string') return fail('bad_format', '文字列ではない');
+    var o;
+    try { o = JSON.parse(text); } catch (e) { return fail('bad_format', 'JSON ではない'); }
+    if (!isPlainObject(o) || o.type !== ROSTER_TYPE) return fail('bad_format', '名簿ではない');
+    if (o.v !== V) return fail('unknown_v');
+    if (!keysExactly(o, ROSTER_KEYS)) return fail('bad_format', '欄の過不足');
+    if (typeof o.team !== 'string' || !o.team) return fail('bad_format', 'team');
+    if (!isInt(o.serial, 1)) return fail('bad_format', 'serial');
+    if (typeof o.issued !== 'string' || !o.issued) return fail('bad_format', 'issued');
+    if (!Array.isArray(o.people) || !Array.isArray(o.revoked)) return fail('bad_format', 'people・revoked');
+    var pids = {}, kids = {}, devs = {};
+    for (var i = 0; i < o.people.length; i++) {
+      var p = o.people[i];
+      if (!isPlainObject(p) || !keysExactly(p, PERSON_KEYS)) return fail('bad_format', 'people[' + i + ']');
+      if (typeof p.pid !== 'string' || !PID_RE.test(p.pid) || pids[p.pid]) return fail('bad_format', 'people[' + i + '].pid');
+      pids[p.pid] = true;
+      if (!nameOk(p.name)) return fail('bad_format', 'people[' + i + '].name');
+      if (ROLES.indexOf(p.role) < 0) return fail('bad_format', 'people[' + i + '].role');
+      if (!Array.isArray(p.devices) || p.devices.length === 0) return fail('bad_format', 'people[' + i + '].devices');
+      var forms = {};
+      for (var j = 0; j < p.devices.length; j++) {
+        var d = p.devices[j], w = 'people[' + i + '].devices[' + j + ']';
+        if (!isPlainObject(d) || !keysExactly(d, DEVICE_KEYS)) return fail('bad_format', w);
+        if (FORMS.indexOf(d.form) < 0 || typeof d.added !== 'string' || !d.added) return fail('bad_format', w);
+        if (p.role === 'staff') { if (forms[d.form]) return fail('bad_format', w + ' 同じ種類の端末が2台'); forms[d.form] = true; }
+        if (typeof d.kid !== 'string' || typeof d.dev !== 'string') return fail('bad_format', w);
+        var er = await pubRaw(d.ecdhPub, 'ecdh'), sr = await pubRaw(d.sigPub, 'ecdsa');
+        if (!er || !sr) return fail('bad_format', w + ' 公開鍵');
+        if ((await aibisSealed.kidOf(er)) !== d.kid || (await aibisSealed.kidOf(sr)) !== d.dev) return fail('kid_mismatch', w);
+        if (kids[d.kid] || devs[d.dev]) return fail('duplicate_device', w);
+        kids[d.kid] = true; devs[d.dev] = true;
+      }
+    }
+    var rk = {};
+    for (var k = 0; k < o.revoked.length; k++) {
+      var x = o.revoked[k], wr = 'revoked[' + k + ']';
+      if (!isPlainObject(x) || !keysExactly(x, REVOKED_KEYS)) return fail('bad_format', wr);
+      if (typeof x.kid !== 'string' || !KID_RE.test(x.kid) || typeof x.dev !== 'string' || !KID_RE.test(x.dev)) return fail('bad_format', wr);
+      if (typeof x.pid !== 'string' || !PID_RE.test(x.pid) || typeof x.at !== 'string' || !x.at) return fail('bad_format', wr);
+      if (rk[x.kid]) return fail('bad_format', wr + ' 同じ端末が2回');
+      rk[x.kid] = true;
+      if (kids[x.kid] || devs[x.dev]) return fail('revoked_active', wr);
+    }
+    if (serialize(o) !== text) return fail('bad_format', '決まった並びの文字列ではない');
+    return { ok: true, roster: o };
+  }
+
+  function cloneRoster(r) { return JSON.parse(JSON.stringify(r)); }
+  function nextSerial(r, minSerial) { return Math.max(r.serial + 1, isInt(minSerial, 0) ? minSerial : 0); }
+
+  /* 申請を名簿に入れる（課長の端末で使う）。req は parseRequest の req。
+   * opts：{role:'staff'|'dev', now, minSerial}。表示名が同じ人に端末を足す（2台目の紐づけ）。
+   * staff は種類（pc・mob）ごとに1台：同じ種類の古い端末は取り消しへ移す。dev は台数の上限なし。
+   * 戻り：{ok:true, roster, text, replaced:[{pid, name, form, kid, dev}]}／{ok:false, reason:'already'|'revoked'|'pid_in_use'|'role_mismatch'|'bad_role'} */
+  function approve(roster, req, opts) {
+    opts = opts || {};
+    var role = opts.role || 'staff';
+    if (ROLES.indexOf(role) < 0) return fail('bad_role');
+    var now = opts.now || new Date().toISOString();
+    var r = cloneRoster(roster);
+    var i, j;
+    for (i = 0; i < r.people.length; i++) {
+      for (j = 0; j < r.people[i].devices.length; j++) {
+        var d = r.people[i].devices[j];
+        if (d.kid === req.kid || d.dev === req.dev) return fail('already');
+      }
+    }
+    for (i = 0; i < r.revoked.length; i++) { if (r.revoked[i].kid === req.kid || r.revoked[i].dev === req.dev) return fail('revoked'); }
+    var person = null;
+    for (i = 0; i < r.people.length; i++) { if (r.people[i].name === req.name) { person = r.people[i]; break; } }
+    if (!person) {
+      for (i = 0; i < r.people.length; i++) { if (r.people[i].pid === req.pid) return fail('pid_in_use'); }
+      person = { pid: req.pid, name: req.name, role: role, devices: [] };
+      r.people.push(person);
+    } else if (person.role !== role) {
+      return fail('role_mismatch');
+    }
+    var replaced = [];
+    if (role === 'staff') {
+      person.devices = person.devices.filter(function (x) {
+        if (x.form !== req.form) return true;
+        r.revoked.push({ kid: x.kid, dev: x.dev, pid: person.pid, at: now });
+        replaced.push({ pid: person.pid, name: person.name, form: x.form, kid: x.kid, dev: x.dev });
+        return false;
+      });
+    }
+    person.devices.push({ form: req.form, kid: req.kid, dev: req.dev, ecdhPub: req.ecdhPub, sigPub: req.sigPub, added: now });
+    r.serial = nextSerial(r, opts.minSerial);
+    r.issued = now;
+    var text = serialize(r);
+    return { ok: true, roster: JSON.parse(text), text: text, replaced: replaced };
+  }
+
+  /* 端末を取り消す（kid は宛先の印）。人の端末が0台になれば人も名簿から外す（取り消しの一覧に pid は残る）。
+   * 戻り：{ok:true, roster, text}／{ok:false, reason:'not_found'} */
+  function revoke(roster, kid, opts) {
+    opts = opts || {};
+    var now = opts.now || new Date().toISOString();
+    var r = cloneRoster(roster), found = false;
+    r.people = r.people.filter(function (p) {
+      p.devices = p.devices.filter(function (d) {
+        if (d.kid !== kid) return true;
+        found = true;
+        r.revoked.push({ kid: d.kid, dev: d.dev, pid: p.pid, at: now });
+        return false;
+      });
+      return p.devices.length > 0;
+    });
+    if (!found) return fail('not_found');
+    r.serial = nextSerial(r, opts.minSerial);
+    r.issued = now;
+    var text = serialize(r);
+    return { ok: true, roster: JSON.parse(text), text: text };
+  }
+
+  /* ---- 定数（課長の端末） ---- */
+
+  /* 定数が有効か（課の ID が空でなく、課長の端末が2台） */
+  function rootsActive(roots) {
+    return isPlainObject(roots) && typeof roots.team === 'string' && !!roots.team && Array.isArray(roots.managers) && roots.managers.length === 2;
+  }
+
+  /* 定数の決まり：課長は0台か2台・2台なら pc と mob・issuer は pc のちょうど1つ（名簿を作れるのは課長の PC だけ）・kid と dev が公開鍵と合う。
+   * 戻り：{ok:true, active}／{ok:false, reason, detail?} */
+  async function checkRoots(roots) {
+    if (!isPlainObject(roots) || !keysExactly(roots, ROOTS_KEYS)) return fail('bad_roots', '欄の過不足');
+    if (typeof roots.team !== 'string' || typeof roots.rescue !== 'string' || !isInt(roots.minRosterSerial, 0) || !Array.isArray(roots.managers)) return fail('bad_roots', '欄の型');
+    var m = roots.managers;
+    if (m.length === 0) return { ok: true, active: false };
+    if (m.length !== 2) return fail('bad_roots', '課長の端末は0台か2台');
+    if (!roots.team) return fail('bad_roots', '課の ID が空');
+    var labels = [], issuers = 0;
+    for (var i = 0; i < m.length; i++) {
+      var x = m[i];
+      if (!isPlainObject(x) || !keysExactly(x, MANAGER_KEYS)) return fail('bad_roots', 'managers[' + i + ']');
+      if (typeof x.issuer !== 'boolean') return fail('bad_roots', 'managers[' + i + '].issuer');
+      if (x.issuer) { issuers++; if (x.label !== 'pc') return fail('bad_roots', 'issuer は pc の端末だけ'); }
+      labels.push(x.label);
+      var er = await pubRaw(x.ecdhPub, 'ecdh'), sr = await pubRaw(x.sigPub, 'ecdsa');
+      if (!er || !sr) return fail('bad_roots', 'managers[' + i + '] 公開鍵');
+      if ((await aibisSealed.kidOf(er)) !== x.kid || (await aibisSealed.kidOf(sr)) !== x.dev) return fail('bad_roots', 'managers[' + i + '] kid・dev が公開鍵と合わない');
+    }
+    if (labels.slice().sort().join(',') !== 'mob,pc') return fail('bad_roots', '課長の端末は pc と mob');
+    if (issuers !== 1) return fail('bad_roots', 'issuer は pc のちょうど1台');
+    return { ok: true, active: true };
+  }
+
+  /* 課長の端末を dev（署名の印）で引く。無ければ null */
+  function managerOf(roots, dev) {
+    if (!rootsActive(roots)) return null;
+    for (var i = 0; i < roots.managers.length; i++) { if (roots.managers[i].dev === dev) return roots.managers[i]; }
+    return null;
+  }
+
+  /* 申請の中の署名用公開鍵と、封筒に署名した鍵が同じか（承認の前に呼ぶ。違えば「形が正しくない」として扱う）。
+   * req は parseRequest の req、sender は aibisSealed.open の sender */
+  function requestSignedBySender(req, sender) {
+    return !!(req && sender && typeof req.dev === 'string' && req.dev === sender.dev);
+  }
+
+  /* 申請の宛先：定数の課長の全端末 */
+  function requestRecipients(roots) {
+    if (!rootsActive(roots)) return [];
+    return roots.managers.map(function (x) { return { pubEcdhRaw: aibisSealed.b64decode(x.ecdhPub) }; });
+  }
+
+  /* 名簿の宛先：名簿の全端末（取り消し済みは名簿に無い）＋定数の課長の全端末（同じ端末は1つに） */
+  function rosterRecipients(roots, roster) {
+    var out = [], seen = {};
+    function add(kid, b64) { if (seen[kid]) return; seen[kid] = true; out.push({ pubEcdhRaw: aibisSealed.b64decode(b64) }); }
+    (roster && Array.isArray(roster.people) ? roster.people : []).forEach(function (p) { p.devices.forEach(function (d) { add(d.kid, d.ecdhPub); }); });
+    if (rootsActive(roots)) roots.managers.forEach(function (x) { add(x.kid, x.ecdhPub); });
+    return out;
+  }
+
+  /* ---- 名簿の取り込みの判定（3a） ----
+   * a：{roots, opened, current, now}。opened は aibisSealed.open の戻り（ok:true）、current は置いてある 'current'（無ければ null）。
+   * 戻り：{ok:true, action:'store', record, roster}／{ok:true, action:'already', serial}
+   *       {ok:false, reason:'no_roots'|'not_manager'|'team_mismatch'|'bad_format'|'below_min'|'older'|'conflict', serial?, currentSerial?, detail?} */
+  async function decideImport(a) {
+    var roots = a && a.roots, opened = a && a.opened, current = a && a.current;
+    var ck = await checkRoots(roots);
+    if (!ck.ok || !ck.active) return fail('no_roots'); /* ① */
+    if (!opened || !opened.ok || !opened.sender || !opened.meta || opened.meta.kind !== 'roster') return fail('bad_format', '名簿の封筒ではない');
+    if (!managerOf(roots, opened.sender.dev)) return fail('not_manager'); /* ② */
+    var loose = null;
+    try { loose = JSON.parse(opened.payload); } catch (e) { loose = null; }
+    if (opened.meta.team !== roots.team || (isPlainObject(loose) && typeof loose.team === 'string' && loose.team !== roots.team)) return fail('team_mismatch'); /* ③ */
+    var v = await verifyRoster(opened.payload); /* ④ */
+    if (!v.ok) return fail('bad_format', v.reason + (v.detail ? ' ' + v.detail : ''));
+    var r = v.roster;
+    if (opened.meta.rosterSerial !== r.serial) return fail('bad_format', '見出しの番号と名簿の番号が違う');
+    if (r.serial < roots.minRosterSerial) return { ok: false, reason: 'below_min', serial: r.serial }; /* ⑤ */
+    var cur = (isPlainObject(current) && current.team === roots.team && isInt(current.serial, 1)) ? current : null;
+    if (cur && r.serial < cur.serial) return { ok: false, reason: 'older', serial: r.serial, currentSerial: cur.serial }; /* ⑥ */
+    var sha = await sha256Hex(opened.payload);
+    if (cur && r.serial === cur.serial) { /* ⑦ */
+      if (sha === cur.sha256) return { ok: true, action: 'already', serial: r.serial };
+      return { ok: false, reason: 'conflict', serial: r.serial };
+    }
+    return { /* ⑧ */
+      ok: true, action: 'store', roster: r,
+      record: { serial: r.serial, team: r.team, sha256: sha, text: opened.payload, signerDev: opened.sender.dev, envCreated: opened.meta.created, importedAt: a.now || new Date().toISOString() }
+    };
+  }
+
+  /* ---- 有効な名簿（3b） ----
+   * 読むたびに：課の ID が合う・番号が最小以上・署名した端末が今の定数にある・中身が置いたときのまま。無効なら null（全員が未登録） */
+  async function effectiveRoster(roots, current) {
+    var ck = await checkRoots(roots);
+    if (!ck.ok || !ck.active) return null;
+    if (!isPlainObject(current) || current.team !== roots.team || !isInt(current.serial, 1) || current.serial < roots.minRosterSerial) return null;
+    if (!managerOf(roots, current.signerDev) || typeof current.text !== 'string') return null;
+    if ((await sha256Hex(current.text)) !== current.sha256) return null;
+    var v = await verifyRoster(current.text);
+    if (!v.ok || v.roster.serial !== current.serial || v.roster.team !== roots.team) return null;
+    return { serial: v.roster.serial, team: v.roster.team, roster: v.roster, signerDev: current.signerDev };
+  }
+
+  /* 有効な名簿が無いときに、課長の PC が名簿を作り直す元（段階1 の指摘の直し 段2）。
+   * heldSerial：置いてある番号（decideImport と同じ条件：課の ID が同じ・番号が1以上の整数。無ければ 0）。
+   * minSerial：max(定数の最小番号, heldSerial+1)。approve・revoke に渡す。
+   * 前の名簿の取り消しの一覧（revoked）は、署名した端末が今の定数にあり、中身の SHA-256 が合い、verifyRoster が通るときだけ写す（effectiveRoster から番号の条件だけを除いた形）。人は写さない。
+   * 戻り：{roster, minSerial, heldSerial, carried} */
+  async function rebuildBase(roots, current) {
+    var r = emptyRoster(roots.team);
+    var held = (isPlainObject(current) && current.team === roots.team && isInt(current.serial, 1)) ? current.serial : 0;
+    var min = Math.max(isInt(roots.minRosterSerial, 0) ? roots.minRosterSerial : 0, held + 1);
+    var carried = false;
+    if (held && managerOf(roots, current.signerDev) && typeof current.text === 'string' && (await sha256Hex(current.text)) === current.sha256) {
+      var v = await verifyRoster(current.text);
+      if (v.ok && v.roster.serial === current.serial && v.roster.team === roots.team) { r.revoked = v.roster.revoked; carried = true; }
+    }
+    return { roster: r, minSerial: min, heldSerial: held, carried: carried };
+  }
+
+  /* 置いてある名簿（cur）を rec で置き換えてよいか（段階1 の指摘の直し 段5）。同期。'current' を置く rosterPut の guard に渡す。
+   * cur が無い・課の ID が違う・番号が読めないとき、または rec の番号が cur より大きいとき true */
+  function canReplace(cur, rec) {
+    if (!isPlainObject(cur) || !rec || cur.team !== rec.team || !isInt(cur.serial, 1)) return true;
+    return rec.serial > cur.serial;
+  }
+
+  /* 送り手（dev）の扱い。課長の端末→manager／名簿の端末→registered／取り消した端末→revoked／ほか→unregistered */
+  function whoIs(roots, eff, dev) {
+    var m = managerOf(roots, dev);
+    if (m) return { status: 'manager', label: m.label };
+    if (!eff) return { status: 'unregistered' };
+    var r = eff.roster, i, j;
+    for (i = 0; i < r.revoked.length; i++) { if (r.revoked[i].dev === dev) return { status: 'revoked' }; }
+    for (i = 0; i < r.people.length; i++) {
+      for (j = 0; j < r.people[i].devices.length; j++) {
+        var d = r.people[i].devices[j];
+        if (d.dev === dev) return { status: 'registered', pid: r.people[i].pid, name: r.people[i].name, role: r.people[i].role, form: d.form };
+      }
+    }
+    return { status: 'unregistered' };
+  }
+
+  /* aibisSealed.open に渡す名簿の形 {devices:[{pid, dev}]}：有効な名簿の端末＋定数の課長の端末 */
+  function openRosterOf(roots, eff) {
+    var devices = [];
+    if (eff) eff.roster.people.forEach(function (p) { p.devices.forEach(function (d) { devices.push({ pid: p.pid, dev: d.dev }); }); });
+    if (rootsActive(roots)) roots.managers.forEach(function (x) { devices.push({ pid: '', dev: x.dev }); });
+    return { devices: devices };
+  }
+
+  return {
+    REQ_TYPE: REQ_TYPE,
+    ROSTER_TYPE: ROSTER_TYPE,
+    V: V,
+    CODE_ITER: CODE_ITER,
+    NAME_MAX: NAME_MAX,
+    FORMS: FORMS.slice(),
+    makePid: makePid,
+    makeRequest: makeRequest,
+    parseRequest: parseRequest,
+    requestCode: requestCode,
+    normalizeCode: normalizeCode,
+    codeMatches: codeMatches,
+    emptyRoster: emptyRoster,
+    serialize: serialize,
+    verifyRoster: verifyRoster,
+    approve: approve,
+    revoke: revoke,
+    rootsActive: rootsActive,
+    checkRoots: checkRoots,
+    managerOf: managerOf,
+    requestSignedBySender: requestSignedBySender,
+    requestRecipients: requestRecipients,
+    rosterRecipients: rosterRecipients,
+    decideImport: decideImport,
+    effectiveRoster: effectiveRoster,
+    rebuildBase: rebuildBase,
+    canReplace: canReplace,
+    whoIs: whoIs,
+    openRosterOf: openRosterOf
+  };
+})();
+
+/* === 端末の登録（JSON の暗号化 段階1d-2・2026-11-14 高田さん承認） ===
+ * 設計：work-claude/design/json-crypto/14_1dの作り方（設計レビュー Fable）.md の 2章 4・3章 1d-2・5章。
+ * 初期設定の #pwaInstallRow の後・#devUnlockPrompt の前に「端末の登録」の段を JS で差し込む（setup_view.html・main.css は変えない）。
+ * 未登録：「この端末を登録」で aibisKeys.create（人 ID は aibisRoster.makePid）。登録済み：申請の文字列から作る確認コード（XXXX-XXXX）を出す。
+ * 課長の解錠中だけ「開発者に渡す公開鍵を表示」（この端末の申請の文字列。tools/make-roots.js に渡す物）。
+ * 定数（team_roots.js）が空の間は、申請はまだ送れない旨を出す（申請を送る・名簿は段階1d-3 から）。
+ * 初期設定を開くたび・役職を変えたとき（段を差し込んだ後だけ）・登録と登録を外すの後に描き直す。描き直しのため、同じ即時関数の中の showSetup と
+ * applyRoleUI をここで包む（window を通らない直接の呼び出しも包んだ方を通る。setup.js・global_actions.js は変えない）。
+ * 鍵の無い端末では DB を作らない（読むのは aibisKeys.read の「のぞくだけ」）。aibisRoster・AIBIS_ROOTS は window に出さない。
+ */
+window.deviceRegister=deviceRegister; window.deviceRegisterShowPub=deviceRegisterShowPub; window.deviceRegisterCopyPub=deviceRegisterCopyPub;
+var _devRegOrigShowSetup=showSetup;
+showSetup=function(){ var r=_devRegOrigShowSetup.apply(this, arguments); try{ deviceRegisterRefresh(); }catch(_e){} return r; };
+window.showSetup=showSetup;
+var _devRegOrigApplyRoleUI=applyRoleUI;
+applyRoleUI=function(){ var r=_devRegOrigApplyRoleUI.apply(this, arguments); try{ if(document.getElementById('deviceRegisterSection')) deviceRegisterRefresh(); }catch(_e){} return r; };
+var _devRegSeq=0, _devRegCodeMemo={text:'', code:''};
+function _devRegForm(){ return isMob?'mob':'pc'; }
+/* この端末の申請の文字列（作れなければ null） */
+function _devRegRequest(rec){
+  if(!rec||typeof aibisRoster==='undefined'||!aibisRoster) return null;
+  var r=aibisRoster.makeRequest({pid:rec.pid, name:uName||'', form:_devRegForm(), device:rec.device});
+  return (r&&r.ok)?r.text:null;
+}
+function _devRegCode(text){
+  if(!text) return Promise.resolve('');
+  if(_devRegCodeMemo.text===text) return Promise.resolve(_devRegCodeMemo.code);
+  return aibisRoster.requestCode(text).then(function(c){ _devRegCodeMemo={text:text, code:c}; return c; });
+}
+function _devRegRootsEmpty(){
+  return !(typeof aibisRoster!=='undefined'&&aibisRoster&&typeof AIBIS_ROOTS!=='undefined'&&aibisRoster.rootsActive(AIBIS_ROOTS));
+}
+var _DEVREG_ROOTS_EMPTY_TEXT='課長の端末の鍵がまだアプリに入っていないため、申請はまだ送れません。新しい版が出たら、ここから申請できます。';
+var _DEVREG_BTN_STYLE='margin-top:6px;background:#ede9fe;border:1px dashed #b794f4;color:#553c9a;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit';
+/* 段を差し込む（1つだけ）。戻り：段の要素か null */
+function _devRegPlace(){
+  var sec=document.getElementById('deviceRegisterSection');
+  if(sec) return sec;
+  var row=document.getElementById('pwaInstallRow'); if(!row||!row.parentNode) return null;
+  var tmp=document.createElement('div');
+  tmp.innerHTML='<div id="deviceRegisterSection" style="margin-top:10px"><details class="setup-acc">'
+    +'<summary>🔑 <span>端末の登録</span><span id="deviceRegisterBadge" class="setup-acc-badge"></span><span class="setup-acc-arrow">▾</span></summary>'
+    +'<div id="deviceRegisterBody" class="setup-acc-body"></div></details></div>';
+  row.parentNode.insertBefore(tmp.firstChild, row.nextSibling);
+  return document.getElementById('deviceRegisterSection');
+}
+/* 段階1d-3: この端末が有効な名簿に入っていれば名簿の番号（無ければ 0） */
+function _devRegRosterNo(rec){
+  if(!rec||!rec.device||_devRegRootsEmpty()) return Promise.resolve(0);
+  return aibisKeys.rosterGet('current').then(function(cur){ return aibisRoster.effectiveRoster(AIBIS_ROOTS, cur); }).then(function(eff){
+    return (eff && aibisRoster.whoIs(AIBIS_ROOTS, eff, rec.device.dev).status==='registered') ? eff.serial : 0;
+  }).catch(function(){ return 0; });
+}
+function _devRegPaint(rec, code, rosterNo){
+  if(!_devRegPlace()) return;
+  var badge=document.getElementById('deviceRegisterBadge'), body=document.getElementById('deviceRegisterBody');
+  if(!badge||!body) return;
+  if(!rec){
+    badge.textContent='未登録';
+    body.innerHTML='<p class="ht" style="margin:2px 0 6px">この端末で暗号化されたファイルを開けるように、端末の鍵を作ります。PC とスマホは別々に登録します。</p>'
+      +'<button type="button" id="deviceRegisterBtn" onclick="deviceRegister()" style="'+_DEVREG_BTN_STYLE+'">この端末を登録</button>';
+    return;
+  }
+  badge.textContent=rosterNo?('名簿に登録済み（第'+rosterNo+'号）'):'登録済み';
+  var h=code?'<p class="ht" style="margin:2px 0 6px">確認コード：<b id="deviceRegisterCode">'+e(code)+'</b></p>'
+    :'<p class="ht" style="margin:2px 0 6px">確認コードを作れませんでした。担当者名を確かめてください。</p>';
+  if(_devRegRootsEmpty()) h+='<p class="ht" style="margin:2px 0 6px">'+_DEVREG_ROOTS_EMPTY_TEXT+'</p>';
+  else if(code) h+='<button type="button" id="rosterRequestMakeBtn" onclick="rosterRequestMake()" style="'+_DEVREG_BTN_STYLE+'">申請ファイルを作る</button> '; // 段階1d-3（roster_staff.js）
+  if(!_devRegRootsEmpty()&&rec.device&&aibisRoster.managerOf(AIBIS_ROOTS, rec.device.dev)) h+='<button type="button" id="rosterAdminOpenBtn" onclick="rosterAdminOpen()" style="'+_DEVREG_BTN_STYLE+'">名簿を開く</button> '; // 段階1d-6（roster_admin.js）
+  if(code&&isMgrUnlocked()) h+='<button type="button" onclick="deviceRegisterShowPub()" style="'+_DEVREG_BTN_STYLE+'">開発者に渡す公開鍵を表示</button>';
+  body.innerHTML=h;
+}
+/* 段を描き直す（後から呼んだ方だけが描く）。戻り：鍵があるか */
+function deviceRegisterRefresh(){
+  var seq=++_devRegSeq;
+  if(typeof aibisKeys==='undefined'||!aibisKeys) return Promise.resolve(false);
+  return aibisKeys.read().then(function(rec){
+    return Promise.all([_devRegCode(rec?_devRegRequest(rec):null), _devRegRosterNo(rec)]).then(function(a){
+      if(seq===_devRegSeq) _devRegPaint(rec, a[0], a[1]);
+      return !!rec;
+    });
+  }).catch(function(){ return false; });
+}
+function deviceRegister(){
+  if(!uName){ aibisAlert('先に担当者名を保存してください'); return; }
+  if(typeof aibisKeys==='undefined'||!aibisKeys||typeof aibisRoster==='undefined'||!aibisRoster){ toast('⚠ 登録できませんでした'); return; }
+  var btn=document.getElementById('deviceRegisterBtn'); if(btn) btn.disabled=true;
+  aibisKeys.create({pid:aibisRoster.makePid()}).then(function(r){
+    if(!r||!r.ok){ if(!(r&&r.reason==='exists')) toast('⚠ 登録できませんでした'); return; }
+    return _devRegCode(_devRegRequest(r.record)).then(function(code){
+      var m='この端末を登録しました。';
+      if(code) m+='確認コード：<b>'+e(code)+'</b>。'+(_devRegRootsEmpty()?'':'課長に申請ファイルを送り、電話などでこの確認コードを読み上げてください。');
+      else m+='確認コードを作れませんでした。担当者名を確かめてください。';
+      if(_devRegRootsEmpty()) m+='<br><br>'+_DEVREG_ROOTS_EMPTY_TEXT;
+      if(r.persisted===false) m+='<br><br><span style="font-size:12px;color:#718096">このブラウザは保存したデータを消すことがあります。鍵が消えたら、登録し直しになります。</span>';
+      aibisAlert(m);
+    });
+  }).catch(function(){ toast('⚠ 登録できませんでした'); }).then(function(){
+    deviceRegisterRefresh();
+    if(typeof deviceUnregisterRefresh==='function') deviceUnregisterRefresh();
+  });
+}
+function deviceRegisterShowPub(){
+  if(!isMgrUnlocked()||typeof aibisKeys==='undefined'||!aibisKeys) return;
+  aibisKeys.read().then(function(rec){
+    var text=rec?_devRegRequest(rec):null;
+    if(!text){ toast('⚠ 公開鍵を表示できませんでした'); return; }
+    return _devRegCode(text).then(function(code){
+      aibisAlert('開発者に渡す公開鍵（この端末の申請）です。<br>'
+        +'端末：'+(_devRegForm()==='pc'?'PC':'スマホ')+'／確認コード：<b>'+e(code)+'</b><br>'
+        +'PC とスマホの両方で表示して、2つとも開発者に渡してください。渡したあと、電話などで確認コードを読み上げてください。'
+        +'<textarea id="deviceRegisterPubText" readonly style="width:100%;height:110px;margin-top:8px;font-size:11px;box-sizing:border-box">'+e(text)+'</textarea>'
+        +'<div style="display:flex;gap:8px;margin-top:8px">'
+        +'<button onclick="deviceRegisterCopyPub()" class="bc" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">コピー</button>'
+        +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">閉じる</button>'
+        +'</div>');
+    });
+  }).catch(function(){ toast('⚠ 公開鍵を表示できませんでした'); });
+}
+function deviceRegisterCopyPub(){
+  var ta=document.getElementById('deviceRegisterPubText'); if(!ta) return;
+  try{
+    navigator.clipboard.writeText(ta.value).then(function(){ toast('✅ コピーしました'); }, function(){ toast('⚠ コピーできませんでした。文字を選んでコピーしてください'); });
+  }catch(_e){ toast('⚠ コピーできませんでした。文字を選んでコピーしてください'); }
+}
+
+/* === 担当側：端末の登録の申請を送る口と、名簿の取り込み（JSON の暗号化 段階1d-3・2026-11-16 高田さん承認） ===
+ * 設計：work-claude/design/json-crypto/14_1dの作り方（設計レビュー Fable）.md の 2章 2a・2c・2d・2e・3a・3b・6、3章 1d-3、5章。
+ * 申請：「申請ファイルを作る」（この端末の申請の文字列を、定数の課長の全端末あてに封をする）と「申請を送る」の2回の押しに分ける。
+ *   送るボタンの処理の中で直接 navigator.share（スマホ）／PC は DL＋_mailtoPrompt（宛先＝上司のメール・cc＝自分）。
+ *   送る口の先頭で aibisVerGate.stopIfNewer を見る。カードの送る口（list_select_send.js の _sendCards）は通らない。
+ * 名簿：file_ops.js の _sealedRegFiles1d から開けた名簿の封筒だけを受け取り、番号の小さい順に aibisRoster.decideImport（3a ①〜⑧）で判定して置く。
+ *   名簿を信じるのは、署名した端末が定数の課長の端末のときだけ（decideImport の②）。封筒の見出しの pid は使わない。
+ * 鍵の無い端末では DB を作らない（rosterGet は「のぞくだけ」・rosterPut は鍵がある時だけ）。aibisRoster・AIBIS_ROOTS は window に出さない。
+ */
+window.rosterRequestMake=rosterRequestMake; window.rosterRequestSend=rosterRequestSend;
+var _rosterReqFile=null; // 作った申請ファイル（送るボタンで使う）
+var _ROSTER_REQ_SUBJ='AIBIS Device-Request';
+function _rosterTs(){
+  var n=new Date();
+  return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')+'_'+String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0');
+}
+/* 申請ファイルを作る（1回目の押し）。作れたら「申請を送る」の小窓を出す */
+function rosterRequestMake(){
+  if(typeof aibisKeys==='undefined'||!aibisKeys||typeof aibisRoster==='undefined'||!aibisRoster||typeof aibisSealed==='undefined'||!aibisSealed){ toast('⚠ 申請ファイルを作れませんでした'); return; }
+  if(!aibisRoster.rootsActive(AIBIS_ROOTS)){ aibisAlert(e(_DEVREG_ROOTS_EMPTY_TEXT)); return; }
+  if(!uName){ aibisAlert('先に担当者名を保存してください'); return; }
+  _rosterReqFile=null;
+  aibisKeys.read().then(function(rec){
+    if(!rec){ toast('⚠ 先にこの端末を登録してください'); return; }
+    var req=aibisRoster.makeRequest({pid:rec.pid, name:uName, form:_devRegForm(), device:rec.device});
+    if(!req||!req.ok){ toast('⚠ 申請ファイルを作れませんでした'); return; }
+    return aibisKeys.rosterGet('current').then(function(cur){ return aibisRoster.effectiveRoster(AIBIS_ROOTS, cur); }).then(function(eff){
+      return aibisSealed.seal({kind:'request', payload:req.text, app:APP_VERSION, from:{pid:rec.pid, device:rec.device},
+        recipients:aibisRoster.requestRecipients(AIBIS_ROOTS), team:AIBIS_ROOTS.team, rosterSerial:eff?eff.serial:0});
+    }).then(function(env){
+      return _devRegCode(req.text).then(function(code){
+        var fn='AIBIS_REQUEST_'+uName+'_'+_rosterTs()+'.json';
+        _rosterReqFile=new File([JSON.stringify(env)], fn, {type:'application/json'});
+        aibisAlert('<div data-roster-request="1">申請ファイルを作りました（'+e(fn)+'）。<br>'
+          +'課長に申請ファイルを送り、電話などでこの確認コードを読み上げてください。確認コード：<b>'+e(code)+'</b><br>'
+          +'<span style="font-size:12px;color:#c05621">'+e(_sendRuleText('To-Boss'))+'</span></div>'
+          +'<div style="display:flex;gap:8px;margin-top:8px">'
+          +'<button id="rosterRequestSendBtn" onclick="rosterRequestSend()" class="bp" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">📧 申請を送る</button>'
+          +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">やめる</button>'
+          +'</div>');
+      });
+    });
+  }).catch(function(){ toast('⚠ 申請ファイルを作れませんでした'); });
+}
+/* 申請を送る（2回目の押し）。押した処理の中で直接共有する（共有の前に待たない） */
+function rosterRequestSend(){
+  if(typeof aibisVerGate!=='undefined' && aibisVerGate.stopIfNewer('送って')) return; // 送る前の版の確かめ（先に取った結果だけを同期で見る）
+  var f=_rosterReqFile;
+  if(!f){ toast('⚠ 先に申請ファイルを作ってください'); return; }
+  closeAibisAlert();
+  function download(){
+    var url=URL.createObjectURL(f); var a=document.createElement('a'); a.href=url; a.download=f.name; a.click(); setTimeout(function(){ URL.revokeObjectURL(url); },1500);
+    var q=(selfEmail?'?cc='+selfEmail+'&subject=':'?subject=')+encodeURIComponent(_ROSTER_REQ_SUBJ)+'&body='+encodeURIComponent(_ROSTER_REQ_SUBJ);
+    _mailtoPrompt('mailto:'+(mgrEmail||'')+q, e(f.name)+'を添付して、課長に送信してね。<br>'+e(_sendRuleText('To-Boss')));
+  }
+  var canShareFiles=(typeof navigator!=='undefined' && navigator.share && navigator.canShare);
+  if(isMob && canShareFiles && navigator.canShare({files:[f]})){
+    try{ if(mgrEmail && navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(mgrEmail); } }catch(_e){}
+    navigator.share({files:[f], title:_ROSTER_REQ_SUBJ, text:_ROSTER_REQ_SUBJ})
+      .then(function(){ toast(mgrEmail?('共有OK。宛先「'+mgrEmail+'」をコピー済→宛先に貼り付け'):'共有しました'); })
+      .catch(function(err){ if(err && err.name==='AbortError') return; download(); });
+    return;
+  }
+  download();
+}
+/* 名簿を読めなかった理由の文（拒むとき） */
+function _rosterRejectText(d){
+  var r=d&&d.reason;
+  if(r==='no_roots') return '課長の端末の鍵がまだアプリに入っていないため、名簿は読み込みませんでした。';
+  if(r==='not_manager') return '課長の端末の署名ではない名簿です。読み込みませんでした。';
+  if(r==='older') return '今の名簿（第'+d.currentSerial+'号）より古い名簿（第'+d.serial+'号）のため、読み込みませんでした。';
+  if(r==='below_min') return '使えなくなった古い名簿（第'+d.serial+'号）のため、読み込みませんでした。';
+  if(r==='conflict') return '同じ番号（第'+d.serial+'号）で中身が違う名簿です。読み込みませんでした。課長に連絡してください。';
+  if(r==='team_mismatch') return 'ほかの課の名簿です。読み込みませんでした。';
+  return '名簿の形が正しくありません。読み込みませんでした。';
+}
+/* 名簿の封筒（開けた物）を取り込む。list は aibisSealed.open の戻り（ok:true・kind:roster）の配列 */
+async function rosterReceiveFiles(list){
+  var lines=[], stored=false, rejected=false, rec=null;
+  try{ rec=await aibisKeys.read(); }catch(_e){ rec=null; }
+  var sorted=list.slice().sort(function(a, b){ return (a.meta.rosterSerial||0)-(b.meta.rosterSerial||0); });
+  for(var i=0;i<sorted.length;i++){
+    var d=null;
+    try{ d=await aibisRoster.decideImport({roots:AIBIS_ROOTS, opened:sorted[i], current:await aibisKeys.rosterGet('current')}); }catch(_e){ d={ok:false, reason:'bad_format'}; }
+    if(d.ok && d.action==='store'){
+      var put=null;
+      try{ put=await aibisKeys.rosterPut('current', d.record, function(cur){ return aibisRoster.canReplace(cur, d.record); }); }catch(_e){ put=null; }
+      if(!(put && put.ok)){ rejected=true; lines.push('名簿（第'+d.record.serial+'号）を置けませんでした。読み込みませんでした。'); continue; }
+      stored=true;
+      var line='名簿（第'+d.record.serial+'号）を読み込みました。', who={status:'unregistered'};
+      try{ who=(rec && rec.device) ? aibisRoster.whoIs(AIBIS_ROOTS, await aibisRoster.effectiveRoster(AIBIS_ROOTS, d.record), rec.device.dev) : who; }catch(_e){}
+      if(who.status==='registered') line+='この端末は名簿に入っています。';
+      else if(who.status!=='manager') line+='この端末は名簿に入っていません。';
+      lines.push(line);
+    } else if(d.ok && d.action==='already'){
+      lines.push('この名簿（第'+d.serial+'号）は読み込み済みです。');
+    } else {
+      rejected=true; lines.push(_rosterRejectText(d));
+    }
+  }
+  if(rejected && !stored) lines.push('データは変更していません。');
+  aibisAlert('<div data-roster-import="1">'+lines.map(function(l){ return e(l); }).join('<br>')+'</div>');
+  if(stored && typeof deviceRegisterRefresh==='function') deviceRegisterRefresh();
+}
+
+/* === 課長側：端末の登録の申請の承認と、名簿を作る・送る（JSON の暗号化 段階1d-4・2026-11-17 高田さん承認） ===
+ * 設計：work-claude/design/json-crypto/14_1dの作り方（設計レビュー Fable）.md の 1章 D・E、2章 2a〜2e・3a・3b・4・5・6・9、3章 1d-4、5章。
+ * 申請：file_ops.js の _sealedRegFiles1d から開けた申請の封筒を受け取る（1回に1つ）。申請の文字列を parseRequest で確かめ、
+ *   申請の中の署名用公開鍵と封筒に署名した鍵が同じか（E）を見る。違えば「形が正しくない」。封筒の見出しの pid は使わない。
+ * 承認：名簿を作れるのは定数で issuer:true の課長の端末（PC）だけ。もう1台の課長の端末は「課長の PC で行ってください」で止める。
+ *   担当から聞いた確認コードを入力して照らす（正解は画面に出さない）。合えば approve（同じ種類の端末は入れ替えて古い方を取り消し）。
+ * 名簿を作る：新しい名簿の文字列を、名簿の全端末＋定数の課長の全端末あてに封をし、この端末で開けて decideImport（3a）を通してから置く。承認の記録（approvals）を足す。
+ * 名簿を送る：「作る」と「送る」を2回の押しに分ける。送る口の先頭で aibisVerGate.stopIfNewer。押した処理の中で直接 navigator.share／PC は DL＋_mailtoPrompt（宛先は空）。
+ *   担当のメールアドレス（staffMails）は小窓に出し、送るときにコピーする。カードの送る口（list_select_send.js の _sendCards）は通らない。
+ * 起動時：定数が有効・役職が課長・解錠済みで、この端末の鍵が定数の課長の端末に無いときだけ知らせる。
+ * 鍵の無い端末では DB を作らない（read・rosterGet は「のぞくだけ」・rosterPut は鍵がある時だけ）。aibisRoster・AIBIS_ROOTS は window に出さない。
+ */
+window.rosterAdminApprove=rosterAdminApprove; window.rosterAdminLater=rosterAdminLater; window.rosterAdminSend=rosterAdminSend;
+var _rosterAdminReq=null;  // 承認を待つ申請 {text, req}
+var _rosterAdminFile=null; // 作った名簿の封筒（送るボタンで使う）
+var _rosterAdminBusy=false;
+var _ROSTER_ADMIN_SUBJ='AIBIS Device-Roster';
+var _ROSTER_ADMIN_FORM={pc:'PC', mob:'スマホ'};
+var _ROSTER_ADMIN_BTN='flex:1;padding:8px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit';
+var _ROSTER_ADMIN_NOT_ROOT_TEXT='この端末の鍵は、アプリに入っている課長の端末の鍵ではありません。課長の端末を替えたときは、開発者に知らせてください。';
+function _rosterAdminWhen(iso){
+  var d=new Date(iso); if(isNaN(d.getTime())) return '不明';
+  return d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+/* 承認できないときの小窓（名簿は変えない） */
+function _rosterAdminStop(text){
+  _rosterAdminReq=null;
+  aibisAlert('<div data-roster-admin-stop="1">'+e(text)+'<br>'+e('名簿は変えていません。')+'</div>');
+}
+/* 管理職の解錠が無ければ止める（権限の正本は isMgrUnlocked だけ）。戻り：止めたか */
+function _rosterAdminLocked(){
+  if(typeof isMgrUnlocked==='function' && isMgrUnlocked()===true) return false;
+  _rosterAdminStop('この操作は管理職のみ利用できます。管理職モードを解錠してから行ってください。');
+  return true;
+}
+/* この端末が定数の課長の端末なら、その行と鍵。戻り：{rec, m}（m は無ければ null） */
+async function _rosterAdminMe(){
+  var rec=null;
+  try{ rec=await aibisKeys.read(); }catch(_e){ rec=null; }
+  return {rec:rec, m:(rec && rec.device) ? aibisRoster.managerOf(AIBIS_ROOTS, rec.device.dev) : null};
+}
+/* 名簿を作る元：有効な名簿があればそれ、無ければ作り直しの元（rebuildBase：前の取り消しは写せるときだけ写す）。
+ * minSerial は approve・revoke に渡す最小番号（作り直しのときは max(定数の最小番号, 置いてある番号+1)）。rebuilt は作り直しのときだけ rebuildBase の戻り */
+async function _rosterAdminBase(){
+  var current=await aibisKeys.rosterGet('current');
+  var eff=await aibisRoster.effectiveRoster(AIBIS_ROOTS, current);
+  if(eff) return {current:current, roster:eff.roster, minSerial:AIBIS_ROOTS.minRosterSerial, rebuilt:null};
+  var rb=await aibisRoster.rebuildBase(AIBIS_ROOTS, current);
+  return {current:current, roster:rb.roster, minSerial:rb.minSerial, rebuilt:rb};
+}
+/* approve が断ったときの文 */
+function _rosterAdminRefuseText(a, req){
+  var who=req.name+'さんの '+(_ROSTER_ADMIN_FORM[req.form]||req.form);
+  if(a.reason==='already') return 'この端末（'+who+'）は、すでに名簿に入っています。';
+  if(a.reason==='revoked') return 'この端末（'+who+'）は取り消した端末です。名簿には入れられません。';
+  return 'この申請は名簿に入れられません。';
+}
+/* 申請の封筒（開けた物）を受け取る。list は aibisSealed.open の戻り（ok:true・kind:request）の配列 */
+async function rosterAdminReceiveRequests(list){
+  try{
+  _rosterAdminReq=null;
+  var ck=null;
+  try{ ck=await aibisRoster.checkRoots(AIBIS_ROOTS); }catch(_e){ ck=null; }
+  if(!ck || !ck.ok || !ck.active){ _rosterAdminStop('課長の端末の鍵がまだアプリに入っていないため、申請は読み込めません。'); return; }
+  if(list.length!==1){ _rosterAdminStop('申請のファイルは1つずつ読み込んでください。'); return; }
+  var me=await _rosterAdminMe();
+  if(!me.m){ _rosterAdminStop('申請は課長の端末で読み込んでください。'); return; }
+  if(!me.m.issuer){ _rosterAdminStop('承認は課長の PC で行ってください。'); return; }
+  if(_rosterAdminLocked()) return;
+  var opened=list[0], p=null;
+  try{ p=await aibisRoster.parseRequest(opened.payload); }catch(_e){ p=null; }
+  if(!p || !p.ok || !aibisRoster.requestSignedBySender(p.req, opened.sender)){ _rosterAdminStop('申請の形が正しくありません。'); return; } // E：申請の sigPub と署名した端末
+  var base=await _rosterAdminBase();
+  var dry=aibisRoster.approve(base.roster, p.req, {role:'staff', minSerial:base.minSerial});
+  var held=(!dry.ok && dry.reason==='already') ? _rosterAdminFind(base.roster, p.req.kid) : null; // 名簿の名前と違う名前で申請し直した端末
+  if(held && held.name!==p.req.name){ _rosterAdminStop('この端末は'+held.name+'さんの '+(_ROSTER_ADMIN_FORM[held.form]||held.form)+' として、すでに名簿に入っています。名前を変えるときは、担当の端末で「端末の登録を外す」をしてから登録し直し、申請し直してもらってください。新しい申請を承認したあと、名簿の小窓で'+held.name+'さん（いまの名簿の名前）の '+(_ROSTER_ADMIN_FORM[held.form]||held.form)+' を取り消してください。'); return; }
+  if(!dry.ok){ _rosterAdminStop(_rosterAdminRefuseText(dry, p.req)); return; }
+  _rosterAdminReq={text:opened.payload, req:p.req};
+  var h='端末の登録の申請が届いています。表示名：'+e(p.req.name)+'／端末：'+e(_ROSTER_ADMIN_FORM[p.req.form]||p.req.form)+'／作った日時：'+e(_rosterAdminWhen(opened.meta.created))+'。担当から聞いた確認コードを入力してください。';
+  dry.replaced.forEach(function(x){ h+='<br>'+e(x.name+'さんの '+(_ROSTER_ADMIN_FORM[x.form]||x.form)+' を新しい鍵に入れ替えます（古い鍵は取り消します）'); });
+  if(dry.replaced.length) h+='<br>'+e('本人からの申請か確かめてください。');
+  if(!dry.replaced.length && base.roster.people.some(function(x){ return x.name===p.req.name; })) h+='<br>'+e('すでに名簿にいる'+p.req.name+'さんの2台目（'+(_ROSTER_ADMIN_FORM[p.req.form]||p.req.form)+'）として足します。本人からの申請か確かめてください。');
+  if(base.rebuilt && base.rebuilt.heldSerial) h+='<br>'+e('この端末に置いてある名簿（第'+base.rebuilt.heldSerial+'号）は今のアプリでは使えないため、名簿を新しく作り直します（第'+dry.roster.serial+'号）。前の名簿に入っていた端末は、申請し直してもらってください。'+(base.rebuilt.carried ? '' : '前に取り消した端末の記録は引き継げません。'));
+  aibisAlert('<div data-roster-approve="1">'+h+'</div>'
+    +'<input id="rosterAdminCode" type="text" autocomplete="off" placeholder="XXXX-XXXX" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;font-family:inherit;margin:8px 0 0">'
+    +'<div id="rosterAdminCodeMsg" style="font-size:12px;color:#c05621;margin-top:4px"></div>'
+    +'<div style="display:flex;gap:8px;margin-top:8px">'
+    +'<button id="rosterAdminApproveBtn" onclick="rosterAdminApprove()" class="bp" style="'+_ROSTER_ADMIN_BTN+'">承認して名簿に入れる</button>'
+    +'<button id="rosterAdminLaterBtn" onclick="rosterAdminLater()" class="bc za-dlg-no" style="'+_ROSTER_ADMIN_BTN+'">あとで</button>'
+    +'</div>');
+  }catch(_e){ _rosterAdminStop('申請を読み込む途中で失敗しました。'); }
+}
+function rosterAdminLater(){ _rosterAdminReq=null; closeAibisAlert(); }
+/* 承認して名簿に入れる（1回目の押し）。確認コードが合えば名簿を作って置き、「名簿を送る」の小窓を出す */
+async function rosterAdminApprove(){
+  var q=_rosterAdminReq;
+  if(!q){ toast('⚠ 先に申請ファイルを読み込んでください'); return; }
+  if(_rosterAdminBusy) return;
+  _rosterAdminBusy=true;
+  try{
+    var el=document.getElementById('rosterAdminCode'), msg=document.getElementById('rosterAdminCodeMsg');
+    if(!(await aibisRoster.codeMatches(q.text, el ? el.value : ''))){
+      if(msg) msg.textContent='確認コードが合いません。申請ファイルが別の物か、書き換えられた恐れがあります。名簿は変えていません。';
+      return;
+    }
+    await _rosterAdminMake(q);
+  }catch(_e){
+    _rosterAdminReq=null;
+    aibisAlert('<div data-roster-admin-stop="1">'+e('名簿を作る途中で失敗しました。')+'</div>');
+  }finally{
+    _rosterAdminBusy=false;
+  }
+}
+async function _rosterAdminMake(q){
+  var me=await _rosterAdminMe();
+  if(!me.m || !me.m.issuer){ _rosterAdminStop('承認は課長の PC で行ってください。'); return; }
+  if(_rosterAdminLocked()) return;
+  var base=await _rosterAdminBase();
+  var a=aibisRoster.approve(base.roster, q.req, {role:'staff', minSerial:base.minSerial});
+  if(!a.ok){ _rosterAdminStop(_rosterAdminRefuseText(a, q.req)); return; }
+  var env=JSON.stringify(await aibisSealed.seal({kind:'roster', payload:a.text, app:APP_VERSION, from:{pid:me.rec.pid, device:me.rec.device},
+    recipients:aibisRoster.rosterRecipients(AIBIS_ROOTS, a.roster), team:AIBIS_ROOTS.team, rosterSerial:a.roster.serial}));
+  // 担当の端末と同じ道（開けて 3a を通す）で置く
+  var opened=await aibisSealed.open(env, me.rec.device, null);
+  var d=await aibisRoster.decideImport({roots:AIBIS_ROOTS, opened:opened, current:base.current});
+  if(!(d.ok && d.action==='store')){ _rosterAdminStop('名簿を作れませんでした。'); return; }
+  var put=await aibisKeys.rosterPut('current', d.record, function(cur){ return aibisRoster.canReplace(cur, d.record); });
+  if(!(put && put.ok)){ _rosterAdminStop('名簿を置けませんでした。'); return; }
+  var log=await aibisKeys.rosterGet('approvals');
+  if(!Array.isArray(log)) log=[];
+  log.push({at:a.roster.issued, serial:a.roster.serial, pid:q.req.pid, name:q.req.name, form:q.req.form, kid:q.req.kid, dev:q.req.dev,
+    replaced:a.replaced.map(function(x){ return x.kid; })});
+  await aibisKeys.rosterPut('approvals', log);
+  _rosterAdminReq=null;
+  var fn='AIBIS_ROSTER_'+a.roster.serial+'_'+_rosterTs()+'.json';
+  _rosterAdminFile=new File([env], fn, {type:'application/json'});
+  var mails=_rosterAdminMails();
+  aibisAlert('<div data-roster-made="1">名簿（第'+a.roster.serial+'号）を作りました（'+e(fn)+'）。'+e(q.req.name)+'さんの '+e(_ROSTER_ADMIN_FORM[q.req.form]||q.req.form)+' を名簿に入れました。<br>'
+    +'名簿を担当全員に送ってください。'
+    +(mails?'<br>担当のメールアドレス（送るときにコピーします）：<br><span id="rosterAdminMails" style="font-size:12px;word-break:break-all">'+e(mails)+'</span>':'')
+    +'<br><span style="font-size:12px;color:#c05621">'+e(_sendRuleText('To-Member'))+'</span></div>'
+    +'<div style="display:flex;gap:8px;margin-top:8px">'
+    +'<button id="rosterAdminSendBtn" onclick="rosterAdminSend()" class="bp" style="'+_ROSTER_ADMIN_BTN+'">📧 名簿を送る</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="'+_ROSTER_ADMIN_BTN+'">あとで</button>'
+    +'</div>');
+  if(typeof deviceRegisterRefresh==='function') deviceRegisterRefresh();
+}
+/* 担当のメールアドレス（staffMails のうち入っている物）を「, 」でつないだ文字列 */
+function _rosterAdminMails(){
+  return (Array.isArray(staffMails) ? staffMails : []).map(function(s){ return (s && typeof s.email==='string') ? s.email.trim() : ''; }).filter(Boolean).join(', ');
+}
+/* 名簿を送る（2回目の押し）。押した処理の中で直接共有する（共有の前に待たない） */
+function rosterAdminSend(){
+  if(typeof aibisVerGate!=='undefined' && aibisVerGate.stopIfNewer('送って')) return; // 送る前の版の確かめ（先に取った結果だけを同期で見る）
+  var f=_rosterAdminFile;
+  if(!f){ toast('⚠ 先に名簿を作ってください'); return; }
+  var mails=_rosterAdminMails();
+  closeAibisAlert();
+  function copyMails(){ try{ if(mails && navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(mails).catch(function(){}); } }catch(_e){} }
+  function download(){
+    var url=URL.createObjectURL(f); var a=document.createElement('a'); a.href=url; a.download=f.name; a.click(); setTimeout(function(){ URL.revokeObjectURL(url); },1500);
+    copyMails();
+    _mailtoPrompt('mailto:?subject='+encodeURIComponent(_ROSTER_ADMIN_SUBJ)+'&body='+encodeURIComponent(_ROSTER_ADMIN_SUBJ),
+      e(f.name)+'を添付して、担当全員に送信してね。'+(mails?'<br>担当のメールアドレスをコピーしました。宛先に貼り付けてね。':'')+'<br>'+e(_sendRuleText('To-Member')));
+  }
+  var canShareFiles=(typeof navigator!=='undefined' && navigator.share && navigator.canShare);
+  if(isMob && canShareFiles && navigator.canShare({files:[f]})){
+    copyMails();
+    navigator.share({files:[f], title:_ROSTER_ADMIN_SUBJ, text:_ROSTER_ADMIN_SUBJ})
+      .then(function(){ toast(mails?'共有OK。担当のメールアドレスをコピー済→宛先に貼り付け':'共有しました'); })
+      .catch(function(err){ if(err && err.name==='AbortError') return; download(); });
+    return;
+  }
+  download();
+}
+/* 起動時の知らせ：定数が有効・役職が課長・解錠済みで、この端末の鍵が定数の課長の端末に無いときだけ。戻り：知らせたか */
+function rosterAdminBootNotice(){
+  try{
+    if(typeof aibisRoster==='undefined'||!aibisRoster||typeof aibisKeys==='undefined'||!aibisKeys) return Promise.resolve(false);
+    if(!aibisRoster.rootsActive(AIBIS_ROOTS) || userRole!=='課長' || !isMgrUnlocked()) return Promise.resolve(false);
+    return aibisKeys.read().then(function(rec){
+      if(rec && rec.device && aibisRoster.managerOf(AIBIS_ROOTS, rec.device.dev)) return false;
+      toast(_ROSTER_ADMIN_NOT_ROOT_TEXT);
+      return true;
+    }).catch(function(){ return false; });
+  }catch(_e){ return Promise.resolve(false); }
+}
+/* ===== 段階1d-6（2026-11-17）：課長の名簿の小窓（人・端末・番号の一覧と送り直し）と「この端末を取り消す」 =====
+ * 入口は初期設定の「端末の登録」の段の「名簿を開く」（device_register.js。この端末の鍵が定数の課長の端末のときだけ出す。⋮ には足さない）。
+ * 開けるのは定数で issuer:true の課長の端末（PC）だけ（申請の承認と同じ止め方）。取り消すと番号が1つ上がり、取り消した端末は revoked へ。
+ * 新しい名簿は承認と同じ道（名簿の全端末＋定数の課長の全端末あてに封をし、この端末で開けて decideImport を通して置く）。承認の記録（approvals）は書かない。
+ * 送り直しは、置いてある名簿の文字列をそのまま包み直す（14_ 2章 3a）。小窓を開くときに包み、「📧 名簿を送る」（rosterAdminSend）で送る。
+ */
+window.rosterAdminOpen=rosterAdminOpen; window.rosterAdminRevokeAsk=rosterAdminRevokeAsk; window.rosterAdminRevoke=rosterAdminRevoke;
+var _rosterAdminList=null;    // 小窓に出した名簿（取り消しの確かめで引く）
+var _rosterAdminRevokeKid=''; // 取り消しを確かめている端末（宛先の印 kid）
+/* 名簿の小窓・取り消しを使える端末か。使えなければ止めて null。戻り：_rosterAdminMe の形 */
+async function _rosterAdminIssuer(){
+  var ck=null;
+  try{ ck=await aibisRoster.checkRoots(AIBIS_ROOTS); }catch(_e){ ck=null; }
+  if(!ck || !ck.ok || !ck.active){ _rosterAdminStop('課長の端末の鍵がまだアプリに入っていないため、名簿は開けません。'); return null; }
+  var me=await _rosterAdminMe();
+  if(!me.m){ _rosterAdminStop('名簿の小窓は課長の端末で開いてください。'); return null; }
+  if(!me.m.issuer){ _rosterAdminStop('名簿の小窓は課長の PC で開いてください。'); return null; }
+  if(_rosterAdminLocked()) return null;
+  return me;
+}
+/* 名簿の文字列を、名簿の全端末＋定数の課長の全端末あてに封をする。戻り：封筒の文字列 */
+async function _rosterAdminSeal(me, roster, text){
+  return JSON.stringify(await aibisSealed.seal({kind:'roster', payload:text, app:APP_VERSION, from:{pid:me.rec.pid, device:me.rec.device},
+    recipients:aibisRoster.rosterRecipients(AIBIS_ROOTS, roster), team:AIBIS_ROOTS.team, rosterSerial:roster.serial}));
+}
+/* 名簿の中の端末（kid）の持ち主と種類。無ければ null */
+function _rosterAdminFind(roster, kid){
+  var hit=null;
+  (roster && Array.isArray(roster.people) ? roster.people : []).forEach(function(p){ p.devices.forEach(function(d){ if(d.kid===kid) hit={name:p.name, form:d.form}; }); });
+  return hit;
+}
+/* 「名簿を送る」の部分（担当のメールアドレス・渡し方・ボタン） */
+function _rosterAdminSendPart(){
+  var mails=_rosterAdminMails();
+  return '<br>名簿を担当全員に送ってください。'
+    +(mails?'<br>担当のメールアドレス（送るときにコピーします）：<br><span id="rosterAdminMails" style="font-size:12px;word-break:break-all">'+e(mails)+'</span>':'')
+    +'<br><span style="font-size:12px;color:#c05621">'+e(_sendRuleText('To-Member'))+'</span>'
+    +'<div style="display:flex;gap:8px;margin-top:8px">'
+    +'<button id="rosterAdminSendBtn" onclick="rosterAdminSend()" class="bp" style="'+_ROSTER_ADMIN_BTN+'">📧 名簿を送る</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="'+_ROSTER_ADMIN_BTN+'">閉じる</button>'
+    +'</div>';
+}
+/* 名簿の小窓を開く。有効な名簿があれば一覧を出し、送り直しの封筒を先に作っておく */
+async function rosterAdminOpen(){
+  if(_rosterAdminBusy) return;
+  _rosterAdminBusy=true;
+  _rosterAdminList=null; _rosterAdminRevokeKid=''; _rosterAdminFile=null;
+  try{
+    var me=await _rosterAdminIssuer();
+    if(!me) return;
+    var base=await _rosterAdminBase(), r=base.roster;
+    if(!r.serial){ aibisAlert('<div data-roster-list="1">'+e(((base.rebuilt && base.rebuilt.heldSerial) ? '置いてある名簿（第'+base.rebuilt.heldSerial+'号）は今のアプリでは使えません。' : '名簿はまだありません。')+'申請を承認すると、第'+Math.max(1, base.minSerial)+'号の名簿ができます。')+'</div>'); return; }
+    var env=await _rosterAdminSeal(me, r, base.current.text); // 置いてある文字列をそのまま包み直す
+    _rosterAdminFile=new File([env], 'AIBIS_ROSTER_'+r.serial+'_'+_rosterTs()+'.json', {type:'application/json'});
+    _rosterAdminList=r;
+    var h='名簿（第'+r.serial+'号）／作った日時：'+e(_rosterAdminWhen(r.issued));
+    r.people.forEach(function(p){
+      h+='<div style="margin-top:8px"><b>'+e(p.name)+'</b>';
+      p.devices.forEach(function(d){
+        h+='<div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span style="flex:1">'+e(_ROSTER_ADMIN_FORM[d.form]||d.form)+'（登録：'+e(_rosterAdminWhen(d.added))+'）</span>'
+          +'<button onclick="rosterAdminRevokeAsk(\''+eAttr(d.kid)+'\')" class="bc" style="padding:6px 10px;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">この端末を取り消す</button></div>';
+      });
+      h+='</div>';
+    });
+    if(r.revoked.length) h+='<div style="margin-top:8px;font-size:12px;color:#718096">取り消した端末：'+r.revoked.length+'台</div>';
+    aibisAlert('<div data-roster-list="1">'+h+_rosterAdminSendPart()+'</div>');
+  }catch(_e){
+    aibisAlert('<div data-roster-admin-stop="1">'+e('名簿の小窓を開く途中で失敗しました。')+'</div>');
+  }finally{
+    _rosterAdminBusy=false;
+  }
+}
+/* 「この端末を取り消す」（1回目の押し）。確かめの小窓を出す（まだ名簿は変えない） */
+function rosterAdminRevokeAsk(kid){
+  _rosterAdminRevokeKid='';
+  var hit=_rosterAdminFind(_rosterAdminList, kid);
+  var dry=hit ? aibisRoster.revoke(_rosterAdminList, kid, {minSerial:AIBIS_ROOTS.minRosterSerial}) : null;
+  if(!dry || !dry.ok){ _rosterAdminStop('この端末は名簿に入っていません。'); return; }
+  _rosterAdminRevokeKid=kid;
+  aibisAlert('<div data-roster-revoke-ask="1">'+e(hit.name+'さんの '+(_ROSTER_ADMIN_FORM[hit.form]||hit.form)+' を取り消します。')+'<br>'
+    +e('新しい名簿（第'+dry.roster.serial+'号）を作ります。取り消した端末から届いたファイルは、マージだけで読み込みます。取り消した端末の鍵は、名簿に戻せません。')+'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:8px">'
+    +'<button id="rosterAdminRevokeBtn" onclick="rosterAdminRevoke()" class="bp" style="'+_ROSTER_ADMIN_BTN+'">取り消す</button>'
+    +'<button onclick="closeAibisAlert()" class="bc za-dlg-no" style="'+_ROSTER_ADMIN_BTN+'">やめる</button>'
+    +'</div>');
+}
+/* 取り消す（2回目の押し）。番号を1つ上げた名簿を作って置き、「名簿を送る」の小窓を出す */
+async function rosterAdminRevoke(){
+  var kid=_rosterAdminRevokeKid;
+  if(!kid){ toast('⚠ 先に取り消す端末を選んでください'); return; }
+  if(_rosterAdminBusy) return;
+  _rosterAdminBusy=true;
+  _rosterAdminRevokeKid='';
+  try{
+    var me=await _rosterAdminIssuer();
+    if(!me) return;
+    var base=await _rosterAdminBase();
+    var hit=_rosterAdminFind(base.roster, kid);
+    var a=hit ? aibisRoster.revoke(base.roster, kid, {minSerial:base.minSerial}) : null;
+    if(!a || !a.ok){ _rosterAdminStop('この端末は名簿に入っていません。'); return; }
+    var env=await _rosterAdminSeal(me, a.roster, a.text);
+    // 担当の端末と同じ道（開けて 3a を通す）で置く
+    var opened=await aibisSealed.open(env, me.rec.device, null);
+    var d=await aibisRoster.decideImport({roots:AIBIS_ROOTS, opened:opened, current:base.current});
+    if(!(d.ok && d.action==='store')){ _rosterAdminStop('名簿を作れませんでした。'); return; }
+    var put=await aibisKeys.rosterPut('current', d.record, function(cur){ return aibisRoster.canReplace(cur, d.record); });
+    if(!(put && put.ok)){ _rosterAdminStop('名簿を置けませんでした。'); return; }
+    var fn='AIBIS_ROSTER_'+a.roster.serial+'_'+_rosterTs()+'.json';
+    _rosterAdminFile=new File([env], fn, {type:'application/json'});
+    _rosterAdminList=a.roster;
+    aibisAlert('<div data-roster-made="1">名簿（第'+a.roster.serial+'号）を作りました（'+e(fn)+'）。'+e(hit.name+'さんの '+(_ROSTER_ADMIN_FORM[hit.form]||hit.form)+' を取り消しました。')
+      +_rosterAdminSendPart()+'</div>');
+    if(typeof deviceRegisterRefresh==='function') deviceRegisterRefresh();
+  }catch(_e){
+    aibisAlert('<div data-roster-admin-stop="1">'+e('名簿を作る途中で失敗しました。')+'</div>');
+  }finally{
+    _rosterAdminBusy=false;
+  }
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(rosterAdminBootNotice, 0); });
+
 // 路線価の正規化（1000以上なら1000で割る）
 function normalizeRosenka(){
   var el=document.getElementById('f_rosenka'); if(!el) return;
@@ -35785,8 +37713,8 @@ var _geoLeaf=null, _geoTargetId='', _geoDefault=[35.7066,139.8683], _geoSeq=0; /
 function _loadLeaflet(){
   return new Promise(function(res,rej){
     if(window.L) return res();
-    var css=document.createElement('link'); css.rel='stylesheet'; css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
-    var js=document.createElement('script'); js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; js.onload=function(){res();}; js.onerror=function(){rej(new Error('leaflet'));}; document.head.appendChild(js);
+    var css=document.createElement('link'); css.rel='stylesheet'; css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; css.integrity='sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY='; css.crossOrigin=''; document.head.appendChild(css);
+    var js=document.createElement('script'); js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; js.integrity='sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo='; js.crossOrigin=''; js.onload=function(){res();}; js.onerror=function(){rej(new Error('leaflet'));}; document.head.appendChild(js);
   });
 }
 function _geoInit(lat,lng){
@@ -39760,19 +41688,37 @@ setTimeout(function(){ try{ updateInboxBadge(); }catch(e){} }, 800);
 <!-- ===== 写真インボックス ここまで ===== -->
 <script>
 /* 古いキャッシュ対策：サーバ上の最新版と現在版を照合し、違えば一度だけ最新URLへ読み直す */
+(function(){
+var touched=false;
+['pointerdown','keydown','input','touchstart'].forEach(function(ty){ window.addEventListener(ty,function(){ touched=true; },{capture:true,passive:true}); });
 window.addEventListener('load',function(){
   try{
-    var cur=(typeof APP_VERSION!=='undefined')?APP_VERSION:'';
+    var sp=new URLSearchParams(location.search||'');
+    var cur='', hc=(document.head&&document.head.childNodes)||[];
+    for(var i=0;i<hc.length;i++){ if(hc[i].nodeType===8){ var hv=/^ APP_VERSION = "([^"]+)" $/.exec(hc[i].nodeValue||''); if(hv) cur=hv[1]; break; } }
     if(!cur) return;
     fetch(location.pathname+'?_v='+Date.now(),{cache:'no-store',headers:{'Range':'bytes=0-140000'}})
       .then(function(r){ return (r&&(r.ok||r.status===206))?r.text():null; })
       .then(function(t){
         if(!t) return;
         var m=t.match(/APP_VERSION = "([^"]+)"/);
-        if(m&&m[1]&&m[1]!==cur){ location.replace(location.pathname+'?v='+encodeURIComponent(m[1])+location.hash); }
+        if(!m||!m[1]||m[1]===cur) return;
+        if(sp.get('v')===m[1]) return;
+        if(sp.has('v')) return;
+        if(performance.now()>5000) return;
+        if((document.referrer||'').indexOf('AibisCam.html')>=0) return;
+        if(sp.has('card')||sp.has('inbox')||sp.has('from')||sp.has('ret')) return;
+        var lv=document.getElementById('listView'), ev=document.getElementById('editView');
+        if(!lv||!ev||lv.style.display==='none'||ev.style.display!=='none') return;
+        if(touched) return;
+        var ae=document.activeElement;
+        if(ae&&(/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName||'')||ae.isContentEditable)) return;
+        try{ var fl=document.querySelectorAll('input,textarea,select'); for(var j=0;j<fl.length;j++){ var fe=fl[j], ft=String(fe.type||'').toLowerCase(), op, di, k, pn, dv, tp; if(fe.tagName==='SELECT'){ op=fe.options; if(fe.multiple||fe.size>1){ for(k=0;k<op.length;k++){ if(op[k].selected!==op[k].defaultSelected) return; } }else{ di=-1; for(k=0;k<op.length;k++){ if(op[k].defaultSelected) di=k; } if(di<0){ for(k=0;k<op.length;k++){ pn=op[k].parentNode; if(!op[k].disabled&&!(pn&&pn.tagName==='OPTGROUP'&&pn.disabled)){ di=k; break; } } } if(fe.selectedIndex!==di) return; } }else if(fe.tagName==='TEXTAREA'){ if(fe.value!==fe.defaultValue) return; }else if(ft==='checkbox'||ft==='radio'){ if(fe.checked!==fe.defaultChecked) return; }else if(ft==='file'){ if(fe.files&&fe.files.length>0) return; }else if(!/^(hidden|button|submit|reset|image)$/.test(ft)){ if(fe.validity&&fe.validity.badInput) return; tp=document.createElement('template'); tp.innerHTML=fe.outerHTML; dv=tp.content&&tp.content.firstChild; if(!dv||fe.value!==dv.value) return; } } }catch(x){ return; }
+        sp.set('v',m[1]); location.replace(location.pathname+'?'+sp.toString()+location.hash);
       }).catch(function(){});
   }catch(e){}
 });
+})();
 </script>
 
 </body>
