@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<!-- APP_VERSION = "v11.60" -->
+<!-- APP_VERSION = "v11.61" -->
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -3652,7 +3652,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.60";
+var APP_VERSION = "v11.61";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -8894,7 +8894,7 @@ var AIBIS_FAQ=[
   {q:'検索ってどう使うの？',a:'名前や住所を入れるだけ！スペース区切りで複数キーワードも使えるよ🔍<br>並び替えは最新・再訪・ジャッジ・住所・スコア・心理・会話・ランク・遅れ・初訪・土地・顧客から選べるよ！'},
   {q:'バージョンアップするには？',a:function(){ return isMgrUnlocked()?'Claudeに修正を頼んで、GitHubに上書きするだけ！みんな次回アクセスで自動的に最新版になるよ👏':'アップデートは課長が管理しているよ😊 アプリを開き直すだけで、いつでも自動的に最新版が使えるから安心してね！'; }},
   {q:'マニュアルはどこ？',a:function(){return isMob?'⋮その他→📖マニュアルから見れるよ！タイトルをタップすると詳細が開くよ。':'⋮その他→📖マニュアルから見れるよ！各セクションをクリックすると詳細が開くよ。';}},
-  {q:'戦略協議ってどう使うの？',a:'戦略協議は、お客様の情報をAI（会社のCopilot）に分析してもらう機能だよ！<br><br>①「💭 戦略協議」タブを開く<br>②分析テーマを選ぶ（8種）<br>③「🤖 分析用に抽出」でコピー、または「📎 ファイルで抽出」でtxt保存（Copilotに添付→「添付の指示に従って分析して」とだけ送ればOK）<br>④「🤖 AI分析」でCopilotが開く<br>⑤貼り付けて送信→回答を貼り付け欄にペースト<br><br>総合分析では追客ランク（S〜E）が自動で検出されるよ🧚'},
+  {q:'戦略協議ってどう使うの？',a:'戦略協議は、お客様の情報をAI（会社のCopilot）に分析してもらう機能だよ！<br><br>①カードの「💭 戦略協議」タブを開く<br>②「📎 プロンプト抽出」を押す → 分析用のファイル（txt）が保存されるよ（氏名・住所などは自動でマスク。自由入力欄の固有名詞は残ることがあるから、添付前に中身を確認してね）<br>③「🤖 AI分析」でCopilotを開き、②のファイルを添付して「添付の指示に従って分析してください」とだけ送る<br>④返ってきた回答をまるごと「💭 総合戦略協議 − 貼り付け欄」に貼り付ける → 次回作戦・会話考察などのテーマへ自動で振り分けられるよ<br><br>さらに深掘りしたいときは「🔍 追加分析」を開いて、<b>次回作戦・会話考察・相続シナリオ</b>から選び、その中の「📎 プロンプト抽出」→「🤖 AI分析」で同じ手順。相続シナリオは家族人数を把握すると選べるよ🔒<br><br>貼り付けるとAIの参考ランクが「🤖 AI分析」の欄に出るよ。正式な追客ランクは課長との協議（Judgment）で決めてね🧚'},
   {q:'外部連携で情報はどこに行く？',a:'アイビスの基本データは<b>この端末の中だけ</b>に保存されるよ（サーバ送信なし）。<br><br>ただし次の機能を<b>自分で使ったとき</b>は、入力内容の一部が外部サービスへ渡るよ：<br>・🤖 AI分析（Copilot等への貼り付け／ファイル添付）<br>・🗺 地図・ストリートビュー表示<br>・📧 メール送信／同期<br><br>顧客情報を扱うときは「簡易匿名化」と貼り付け前の内容確認を習慣に。会社で認められた環境で使ってね！'},
   {q:'アイビスは開発が止まっても使える？',a:'公開ページが残っている限り使えるよ！設計から「長く使い続けられる」ことを大事にしてるんだ💪<br><br>・<b>サーバ・ログインは不要</b>：決められたアドレス（URL）のページをChromeで開くだけで全機能が動く。データをサーバへ送ることもない<br>・<b>データは端末内</b>（localStorage）＋保存先のファイルやまるごと引っ越しファイルで控えを取れる<br>・<b>戦略協議のプロンプトは汎用テキスト</b>：CopilotでもChatGPTでも将来のAIでも使える<br>・課長機能が無くても担当ひとりで「カード作成→作戦盤→予定表→AI壁打ち→判定→印刷」が全部回る<br><br><b>保管の心得</b>：アイビスのHTMLファイルを別の場所にコピーしても、決められたアドレス以外では開けないよ（勝手に使われないための仕組み）。守るべきなのは<b>データの控え</b>。保存先のファイルと、写真・営業の記録まで入る「📦 まるごと引っ越しファイル」をこまめに残しておこう。'},
   {q:'追客ランクって何？',a:'S〜EとXの7段階でお客様への訪問頻度・状況を表すよ！<br><br>'
@@ -15140,11 +15140,11 @@ function renderSelfDash(tid, targetManager){
  var _mvRows=_zSelfMoves(mine);
  var _plan=_planLoad(); var _acts=PLAN_PURPOSES.slice();
  var _selN=Object.keys(_plan.sel||{}).filter(function(k){return _prio.some(function(o){return String(o.c.id||'').replace(/[^\w-]/g,'')===k;});}).length;
- var _planH='<div class="z-sub">温度の高い順に3件。「今日この方に何をする？」— チップを選んで自分のミッションに（<b>'+_selN+'</b>/'+(_prio.length||0)+'件 選択中）。</div>'
+ var _planH='<div class="z-sub">スコア（点数）の高い順に3件。「今日この方に何をする？」— チップを選んで自分のミッションに（<b>'+_selN+'</b>/'+(_prio.length||0)+'件 選択中）。</div>'
   +(_prio.length?_prio.map(function(o,i){var c=o.c;var tag=(c.pursuit_judge==='A'||c.pursuit_judge==='S')?'A候補':(lastContactDays(c)>=14?lastContactDays(c)+'日未接触':(!c.family_headcount?'家族構成未確認':_tempBand(c)[1]));
     var chips=_acts.map(function(a){var on=_plan.sel&&_plan.sel[c.id]===a;return '<span class="z-chip" onclick="zPlanPick(\''+String(c.id||'').replace(/[^\w-]/g,'')+'\',\''+a+'\')" style="cursor:pointer;margin:2px 4px 0 0;display:inline-block;'+(on?'background:#34e3d0;color:#0b2230;font-weight:700;':'')+'">'+(on?'\u2713 ':'')+a+'</span>';}).join('');
     return '<div class="z-prow"><span class="z-pno">'+(i+1)+'</span><b class="z-pnm" style="cursor:pointer" onclick="openCard(\''+String(c.id||'').replace(/[^\w-]/g,'')+'\')">'+e(c.name||'無名')+'様 \u203a</b><span class="z-ptemp">'+_tempBand(c)[0]+' '+o.s+'<small>/78</small></span><span class="z-ptag">'+tag+'</span></div><div class="z-actrow" style="margin:2px 0 10px 26px">'+chips+'</div>';}).join(''):'<div class="z-sub">カードを追加すると表示されます</div>')
-  +'<div class="z-sub" style="margin-top:6px">\ud83d\udca1 '+e(_mis[0]||'')+'</div>'+((_prio.length&&_selN>=_prio.length)?'<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:linear-gradient(135deg,rgba(52,227,208,.16),rgba(43,108,176,.12));border:1px solid rgba(52,227,208,.4);font-size:12px;color:#0b7285;font-weight:700">\u2705 本日の任務、選択完了！ 1件動くごとに追客力+1。次は家族構成を1件埋めるとレベルアップ。</div>':'');
+  +'<div class="z-sub" style="margin-top:6px">\ud83d\udca1 '+e(_mis[0]||'')+'</div>'+((_prio.length&&_selN>=_prio.length)?'<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:linear-gradient(135deg,rgba(52,227,208,.16),rgba(43,108,176,.12));border:1px solid rgba(52,227,208,.4);font-size:12px;color:#0b7285;font-weight:700">\u2705 本日の任務、選択完了！ 訪問したら記録を残そう（再訪・追撃の記録が「今月の活動」のptになるよ）。家族構成（人数把握）も成長ポイントになるよ。</div>':'');
  // 前の章の中の2つ目の「今日の3手」は、札にせず点数順（前の作戦盤）の課題の一言の下の1行へ
  var movesCard='<div class="z-card z-cf z-moves" data-z-card="moves" data-z-seg-box><div class="z-chead"><h3>🎯 今日の3手</h3>'+_seg('mv',[['u','急ぐ順'],['s','点数順']])+'</div>'
   +_pane('mv','u','u',_mvRows)+_pane('mv','s','u',_planH+'<div class="z-sub z-1line">💡 <b>'+q[0][2]+'</b> '+q[0][3]+'</div>')+'</div>';
@@ -15817,7 +15817,7 @@ function zGrowthCardHTML(axes, prev, sk, mg){
 }
 
 /* ===== Phase2: 放置危険アラート（既存データのみ・入力欄追加なし） ===== */
-function _zToday10(){return new Date().toISOString().slice(0,10);}
+function _zToday10(){return new Date(Date.now()+9*3600000).toISOString().slice(0,10);}
 function zNeglectRisk(c){
   var st=+(c.stage||0), judge=(c.pursuit_judge||''), isAS=(judge==='A'||judge==='S');
   if(judge==='E'||judge==='X') return null;
@@ -24620,6 +24620,57 @@ function _updateInheritanceGate(){
   }catch(_eGate){}
 }
 
+/* ===== ソーシャルスタイルの指示文（2026-11-24 高田さん承認・指示文だけの直し） =====
+ * 保存値は略称（''／ドラ／エク／アナ／エミ）のまま変えない。指示文には略称を出さず正式名だけを出す
+ * （高田さん 11/24 0:2x「略称じゃなくて正式名でやってください。じゃないと文字が無駄です」。併記もしない）。
+ * タイプがあるときは、タイプに沿った対話文の例・予想される反応・行動のアドバイスを必ず求める。
+ * スタイルは仮説として扱い、録音・訪問履歴の実際の反応を優先する。未判定は決めつけない。 */
+var _SOCIAL_FULL_NAME={'ドラ':'ドライビング','エク':'エクスプレッシブ','アナ':'アナリティカル','エミ':'エミアブル'};
+function _socialVal(v){ if(!v) return ''; if(typeof v!=='string') return v; var s=v.trim(); return s==='未判定'?'':s; } // 空と「未判定」はどちらも未判定（ロープレの _rpSocialLabel と同じ扱い）。空かどうかは元の値の真偽で決め、文字列でない真の値はそのまま返す（faq-3 ffcfcfe の守り）
+function _socialLabel(v){
+  var s=_socialVal(v);
+  if(!s) return '未判定';
+  if(typeof s!=='string') return String(s); // 文字列でない値（[]・['ドラ']・5・true・{}）は変更前（4f98d0c）と同じ String(v)。表を引かない（faq-3 ffcfcfe の守り）
+  return Object.prototype.hasOwnProperty.call(_SOCIAL_FULL_NAME,s) ? _SOCIAL_FULL_NAME[s] : s; // constructor などを引かない（faq-3 633206d の守り）
+}
+/* 置き場所（案A・設計レビュー Fable・高田さん 11/25「A・推奨も入れる」）：3つは回答の1か所に1回だけ書かせる。
+ * mode='strategy'（総合）は PERSONALITY の区画の中（新しい【AIBIS:】見出しを作らせない。strategy_onepass.js は未知の見出しを総合1件に落とす）。
+ * それ以外（単独テーマ）は最後の節（①〜⑦ や Ⅰ〜Ⅶ の最後）の後に独立した「■ …対話・反応・行動」の見出しを1つ立てさせる。 */
+function _pushSocialStyleContract(lines, c, mode){
+  var s=_socialVal(c&&c.social);
+  lines.push('');
+  lines.push('【ソーシャルスタイルの反映】');
+  lines.push('この見出しは回答に写さないでください。');
+  if(s){
+    lines.push('このお客様のソーシャルスタイルは「'+_socialLabel(s)+'」と記録されています。仮説として扱い、次の3つを必ずこのタイプに合わせて具体的に書いてください（タイプ名を挙げるだけ・一般論だけで済ませない）。');
+    lines.push('・対話文の例：新人営業マンでも使いやすい自然な言葉で、そのまま使える、こちらの言葉とお客様の返答の往復（「担当：…」「お客様：（想定）…」の形で2〜3往復。お客様の返答は記録された発言ではなく想定です）');
+    lines.push('・予想されるお客様の反応：このタイプが前向き／中立／消極のときに見せやすい言葉・態度と、それぞれのサイン、そのときのこちらの次の一言');
+    lines.push('・こちらの行動のアドバイス：話す順番と速さ、数字・資料の出し方、間の取り方、決めてもらう時の聞き方（このタイプにしてはいけないことは「してはいけないこと」の4項目に根拠つきで入れ、ここには並べない）');
+    lines.push('録音・訪問履歴にある実際の反応がタイプの想定と違う場合は、実際の反応を優先し、どこが違うかを一言添えてください。');
+    lines.push(mode==='strategy'
+      ? 'この3つはPERSONALITYの区画の中に1回だけ書いてください。NEXT_VISIT・OBJECTION・TRAININGの区画では言い回しをこのタイプに合わせるだけにし、3つを繰り返さないでください。新しい【AIBIS:】の見出しは作らないでください。'
+      : '回答では、最後の節（①〜⑦ や Ⅰ〜Ⅶ の最後）の後に「■ '+_socialLabel(s)+'に合わせた対話・反応・行動」という見出しを1つ立て、その下にこの3つを1回だけ書いてください。番号の節の中では言い回しをこのタイプに合わせるだけにし、3つを繰り返さないでください。');
+  } else {
+    // 設計レビュー（Fable・2026-11-24）：「どのタイプにも無理のない一般的な接し方で」は DAN175 の「一般論だけで終わらせない」と逆向きのため、
+    // 未判定でも同じ3つをカードの記録に沿って求め、タイプ名の推測だけを止める。
+    lines.push('このお客様（ご本人）のソーシャルスタイルは未判定です。4つのタイプのどれかに決めつけず（推測でタイプ名を挙げない）、カードの記録に沿って、次の3つを具体的に書いてください（一般論だけで済ませない）。');
+    lines.push('・対話文の例：新人営業マンでも使いやすい自然な言葉で、そのまま使える、こちらの言葉とお客様の返答の往復（「担当：…」「お客様：（想定）…」の形で2〜3往復。お客様の返答は記録された発言ではなく想定です）');
+    lines.push('・予想されるお客様の反応：前向き／中立／消極のときに見せやすい言葉・態度と、それぞれのサイン、そのときのこちらの次の一言');
+    lines.push('・こちらの行動のアドバイス：話す順番と速さ、数字・資料の出し方、間の取り方、決めてもらう時の聞き方（してはいけないことは「してはいけないこと」の4項目に根拠つきで入れ、ここには並べない）');
+    lines.push('あわせて、次回の会話でスタイルを見分けるために観察する点（話す速さ、結論や数字を急ぐか、雑談や気持ちの話を好むか、慎重に確かめたがるか）を2〜3点挙げ、分かったらカードに記録するよう添えてください。');
+    lines.push(mode==='strategy'
+      ? 'この3つと観察する点はPERSONALITYの区画の中に1回だけ書いてください。NEXT_VISIT・OBJECTION・TRAININGの区画では3つを繰り返さないでください。新しい【AIBIS:】の見出しは作らないでください。'
+      : '回答では、最後の節（①〜⑦ や Ⅰ〜Ⅶ の最後）の後に「■ 記録に沿った対話・反応・行動」という見出しを1つ立て、その下にこの3つと観察する点を1回だけ書いてください。番号の節の中では3つを繰り返さないでください。');
+  }
+  // 設計レビュー（Fable・2026-11-24）：対話文の例・行動のアドバイスにもステージ別トーンの守りを効かせる（良悪例契約の文と同じ向き）
+  lines.push('対話文の例と行動のアドバイスは、上の「■ ステージ別トーン指示」（ある場合）に必ず従ってください（ステージ0〜2では提案・テストクロージング・決断を求める聞き方を書かない）。');
+  var famS=((c&&c.family)||[]).filter(function(f){ return f&&f.role&&_socialVal(f.social); });
+  if(famS.length){
+    // 続柄と正式名だけを出す（名前は出さない。匿名化のため）
+    lines.push('家族構成の欄にソーシャルスタイルの記録がある家族がいます（'+famS.map(function(f){ return f.role+'＝'+_socialLabel(f.social); }).join('、')+'）。その家族と話す場面ではその家族のスタイルに合わせてください。ご本人のスタイルは基本情報の「ソーシャル」の行のものを使ってください。記録の無い家族は決めつけないでください。');
+  }
+}
+
 /* ===== 第216弾: past-council-safe-reuse-phase-b 定数（ai-prompt-v2） =====
  * 正本: DAN216_FABLE5_DESIGN_RISK_AUDIT_REPORT_20260823.md §7/C6。
  * 全成分に個別hard capを与え、その総和のみをceilingとする単一決定論的予算。 */
@@ -24644,7 +24695,7 @@ function genPrompt(anon,presetOverride){
   var famTxtFn = function(f){
     var fname = anon ? (f.name ? getAlias(f.name) : '') : (f.name||'');
     var stanceL={pos:'ポジティブ',neg:'ネガティブ',unk:'不明'};
-    var line=(f.role||'')+(fname?' '+fname:'')+(f.age?' '+f.age+'歳':'')+(f.social?' ／ '+f.social:'');
+    var line=(f.role||'')+(fname?' '+fname:'')+(f.age?' '+f.age+'歳':'')+(_socialVal(f.social)?' ／ '+_socialLabel(f.social):'');
     var sub=[];
     if(f.stance&&f.stance!=='unk') sub.push('土地活用：'+(stanceL[f.stance]||''));
     if(f.living&&f.living!=='未確認') sub.push(f.living);
@@ -24768,7 +24819,7 @@ function genPrompt(anon,presetOverride){
   lines.push('');
   lines.push('■ 基本情報');
   lines.push('  氏名　　：'+dispName);
-  lines.push('  ソーシャル：'+(c.social||'未判定'));
+  lines.push('  ソーシャル：'+(c.social?_socialLabel(c.social):'未判定'));
   lines.push('  現状　　：'+(c.genjo||'未'));
   lines.push('  住所　　：'+dispAddr);
   lines.push('  計画地　：'+dispPlan);
@@ -25001,8 +25052,8 @@ function genPrompt(anon,presetOverride){
     lines.push('④ 動機を引き上げる一言・問いかけ');
     lines.push('⑤ 今回はまだ言わないこと');
     lines.push('⑥ 目標とする小さな前進と着地点');
-    lines.push('   ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせて');
     lines.push('⑦ 担当者がやること／やらないこと');
+    _pushSocialStyleContract(lines,c,'single');
     _pushPromptNgContract(lines,'次回作戦',[
       '切り上げるべきサインを無視した粘り',
       'ステージ0〜2での提案・テストクロージング',
@@ -25054,11 +25105,14 @@ function genPrompt(anon,presetOverride){
     lines.push('【性格応対】このお客様の性格に合わせた話し方を教えてください。');
     lines.push('※ 録音要約や会話の実態から読み取れる人柄も踏まえて回答してください。ソーシャルスタイルは仮説として扱い、録音・訪問履歴の実際の反応を優先してください。');
     lines.push('');
-    lines.push('① ソーシャルスタイル「'+(c.social||'未判定')+'」の特徴と接し方');
+    lines.push(_socialVal(c.social)
+      ? '① ソーシャルスタイル「'+_socialLabel(c.social)+'」の特徴と接し方'
+      : '① ソーシャルスタイルは未判定のため、記録から読み取れる人柄に沿った接し方');
     lines.push('② このお客様に効果的なコミュニケーション方法');
     lines.push('③ 避けるべき言動・NG事項（下記【必須：性格応対でしてはいけないこと】の4項目で詳述）');
     lines.push('④ 信頼関係を築くための具体的なアクション');
     lines.push('⑤ 性格に合わせたクロージングのタイミング');
+    _pushSocialStyleContract(lines,c,'single');
     _pushPromptNgContract(lines,'性格応対',[
       'このお客様に合わない会話速度・距離感'
     ]);
@@ -25072,9 +25126,9 @@ function genPrompt(anon,presetOverride){
     lines.push('③ 切り返し後の話の流れ');
     lines.push('④ 断りの裏にある本音・真因の推定');
     lines.push('⑤ 切り返しで避けるべきNG対応（下記【必須：反論対応でしてはいけないこと】の4項目で詳述）');
-    lines.push('   ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせて自然に');
     lines.push('切り返しは「受け止め→真因確認→許可を得て補足→引く判断」の順で設計してください。');
     lines.push('明確な拒否・終了意思が記録にある場合は、切り返しではなく引き際と関係維持を最優先にしてください。');
+    _pushSocialStyleContract(lines,c,'single');
     _pushPromptNgContract(lines,'反論対応',[
       '論破・即否定',
       '会社擁護の押し付け',
@@ -25107,7 +25161,7 @@ function genPrompt(anon,presetOverride){
     lines.push('Ⅴ 想定される反論と切り返し（「受け止め→真因確認→許可を得て補足→引く判断」の順で設計し、明確な拒否・終了意思がある場合は深追いせず関係維持を優先すること）');
     lines.push('Ⅵ 動機を高める一言');
     lines.push('Ⅶ 次回へつながる終わり方（前振り）');
-    lines.push('   ソーシャルスタイル「'+(c.social||'未判定')+'」を仮説として全節へ織り込み、録音・訪問履歴にある実際の反応があればそちらを優先してください。');
+    _pushSocialStyleContract(lines,c,'single');
     lines.push('');
     lines.push('話題の優先順位（必ずこの順）：1) 過去の実会話・このお客様固有の情報　2) カード内の属性（家族・趣味・仕事・地域など）　3) 一般話題（1・2の材料が無い場合のみ）。');
     lines.push('最新ニュースの扱い：Aibis側では最新ニュースの取得は行いません。1・2の材料が不足する場合のみ、季節・訪問時間帯・地域性に基づく一般話題を1つ提案してください。あなた（回答するAI）がWeb検索を利用できる場合に限り、最新ニュースを任意で1件添えてもかまいません。');
@@ -25128,6 +25182,7 @@ function genPrompt(anon,presetOverride){
     lines.push('・見出し行自体の前後に空行や説明を挟んでもよいが、見出し文字列そのものは変更しない。');
     lines.push('・回答の最初の1行目に、必ず「分析参考ランク: X」（Xは半角の S/A/B/C/D/E/X のいずれか1文字）とだけ書く。これはAIの参考値であり正式ランクではない（正式ランクは人間のJudgmentでのみ確定する）。この行は最初の【AIBIS:】見出しより前に置く。');
     lines.push('・上記1行目の「分析参考ランク: X」行を除き、回答のどこにも「判定：」という表記や、S/A/B/C/D/E/Xの追客ランク記号は出力しないでください（正式ランクは人間が別途判断します）。');
+    _pushSocialStyleContract(lines,c,'strategy');
     lines.push('');
     lines.push('【AIBIS:GENERAL】');
     lines.push('この見込み客カード全体の総合所見を書いてください。現在の状況、家族関係、資産・相続の論点、動機の強さ、次の一手の方向性を3〜6文でまとめる。');
@@ -25147,22 +25202,24 @@ function genPrompt(anon,presetOverride){
     lines.push('');
     lines.push('【AIBIS:NEXT_VISIT】');
     lines.push('次の訪問で何をすべきか、①訪問タイミング ②最初の一言 ③会話の流れ(3〜5ステップ) ④想定される反応と切り返し ⑤次回アポへの繋ぎ方 の順で具体的に。');
-    lines.push('ソーシャルスタイル「'+(c.social||'未判定')+'」に合わせ、玄関先で実際に使える自然な会話（3〜5ターン分）も含めること。');
+    lines.push('玄関先で実際に使える自然な会話（3〜5ターン分）も含め'+(_socialVal(c.social)?'、その言い回しはソーシャルスタイル「'+_socialLabel(c.social)+'」に合わせること。':'ること（ソーシャルスタイルは未判定のため決めつけない）。'));
     lines.push('');
     lines.push('【AIBIS:MOTIVATION】');
     lines.push('このお客様の背中を押す動機について、①潜在的な不安・悩み・ニーズの推定 ②踏み出せない理由の推定 ③動機を引き出す質問(3〜5個) ④家族それぞれが抱きそうな不安とポジティブに変える一言 の順で。煽らず寄り添う言葉で。');
     lines.push('');
     lines.push('【AIBIS:PERSONALITY】');
-    lines.push('ソーシャルスタイル「'+(c.social||'未判定')+'」の特徴と接し方、効果的なコミュニケーション方法、信頼関係を築く具体的アクションを書いてください。');
+    lines.push(_socialVal(c.social)
+      ? 'ソーシャルスタイル「'+_socialLabel(c.social)+'」の特徴と接し方、効果的なコミュニケーション方法、信頼関係を築く具体的アクションを書き、上の【ソーシャルスタイルの反映】の3つ（対話文の例・予想される反応・行動のアドバイス）をこの区画に1回だけ含めてください。'
+      : 'ソーシャルスタイルは未判定です。決めつけず、記録から読み取れる人柄に沿った接し方、効果的なコミュニケーション方法、信頼関係を築く具体的アクションを書き、上の【ソーシャルスタイルの反映】の3つ（対話文の例・予想される反応・行動のアドバイス）と、次回スタイルを見分けるために観察する点をこの区画に1回だけ含めてください。');
     lines.push('');
     lines.push('【AIBIS:OBJECTION】');
-    lines.push('このお客様が言いそうな断り文句トップ3〜5と、それぞれへの切り返しトークを書いてください。「受け止め→真因確認→許可を得て補足→引く判断」の順で設計し、明確な拒否・終了意思がある場合は深追いせず関係維持を優先すること。');
+    lines.push('このお客様が言いそうな断り文句トップ3〜5と、それぞれへの切り返しトークを書いてください。「受け止め→真因確認→許可を得て補足→引く判断」の順で設計し、明確な拒否・終了意思がある場合は深追いせず関係維持を優先すること。'+(_socialVal(c.social)?'切り返しの言い回しはソーシャルスタイル「'+_socialLabel(c.social)+'」に合わせること。':'ソーシャルスタイルは未判定のため、切り返しの言い回しでタイプを決めつけないこと。'));
     lines.push('');
     lines.push('【AIBIS:HEARING】');
     lines.push('まだ聞けていない重要項目を5〜7項目挙げ、それぞれを自然に聞き出す質問例と推奨順序を書いてください。家族・資産・相続の質問は困りごと→家族→資産規模→相続の順を原則とする。');
     lines.push('');
     lines.push('【AIBIS:TRAINING】');
-    lines.push('訪問1回分の会話設計書を、Ⅰ入口（過去/前回の話題からの自然接続）Ⅱ今日投げかける言葉と理由 Ⅲ深掘りテーマ Ⅳ触れない領域・NGワード Ⅴ想定反論と切り返し Ⅵ動機を高める一言 Ⅶ次回へつながる終わり方 の順で書いてください。話題は過去の実会話・固有情報を最優先とし、無い場合のみカード属性、それも無い場合のみ季節等の一般話題にとどめてください（最新ニュースはあなたがWeb検索できる場合のみ任意で1件）。ソーシャルスタイル「'+(c.social||'未判定')+'」を仮説として全節へ織り込んでください。');
+    lines.push('訪問1回分の会話設計書を、Ⅰ入口（過去/前回の話題からの自然接続）Ⅱ今日投げかける言葉と理由 Ⅲ深掘りテーマ Ⅳ触れない領域・NGワード Ⅴ想定反論と切り返し Ⅵ動機を高める一言 Ⅶ次回へつながる終わり方 の順で書いてください。話題は過去の実会話・固有情報を最優先とし、無い場合のみカード属性、それも無い場合のみ季節等の一般話題にとどめてください（最新ニュースはあなたがWeb検索できる場合のみ任意で1件）。'+(_socialVal(c.social)?'各節の言い回しはソーシャルスタイル「'+_socialLabel(c.social)+'」に合わせてください。':'ソーシャルスタイルは未判定のため、各節の言い回しでタイプを決めつけないでください。'));
     lines.push('');
     lines.push('【AIBIS:INHERITANCE】');
     if(!c.family_headcount){
@@ -25690,6 +25747,16 @@ function _rpAssemble(sections){
   return text;
 }
 
+/* ソーシャルスタイルの表示（2026-11-24 高田さん承認・指示文だけの直し）。保存値・ctx の値は略称のまま、指示文には正式名だけを出す。
+ * ai_prompt.js の _SOCIAL_FULL_NAME と同じ表記（このファイルは単体でも読み込まれるため自前で持つ）。 */
+var _RP_SOCIAL_FULL={'ドラ':'ドライビング','エク':'エクスプレッシブ','アナ':'アナリティカル','エミ':'エミアブル'};
+function _rpSocialLabel(v){
+  if(v&&typeof v!=='string') return String(v); // 文字列でない真の値（[]・['ドラ']・5）は変更前（4f98d0c）と同じ String(v)。表を引かない（faq-3 ffcfcfe の守り）
+  var s=String(v==null?'':v).trim();
+  if(!s||s==='未判定') return '';
+  return Object.prototype.hasOwnProperty.call(_RP_SOCIAL_FULL,s) ? _RP_SOCIAL_FULL[s] : s; // constructor などを引かない（faq-3 633206d の守り）
+}
+
 /* ============================================================
  * プロンプト組立本体（順序固定: H→役割規則→practice設定→persona階層(優先順位)→評価モード）
  * ============================================================ */
@@ -25742,14 +25809,27 @@ function _rpBuildPrompt(c,ctx){
     if(ctx.counterpartOwner) L1.push('土地・資産の名義人：はい');
     if(ctx.counterpartKp) L1.push('意思決定のキーパーソン：はい');
     if(ctx.counterpartNote){ L1.push('この家族についての記録メモ：'); L1.push(ctx.counterpartNote); }
-    if(ctx.counterpartSocial) L1.push('この家族のソーシャルスタイル（記録あり）：'+ctx.counterpartSocial);
+    var _rpFamSocial=typeof (_rpSelectedFamily(c,ctx.counterpartKey)||{}).social==='string' ? _rpSocialLabel(ctx.counterpartSocial) : ctx.counterpartSocial; // ctx.counterpartSocial は String() 済み。元の家族の値が文字列のときだけ表記を付ける（['ドラ'] は変更前どおり「ドラ」。faq-3 ffcfcfe の守り）
+    if(_rpFamSocial){
+      L1.push('この家族のソーシャルスタイル（記録あり）：'+_rpFamSocial);
+      L1.push('・話す速さ・結論や数字の求め方・気持ちの出し方・決め方の慎重さは、このスタイルらしくしてください。優先は「態度（stance）の記録と、記録された実際の反応」＞「■ 練習設定」の口の堅さ（grip）・話し方（conversation style）＞このスタイルの順です。スタイルらしさを誇張せず、3.の話し方（1〜2文程度の短い返答・落ち着いた話し方・戯画的にしない）を守ってください。顧客役として話す間は、スタイルの名前を口にしないでください。');
+    }
     L1.push('・態度がstance=否定的の場合は、警戒的・懐疑的にふるまい、拒否や話をそらす反応があってよい。');
     L1.push('・態度がstance=肯定的の場合は、より温かく・受容的にふるまってよい。');
     L1.push('・態度がstance=不明の場合は、中立的・様子見の態度にしてください。');
     L1.push('・この家族の態度は、主たる顧客（本人）の態度を自動的に引き継ぎません。');
   } else {
-    L1.push('ソーシャルスタイル（仮説）：'+ctx.social);
+    var _rpPriHas=!!((ctx.social&&typeof ctx.social!=='string')||_rpSocialLabel(ctx.social)); // 空かどうかは元の値の真偽で決める（[] は変更前どおり値ありの行。faq-3 ffcfcfe の守り）。評価モードも同じ値で決める
+    if(_rpPriHas){
+      L1.push('ソーシャルスタイル（仮説）：'+_rpSocialLabel(ctx.social));
+      L1.push('・話す速さ・結論や数字の求め方・気持ちの出し方・決め方の慎重さは、このスタイルらしくしてください。優先は「記録された実際の反応・進捗」＞「■ 練習設定」の口の堅さ（grip）・話し方（conversation style）＞このスタイルの順です。スタイルらしさを誇張せず、3.の話し方（1〜2文程度の短い返答・落ち着いた話し方・戯画的にしない）を守ってください。顧客役として話す間は、スタイルの名前を口にしないでください。');
+    } else {
+      L1.push('ソーシャルスタイル：未判定（スタイルを決めつけず、記録された反応と「■ 練習設定」の話し方（conversation style）に沿って演じてください）');
+    }
   }
+  // 評価モードでのソーシャルスタイルの扱い（相手役のスタイル。家族が相手役ならその家族の記録だけを使う）
+  var _rpEvalSocial=ctx.isFamilyCounterpart ? _rpFamSocial : _rpSocialLabel(ctx.social);
+  var _rpEvalHas=ctx.isFamilyCounterpart ? !!_rpFamSocial : _rpPriHas; // 値あり／未判定は演技の行（家族は _rpFamSocial・本人は _rpPriHas）と同じ条件で決める
 
   var L2=[]; // 優先2: 最新encounter（1件・保護）
   var L5=[]; // 優先5: それ以外のencounter（droppable）
@@ -25827,6 +25907,9 @@ function _rpBuildPrompt(c,ctx){
   LEval.push('8. NG回避・押し込み回避（10点）');
   LEval.push('9. 次回訪問へのつなぎ（5点）');
   LEval.push('各軸は配点内の得点と、その理由となる短いコメントを付けてください（例：79点と82点のような僅差でも、何が違うのか説明できるようにしてください）。');
+  LEval.push(_rpEvalHas
+    ? '次回のアプローチ提案には、相手のソーシャルスタイル「'+_rpEvalSocial+'」に合わせた、次の3つを必ず含めてください。①対話文の例：新人営業マンでも使いやすい自然な言葉で、「担当：…」「顧客：（想定）…」の形で2〜3往復（顧客の返答は記録された発言ではなく想定です）。②前向き／中立／消極それぞれの反応と、そのときのこちらの次の一言。③こちらの行動のアドバイス。スタイルの想定は次回のアプローチ提案だけに使い、改善点には持ち込まないでください（実際の会話の反応がスタイルの想定と違ったら、実際の反応を優先してください）。'
+    : '相手のソーシャルスタイルは未判定です。この会話（演技）からタイプを判定しないでください。次回のアプローチ提案では決めつけず、この会話の実際の反応に沿って、次の3つを書いてください。①対話文の例：新人営業マンでも使いやすい自然な言葉で、「担当：…」「顧客：（想定）…」の形で2〜3往復（顧客の返答は記録された発言ではなく想定です）。②前向き／中立／消極それぞれの反応と、そのときのこちらの次の一言。③こちらの行動のアドバイス。あわせて、次回スタイルを見分けるために観察する点を挙げてください。');
 
   return _rpAssemble([
     {priority:1, lines:L1},
@@ -28026,7 +28109,7 @@ var achH=reps.map(function(r){var bs=_achBadges(g[r]);if(!bs.length)return '';re
  var zoneH='<div class="z-tiles"><div class="z-tile"><b>'+zImm+'</b><span>未成熟（面識〜興味）</span></div><div class="z-tile"><b style="color:var(--z-warn-ink)">'+zPre+'</b><span>提案前（連想・欲求）</span></div><div class="z-tile"><b style="color:#34e3d0">'+zClose+'</b><span>クロージング（比較〜決心）</span></div></div><div class="z-sub" style="margin-top:8px"><span style="color:var(--z-cyan);font-weight:700">読み解き：</span>'+zComment+'</div>';
  var zoneCard=_zc('🪜','見込み進捗（3ゾーン）','どこで止まっているか。8段のファネルは「🕳 リーク分析」に。',zoneH,'z-cf z-s7');
  // ===== P2: 次の一手 準備度（入力欄は増やさず既存データから算出） =====
- var _today10=new Date().toISOString().slice(0,10);
+ var _today10=new Date(Date.now()+9*3600000).toISOString().slice(0,10);
  var _readyScore=function(c){var st=+(c.stage||0),s=0;
    if(_zAppoDates(c).some(function(d){return d>=_today10;})) s+=30;
    if(c.family_headcount) s+=20;
@@ -28327,7 +28410,7 @@ function copyAnalysisPrompt(){
   var avgRosen=rosen.length?Math.round(rosen.reduce(function(a,b){return a+b;},0)/rosen.length/1000)*1000:0;
 
   var prompt='';
-  var _pToday=new Date().toISOString().slice(0,10);
+  var _pToday=new Date(Date.now()+9*3600000).toISOString().slice(0,10);
     var outInstr='上記データを踏まえ、不動産・相続営業の課長が朝礼・個別面談でそのまま使える具体的な指示を作ってください。抽象論や「頑張りましょう」は禁止。各案件で「次に聞く質問」と「取るべき約束」まで明記。家族構成・相続不安・土地活用・提案依頼・決裁者・同行を重視。\n\n【出力形式】\n1. 総評：現在の見込み状況／ボトルネック／今週の重点テーマ\n2. 最優先で動くべき見込み客トップ5：顧客名／担当／ステージ／追客ランク／動くべき理由／次回アクション／次回訪問で聞く質問／目標とする一言（取る約束）\n3. 次回アクションが曖昧な案件：顧客名／何が曖昧か／どう書き換えるべきか（具体的な文例）\n4. 放置リスクのある案件：顧客名／最終接触からの日数／リスク理由／再接触の口実\n5. 担当者へのコーチング：担当者名／良い点／改善点／今週の一言指示／「担当の狙い」（本人の自己判断）とAI推奨にズレがあれば、その是非と理由を一言で\n6. 明日からの行動指示トップ3：誰が・誰に・何を聞き・何の約束を取るか\n';
 
   if(isMember){
