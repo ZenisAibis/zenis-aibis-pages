@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<!-- APP_VERSION = "v11.61" -->
+<!-- APP_VERSION = "v11.62" -->
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -3652,7 +3652,7 @@ function _restoreBaselineSnapshot(){
 
 
 // ===== バージョン =====
-var APP_VERSION = "v11.61";
+var APP_VERSION = "v11.62";
 // 第150弾：データ世代識別の最小導入（フルバックアップ／復元の本体は第151弾）。
 // 既存カード・既存エクスポート形式は一切変更しない。将来の移行・復元判定のための識別子のみ。
 var CURRENT_SCHEMA_VERSION = 1;        // 新規カード作成時にだけ付与（既存カードへの遡及付与はしない）
@@ -9425,7 +9425,7 @@ function updateAiRankDisp(){
   if(allDates.length&&(_isRevisitPhase(cur)||(r!=='E'&&r!=='X'))){
     allDates.sort();
     var last=allDates[allDates.length-1];
-    var days=Math.floor((new Date()-new Date(last))/(1000*60*60*24));
+    var days=(typeof _zDaysSince10==='function')?_zDaysSince10(last):Math.floor((new Date()-new Date(last))/(1000*60*60*24));
     var lim=_isRevisitPhase(cur)?REVISIT_PHASE.interval:PACE_LIMIT[r];
     if(lim){
       pace.style.display='block';
@@ -15694,6 +15694,12 @@ function _cardRichness(c){
  }catch(_e){ return 0; }
 }
 function _richTier(s){ return s>=75?0:(s>=55?1:(s>=35?2:(s>=15?3:4))); }
+// 'YYYY-MM-DD' の日付から日本時間の今日までの暦の日数（今日=0・明日=-1）。それ以外の形（実在しない日付・文字列でない値を含む）は従来の式のまま（UTC の0時から数えると日本時間の朝9時前に1日少なかった）
+function _zDaysSince10(s){
+  var d=new Date(s);
+  if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(String(s))||isNaN(d)||d.toISOString().slice(0,10)!==String(s)) return Math.floor((new Date()-new Date(s))/(1000*60*60*24));
+  return Math.floor((new Date(_zToday10())-new Date(s))/(1000*60*60*24));
+}
 function calcPaceOverrate(c){
   var allDates=[];
   if(c.discovery_date) allDates.push(c.discovery_date);
@@ -15702,10 +15708,10 @@ function calcPaceOverrate(c){
   if(!allDates.length) return -1;
   allDates.sort();
   var last=allDates[allDates.length-1];
-  var days=Math.floor((new Date()-new Date(last))/(1000*60*60*24));
+  var days=(typeof _zDaysSince10==='function')?_zDaysSince10(last):Math.floor((new Date()-new Date(last))/(1000*60*60*24));
   if(_isRevisitPhase(c)){
     // 再訪フェーズは別カウント：約5日間隔。発掘14日超過はさらに遅れ扱い
-    var sinceDisc=Math.floor((new Date()-new Date(c.discovery_date))/(1000*60*60*24));
+    var sinceDisc=(typeof _zDaysSince10==='function')?_zDaysSince10(c.discovery_date):Math.floor((new Date()-new Date(c.discovery_date))/(1000*60*60*24));
     var r=days/REVISIT_PHASE.interval;
     if(sinceDisc>REVISIT_PHASE.span) r=Math.max(r,sinceDisc/REVISIT_PHASE.span);
     return r;
@@ -15721,7 +15727,7 @@ function lastContactDays(c){
   (c.pursuits||[]).forEach(function(v){if(v.date)d.push(v.date);});
   if(!d.length) return -1;
   d.sort();
-  return Math.floor((new Date()-new Date(d[d.length-1]))/(1000*60*60*24));
+  return (typeof _zDaysSince10==='function')?_zDaysSince10(d[d.length-1]):Math.floor((new Date()-new Date(d[d.length-1]))/(1000*60*60*24));
 }
 // 放置検知（心理0-3の再訪客が“無に帰す”前に。初期客ほど猶予短い・暫定値）
 var NEGLECT_GRACE=[12,14,21,14]; // stage 0,1,2,3 の最終接触許容日数
@@ -24744,7 +24750,7 @@ function genPrompt(anon,presetOverride){
   var lastVisitDate=allVisitDates.length?allVisitDates[allVisitDates.length-1].date:'';
   var daysSinceLast='';
   if(lastVisitDate){
-    var diff=Math.floor((new Date()-new Date(lastVisitDate))/(1000*60*60*24));
+    var diff=(typeof _zDaysSince10==='function')?_zDaysSince10(lastVisitDate):Math.floor((new Date()-new Date(lastVisitDate))/(1000*60*60*24));
     daysSinceLast=diff+'日前';
   }
   var avgInterval='';
@@ -37531,7 +37537,7 @@ function doListPrint(mode){
     if(!allDates.length) return '';
     allDates.sort();
     var last=allDates[allDates.length-1];
-    var days=Math.floor((new Date()-new Date(last))/(1000*60*60*24));
+    var days=(typeof _zDaysSince10==='function')?_zDaysSince10(last):Math.floor((new Date()-new Date(last))/(1000*60*60*24));
     var lim=_isRevisitPhase(card)?REVISIT_PHASE.interval:PACE_LIMIT[pj];
     if(!lim) return '';
     if(days>lim) return '<span style="color:#c53030;font-weight:700;font-size:9px">⚠'+days+'日</span>';

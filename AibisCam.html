@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+<!-- APP_VERSION = "cam-v1.86" -->
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -488,7 +489,7 @@ if(Z_ALLOW.indexOf(location.hostname)<0){
    ※ prospect_cards_v1 には書き込まない（新規カード作成・PC連携は本体側）
    データ(set): {id,cardId,ts,addrType:'plan',lat,lng,acc,addr,addrPending,banchi,note,sent,photos:[{pid,full(Blob),thumb,w,h,size}]}
    ========================================================= */
-const APP_VERSION = "cam-v1.85";
+const APP_VERSION = "cam-v1.86";
 
 /* 第237弾 CP2: 利き手（prospect_hand_v1）read-only consumer。唯一の状態源は本体と共有する
    localStorageのprospect_hand_v1のみ。cameraはこのkeyへ一切書き込まない（新規key 0）。
@@ -2202,8 +2203,12 @@ boot();
 </script>
 <script>
 /* 古いキャッシュ対策：最新版と照合し違えば一度だけ最新URLへ読み直す */
+(function(){
+var touched=false;
+['pointerdown','keydown','input','touchstart'].forEach(function(ty){ window.addEventListener(ty,function(){ touched=true; },{capture:true,passive:true}); });
 window.addEventListener('load',function(){
   try{
+    var sp=new URLSearchParams(location.search||''); if(sp.has('v')) return;
     var cur=(typeof APP_VERSION!=='undefined')?APP_VERSION:'';
     if(!cur) return;
     fetch(location.pathname+'?_v='+Date.now(),{cache:'no-store',headers:{'Range':'bytes=0-30000'}})
@@ -2211,10 +2216,14 @@ window.addEventListener('load',function(){
       .then(function(t){
         if(!t) return;
         var m=t.match(/APP_VERSION = "([^"]+)"/);
+        if(performance.now()>5000) return;
+        if(touched) return;
+        if(document.hidden) return;
         if(m&&m[1]&&m[1]!==cur){ location.replace(location.pathname+(location.search?location.search+'&':'?')+'v='+encodeURIComponent(m[1])+location.hash); }
       }).catch(function(){});
   }catch(e){}
 });
+})();
 </script>
 </body>
 </html>
