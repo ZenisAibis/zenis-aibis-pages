@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>背面カメラの比べ（試し）</title>
+<style>
+  :root{--bg:#f6f7f9;--fg:#1f2933;--muted:#5f6b7a;--line:#d5dae1;--accent:#2563a8;--mark:#c2410c}
+  @media (prefers-color-scheme: dark){:root{--bg:#14181d;--fg:#e6e9ee;--muted:#9aa5b3;--line:#2c333c;--accent:#7fb0e6;--mark:#fb923c;color-scheme:dark}}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif;padding:16px}
+  h1{font-size:19px;margin:0 0 8px}
+  p{margin:0 0 12px;color:var(--muted)}
+  button{font:inherit;font-size:17px;padding:12px 18px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:#fff}
+  .grid{display:grid;grid-template-columns:1fr;gap:14px;margin:14px 0}
+  @media (min-width:700px){.grid{grid-template-columns:1fr 1fr}}
+  .shot{border:2px solid var(--line);border-radius:12px;padding:8px}
+  .shot.aibis{border-color:var(--mark)}
+  .tag{font-size:34px;font-weight:800;line-height:1.1}
+  .sub{font-size:14px;color:var(--muted)}
+  .badge{display:inline-block;margin-left:6px;font-size:14px;font-weight:700;color:var(--mark)}
+  .shot img{width:100%;display:block;border-radius:8px;margin-top:6px;background:#000}
+  pre{white-space:pre-wrap;word-break:break-all;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12.5px}
+</style>
+</head>
+<body>
+<h1>背面カメラの比べ（アイビスカメラの広角の下調べ）</h1>
+<p>読むだけの試しです。写した画像はこの画面に出すだけで、保存も送信もしません。建物や部屋の同じ所にスマホを向けたまま「調べる」を押し、カメラを許可してください。背面のカメラを1つずつ開いて1枚ずつ写し、下に並べます。<b>広く写っている方の文字（A・B…）</b>と、下の結果を窓口に送ってください。</p>
+<button id="go">調べる</button>
+<div class="grid" id="grid"></div>
+<pre id="out">まだ調べていません。</pre>
+<script>
+(function(){
+  var out=document.getElementById('out'), grid=document.getElementById('grid');
+  var lines=[];
+  function log(s){ lines.push(s); out.textContent=lines.join('\n'); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+  async function grab(constraints){
+    var s=await navigator.mediaDevices.getUserMedia({audio:false,video:constraints});
+    var v=document.createElement('video'); v.muted=true; v.playsInline=true; v.srcObject=s;
+    await v.play().catch(function(){});
+    await sleep(1200);
+    var tr=s.getVideoTracks()[0], st=tr.getSettings?tr.getSettings():{}, caps=tr.getCapabilities?tr.getCapabilities():{};
+    var c=document.createElement('canvas'); c.width=v.videoWidth||640; c.height=v.videoHeight||480;
+    c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+    var url=c.toDataURL('image/jpeg',0.7);
+    s.getTracks().forEach(function(t){t.stop();});
+    await sleep(400);
+    return {url:url, deviceId:st.deviceId||'', w:st.width, h:st.height,
+      zoom:caps.zoom?(caps.zoom.min+'〜'+caps.zoom.max):'なし', max:(caps.width?caps.width.max:'?')+'x'+(caps.height?caps.height.max:'?')};
+  }
+  function isBack(d){ return /back|rear|environment|背面/i.test(d.label||''); }
+  document.getElementById('go').addEventListener('click', async function(){
+    this.disabled=true; grid.innerHTML=''; lines=[]; log('UA: '+navigator.userAgent);
+    try{
+      // アイビスカメラと同じ開き方（facingMode environment・2560x1440 を希望）で、どのカメラが開くかを id で見る
+      var aib;
+      try{ aib=await grab({facingMode:{ideal:'environment'},width:{ideal:2560},height:{ideal:1440}}); }
+      catch(e1){ aib=await grab({facingMode:{ideal:'environment'}}); }
+      var devs=(await navigator.mediaDevices.enumerateDevices()).filter(function(d){return d.kind==='videoinput';});
+      var backs=devs.filter(isBack);
+      log('カメラの数: '+devs.length+'（背面 '+backs.length+'）');
+      devs.forEach(function(d){ log('  '+(d.label||'(名前なし)')+' / id '+String(d.deviceId).slice(0,8)); });
+      if(!backs.length){ log('背面と分かるカメラがありません（名前が空）。'); return; }
+      var letters='ABCDEFGH';
+      for(var i=0;i<backs.length;i++){
+        var r; try{ r=await grab({deviceId:{exact:backs[i].deviceId}}); }catch(e){ log(letters[i]+': 開けませんでした '+(e&&e.name)); continue; }
+        var isAib=(r.deviceId && r.deviceId===aib.deviceId);
+        var box=document.createElement('div'); box.className='shot'+(isAib?' aibis':'');
+        var tag=document.createElement('div'); tag.className='tag'; tag.textContent='背面 '+letters[i];
+        if(isAib){ var b=document.createElement('span'); b.className='badge'; b.textContent='← 今のアイビスカメラはこれ'; tag.appendChild(b); }
+        var sub=document.createElement('div'); sub.className='sub'; sub.textContent=(backs[i].label||'')+'・最大 '+r.max+'・ズーム '+r.zoom;
+        var img=document.createElement('img'); img.alt='背面 '+letters[i]+' の写り'; img.src=r.url;
+        box.appendChild(tag); box.appendChild(sub); box.appendChild(img); grid.appendChild(box);
+        log('背面 '+letters[i]+': '+(backs[i].label||'')+' / id '+String(backs[i].deviceId).slice(0,8)+' / 最大 '+r.max+' / ズーム '+r.zoom+(isAib?' / ★アイビスカメラと同じ':''));
+      }
+      log('アイビスカメラの開き方で開いたカメラの id: '+String(aib.deviceId).slice(0,8)+'（最大 '+aib.max+'）');
+    }catch(e){ log('止まりました: '+(e&&e.name)+' '+(e&&e.message)); }
+    finally{ document.getElementById('go').disabled=false; }
+  });
+})();
+</script>
+</body>
+</html>
